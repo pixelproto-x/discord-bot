@@ -13,6 +13,10 @@ from discord.ext import commands
 from google import genai
 
 
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_PIXELS = 25_000_000
+
+
 class SearchCog(commands.Cog):
     search = app_commands.Group(name="search", description="在 YouTube、Wikipedia、GitHub 找東西")
     image = app_commands.Group(name="image", description="簡單的圖片處理工具")
@@ -226,13 +230,23 @@ class SearchCog(commands.Cog):
         if not image.content_type or not image.content_type.startswith("image/"):
             await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
             return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
 
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         try:
             data = await image.read()
-            pic = Image.open(io.BytesIO(data)).convert("RGBA")
+            with Image.open(io.BytesIO(data)) as source:
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    return
+                pic = source.convert("RGBA")
             ratio = width / pic.width
             height = max(1, int(pic.height * ratio))
+            if height > 20000 or width * height > MAX_IMAGE_PIXELS:
+                await interaction.followup.send("縮放後的圖片比例過長，請先裁切再試。")
+                return
             pic = pic.resize((width, height), Image.Resampling.LANCZOS)
 
             out = io.BytesIO()
@@ -253,11 +267,18 @@ class SearchCog(commands.Cog):
         if not image.content_type or not image.content_type.startswith("image/"):
             await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
             return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
 
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         try:
             data = await image.read()
-            pic = Image.open(io.BytesIO(data)).convert("RGB").resize((1, 1))
+            with Image.open(io.BytesIO(data)) as source:
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    return
+                pic = source.convert("RGB").resize((1, 1))
             r, g, b = ImageStat.Stat(pic).mean
             hex_color = f"#{int(r):02X}{int(g):02X}{int(b):02X}"
             await interaction.followup.send(
@@ -270,6 +291,12 @@ class SearchCog(commands.Cog):
     @image.command(name="ocr", description="從圖片抓文字，需要設定 OCR_SPACE_API_KEY")
     @app_commands.describe(image="有文字的圖片")
     async def ocr(self, interaction, image: discord.Attachment):
+        if not image.content_type or not image.content_type.startswith("image/"):
+            await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
+            return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
         key = os.getenv("OCR_SPACE_API_KEY", "").strip()
         if not key:
             await interaction.response.send_message(

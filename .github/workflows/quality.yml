@@ -208,3 +208,36 @@ jobs:
           grep -q 'app.js' index.html
           grep -q 'site-config.js' index.html
           echo "Website asset references look valid."
+
+      - name: Smoke test calculator and role security
+        run: |
+          python - <<'PY'
+          from types import SimpleNamespace
+          from cogs.utility import safe_calculate
+          from cogs.social import is_safe_self_assignable_role
+
+          assert safe_calculate("2 + 3 * 4") == 14
+          assert safe_calculate("12^2") == 144
+          assert safe_calculate("20//3") == 6
+
+          for expression in ("__import__('os')", "2**9", "99999999999999**2", "1/0"):
+              try:
+                  safe_calculate(expression)
+              except Exception:
+                  continue
+              raise AssertionError(f"Unsafe/invalid expression was accepted: {expression}")
+
+          class FakeRole:
+              def __init__(self, default=False, **permissions):
+                  self._default = default
+                  self.permissions = SimpleNamespace(**permissions)
+              def is_default(self):
+                  return self._default
+
+          assert is_safe_self_assignable_role(FakeRole())
+          assert not is_safe_self_assignable_role(FakeRole(default=True))
+          assert not is_safe_self_assignable_role(FakeRole(administrator=True))
+          assert not is_safe_self_assignable_role(FakeRole(manage_roles=True))
+          assert not is_safe_self_assignable_role(FakeRole(manage_messages=True))
+          print("Calculator bounds and self-role security checks OK")
+          PY

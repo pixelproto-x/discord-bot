@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import storage
+from cogs.social import is_safe_self_assignable_role
 
 
 class SettingsCog(commands.Cog):
@@ -56,8 +57,8 @@ class SettingsCog(commands.Cog):
             return
         if role:
             bot_member = interaction.guild.me
-            if role.is_default() or role >= bot_member.top_role or not bot_member.guild_permissions.manage_roles:
-                await interaction.response.send_message("這個身分組我沒辦法發，請確認它比 Bot 低，而且 Bot 有管理身分組權限。", ephemeral=True)
+            if not is_safe_self_assignable_role(role) or role >= bot_member.top_role or not bot_member.guild_permissions.manage_roles:
+                await interaction.response.send_message("這個身分組不能自動發放（可能有管理權限），或它比 Bot 高，或 Bot 缺少管理身分組權限。", ephemeral=True)
                 return
         storage.set_setting(interaction.guild.id, "autorole_id", role.id if role else 0)
         await interaction.response.send_message(f"新人身分組已{'設成 ' + role.mention if role else '關閉'}。", ephemeral=True)

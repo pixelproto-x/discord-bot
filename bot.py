@@ -260,10 +260,15 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
         await interaction.response.send_message("內容太長，或是根本沒內容。", ephemeral=True)
         return
 
-    active_spam[job_key] = {"running": False, "task": None}
     view = ChannelSelectView()
+    active_spam[job_key] = {"running": False, "task": None, "cancelled": False, "view": view}
     await interaction.response.send_message("要發去哪幾個頻道？選完我再開始。", view=view, ephemeral=True)
     await view.wait()
+
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
+        return
 
     if not view.selected_channels:
         active_spam.pop(job_key, None)
@@ -295,7 +300,12 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
         await interaction.followup.send("選的頻道我都沒有足夠權限。", ephemeral=True)
         return
 
-    active_spam[job_key] = {"running": True, "task": None}
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
+        return
+
+    active_spam[job_key] = {"running": True, "task": None, "cancelled": False, "view": view}
     embed = discord.Embed(
         title="好，開始了",
         description=f"次數：{count}\n頻道：{', '.join(c.mention for c in valid_channels)}",
@@ -304,6 +314,10 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
     if skipped:
         embed.add_field(name="我跳過了", value=", ".join(skipped), inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        return
 
     task = asyncio.create_task(
         run_spam(job_key, interaction.channel, valid_channels, content, count)
@@ -333,8 +347,13 @@ async def stopspam(interaction: discord.Interaction, member: discord.Member | No
 
     target_key = (interaction.guild.id, target.id)
     if target_key in active_spam:
-        active_spam[target_key]["running"] = False
-        task = active_spam[target_key].get("task")
+        state = active_spam[target_key]
+        state["running"] = False
+        state["cancelled"] = True
+        view = state.get("view")
+        if view and not view.is_finished():
+            view.stop()
+        task = state.get("task")
         if task and not task.done():
             task.cancel()
         await interaction.response.send_message(f"好，{target.mention} 的工作停掉了。", ephemeral=True)
@@ -423,15 +442,31 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
 async def reminder_worker():
     try:
         for row in storage.due_reminders():
-            channel = bot.get_channel(row["channel_id"])
-            if not channel:
-                continue
+            reminder_text = f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}"
             try:
-                await channel.send(f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}")
-                storage.complete_reminder(row["id"])
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                channel = bot.get_channel(row['channel_id'])
+                if channel is None:
+                    channel = await bot.fetch_channel(row['channel_id'])
+                await channel.send(
+                    reminder_text,
+                    allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=int(row['user_id']))]),
+                )
+                storage.complete_reminder(row['id'])
+            except (discord.NotFound, discord.Forbidden):
+                # The original channel may have been deleted or become inaccessible.
+                # Try a DM once, then retire the reminder to avoid retrying forever.
+                try:
+                    user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
+                    await user.send(f"⏰ 你之前叫我提醒你的：{row['message']}\n（原本的提醒頻道目前無法使用。）")
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    pass
+                storage.complete_reminder(row['id'])
+            except discord.HTTPException as exc:
+                print(f"Reminder delivery failed for {row['id']}: {exc}")
                 continue
-
+            except Exception:
+                traceback.print_exc()
+                continue
         now = __import__("time").time()
         for row in storage.list_active_polls():
             if row["ends_at"] and row["ends_at"] <= now:

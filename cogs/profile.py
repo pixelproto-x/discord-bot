@@ -92,6 +92,9 @@ class ProfileCog(commands.Cog):
 
     @app_commands.command(name="userinfo", description="查看一位成員的基本 Discord 資訊")
     async def userinfo(self, interaction, member: discord.Member | None = None):
+        if not interaction.guild:
+            await interaction.response.send_message("成員資訊只能在伺服器裡查看。", ephemeral=True)
+            return
         target = member or interaction.user
         embed = discord.Embed(title=f"👤 {target}", color=0x5865F2)
         embed.set_thumbnail(url=target.display_avatar.url)
@@ -127,17 +130,18 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name="banner", description="查看成員的 Discord Banner")
     async def banner(self, interaction, member: discord.Member | None = None):
         target = member or interaction.user
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             user = await self.bot.fetch_user(target.id)
             if not user.banner:
-                await interaction.response.send_message("這個人目前沒有公開的 Banner。", ephemeral=True)
+                await interaction.followup.send("這個人目前沒有公開的 Banner。", ephemeral=True)
                 return
             embed = discord.Embed(title=f"{target.display_name} 的 Banner", color=0x5865F2)
             embed.set_image(url=user.banner.with_size(1024).url)
-            await interaction.response.send_message(embed=embed)
-        except Exception:
-            await interaction.response.send_message("Banner 這次沒抓到，再試一次。", ephemeral=True)
-
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as exc:
+            print(f"Banner fetch error: {exc}")
+            await interaction.followup.send("Banner 這次沒抓到，再試一次。", ephemeral=True)
     @app_commands.command(name="achievements", description="看看自己目前解鎖了哪些成就")
     async def achievements(self, interaction):
         if not interaction.guild:

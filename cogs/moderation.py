@@ -192,13 +192,12 @@ class ModerationCog(commands.Cog):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                f"Discord AutoMod 沒開成；目前保留原本的後備防護設定。"
-                if limit else "@ 防刷已關閉。",
+                "Discord AutoMod 沒有成功更新；原本的後備防護設定仍保留。若你剛才要關閉，請確認權限後重試。",
                 ephemeral=True,
             )
         except discord.HTTPException:
             await interaction.followup.send(
-                "Discord AutoMod 這次沒設定成功；目前保留原本的後備防護設定。",
+                "Discord AutoMod 這次沒設定成功；原本的後備防護設定仍保留，請稍後重試。",
                 ephemeral=True,
             )
         except Exception:
@@ -282,27 +281,48 @@ class ModerationCog(commands.Cog):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
             return
-        overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+        guild = interaction.guild
+        channel = interaction.channel
+        key = f"lock_original_send_messages:{channel.id}"
+        saved = storage.get_setting(guild.id, key, "__missing__")
+        overwrite = channel.overwrites_for(guild.default_role)
+        if saved == "__missing__":
+            original = overwrite.send_messages
+            storage.set_setting(guild.id, key, "__unset__" if original is None else original)
         overwrite.send_messages = False
         try:
-            await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=f"鎖頻道 by {interaction.user}")
+            await channel.set_permissions(guild.default_role, overwrite=overwrite, reason=f"鎖頻道 by {interaction.user}")
             await interaction.response.send_message("先鎖起來了。🔒")
         except discord.Forbidden:
             await interaction.response.send_message("我沒辦法改這個頻道權限。", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.response.send_message("Discord 這次沒有成功鎖頻道，請稍後重試。", ephemeral=True)
 
     @app_commands.command(name="unlock", description="解除目前頻道的鎖定")
     async def unlock(self, interaction):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
             return
-        overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
-        overwrite.send_messages = None
+        guild = interaction.guild
+        channel = interaction.channel
+        key = f"lock_original_send_messages:{channel.id}"
+        saved = storage.get_setting(guild.id, key, "__missing__")
+        overwrite = channel.overwrites_for(guild.default_role)
+        if saved == "__unset__":
+            overwrite.send_messages = None
+        elif isinstance(saved, bool):
+            overwrite.send_messages = saved
+        else:
+            # Existing lock created before state tracking: preserve the previous legacy behavior.
+            overwrite.send_messages = None
         try:
-            await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=f"解鎖頻道 by {interaction.user}")
+            await channel.set_permissions(guild.default_role, overwrite=overwrite, reason=f"解鎖頻道 by {interaction.user}")
+            storage.set_setting(guild.id, key, "__missing__")
             await interaction.response.send_message("好了，解鎖。🔓")
         except discord.Forbidden:
             await interaction.response.send_message("我沒辦法改這個頻道權限。", ephemeral=True)
-
+        except discord.HTTPException:
+            await interaction.response.send_message("Discord 這次沒有成功解鎖頻道，請稍後重試。", ephemeral=True)
     @app_commands.command(name="warn", description="給成員一個警告並留下紀錄")
     @app_commands.describe(member="要警告的人", reason="原因")
     async def warn(self, interaction, member: discord.Member, reason: str):
@@ -326,7 +346,7 @@ class ModerationCog(commands.Cog):
             await interaction.response.send_message(f"{member.display_name} 目前沒有警告紀錄。", ephemeral=True)
             return
         lines = [f"{i+1}. {row['reason'][:160]}" for i, row in enumerate(rows[:10])]
-        await interaction.response.send_message(f"{member.mention} 的警告：\\n" + "\\n".join(lines), ephemeral=True)
+        await interaction.response.send_message(f"{member.mention} 的警告：\n" + "\n".join(lines), ephemeral=True)
 
     @app_commands.command(name="timeout", description="暫時讓成員不能聊天")
     @app_commands.describe(member="要處理的人", minutes="分鐘", reason="原因")

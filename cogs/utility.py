@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import io
 import math
@@ -7,6 +8,7 @@ import secrets
 import string
 import urllib.parse
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import aiohttp
 import discord
@@ -28,6 +30,58 @@ def parse_duration(text: str) -> int | None:
     seconds = n * mult
     return seconds if 1 <= seconds <= 31_536_000 else None
 
+
+def safe_calculate(expression: str) -> int | float:
+    tree = ast.parse(expression.replace('^', '**'), mode='eval')
+    if sum(1 for _ in ast.walk(tree)) > 45:
+        raise ValueError('算式太複雜')
+
+    def bounded(value):
+        if type(value) is int:
+            if value.bit_length() > 512:
+                raise ValueError('數值太大')
+            return value
+        if type(value) is float and math.isfinite(value) and abs(value) <= 1e100:
+            return value
+        raise ValueError('結果不是可用的有限數值')
+
+    def visit(node, depth=0):
+        if depth > 20:
+            raise ValueError('算式太深')
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return bounded(node.value)
+        if isinstance(node, ast.UnaryOp):
+            value = visit(node.operand, depth + 1)
+            if isinstance(node.op, ast.UAdd):
+                return bounded(value)
+            if isinstance(node.op, ast.USub):
+                return bounded(-value)
+            raise ValueError('不支援的運算')
+        if isinstance(node, ast.BinOp):
+            left = visit(node.left, depth + 1)
+            right = visit(node.right, depth + 1)
+            if isinstance(node.op, ast.Add):
+                result = left + right
+            elif isinstance(node.op, ast.Sub):
+                result = left - right
+            elif isinstance(node.op, ast.Mult):
+                result = left * right
+            elif isinstance(node.op, ast.Div):
+                result = left / right
+            elif isinstance(node.op, ast.FloorDiv):
+                result = left // right
+            elif isinstance(node.op, ast.Mod):
+                result = left % right
+            elif isinstance(node.op, ast.Pow):
+                if abs(right) > 8 or abs(left) > 1e12:
+                    raise ValueError('次方太大')
+                result = left ** right
+            else:
+                raise ValueError('不支援的運算')
+            return bounded(result)
+        raise ValueError('只允許數字與一般四則運算')
+
+    return visit(tree.body)
 
 class UtilityCog(commands.Cog):
     remind = app_commands.Group(name="remind", description="設定與管理提醒")
@@ -130,19 +184,17 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message("這個算式我看不懂，先只支援一般數學運算。", ephemeral=True)
             return
         try:
-            safe = expression.replace("^", "**")
-            if any(int(x) > 8 for x in re.findall(r"\*\*(\d+)", safe)):
-                raise ValueError
-            value = eval(safe, {"__builtins__": {}}, {})
-            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-                raise ValueError
-            await interaction.response.send_message(f"{expression} = **{value:g}**")
+            value = safe_calculate(expression)
+            formatted = str(value) if type(value) is int else f"{value:g}"
+            await interaction.response.send_message(f"{expression} = **{formatted}**")
         except Exception:
-            await interaction.response.send_message("這題算不出來，檢查一下算式吧。", ephemeral=True)
-
+            await interaction.response.send_message("這題算不出來或數值太大，檢查一下算式吧。", ephemeral=True)
     @app_commands.command(name="convert", description="常用單位換算")
     @app_commands.describe(value="數值", from_unit="原單位", to_unit="目標單位")
     async def convert(self, interaction: discord.Interaction, value: float, from_unit: str, to_unit: str):
+        if not math.isfinite(value):
+            await interaction.response.send_message("請輸入有效的有限數值。", ephemeral=True)
+            return
         units = {
             ("km","m"): 1000, ("m","km"): .001,
             ("m","cm"): 100, ("cm","m"): .01,
@@ -183,12 +235,17 @@ class UtilityCog(commands.Cog):
     @app_commands.command(name="choose", description="從多個選項裡隨機挑一個")
     @app_commands.describe(options="用逗號分隔，例如 A,B,C")
     async def choose(self, interaction: discord.Interaction, options: str):
+        if len(options) > 1500:
+            await interaction.response.send_message("選項內容太長，請控制在 1500 字內。", ephemeral=True)
+            return
         items = [x.strip() for x in options.split(",") if x.strip()]
         if len(items) < 2:
             await interaction.response.send_message("至少丟兩個選項給我啦，例如 A,B,C。", ephemeral=True)
             return
+        if any(len(item) > 1800 for item in items):
+            await interaction.response.send_message("單一選項最多 1800 字。", ephemeral=True)
+            return
         await interaction.response.send_message(f"我幫你選：**{random.choice(items)}** 😎")
-
     @app_commands.command(name="password", description="產生一組隨機密碼")
     @app_commands.describe(length="長度 8 到 64")
     async def password(self, interaction: discord.Interaction, length: app_commands.Range[int, 8, 64] = 16):
@@ -238,7 +295,7 @@ class UtilityCog(commands.Cog):
     async def age(self, interaction: discord.Interaction, birthday: str):
         try:
             birth = datetime.strptime(birthday, "%Y-%m-%d").date()
-            today = datetime.now().date()
+            today = datetime.now(ZoneInfo("Asia/Taipei")).date()
             if birth > today:
                 raise ValueError
             years = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
