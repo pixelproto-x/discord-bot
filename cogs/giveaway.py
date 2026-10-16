@@ -86,8 +86,11 @@ class GiveawayCog(commands.Cog):
         gid = storage.save_giveaway(interaction.guild.id, interaction.channel.id, 0, prize.strip(), winners, ends_at)
         try:
             await interaction.response.defer()
-            await interaction.followup.send(GiveawayCog.text(storage.get_giveaway(gid), 0), view=GiveawayView(gid))
-            msg = await interaction.original_response()
+            msg = await interaction.followup.send(
+                GiveawayCog.text(storage.get_giveaway(gid), 0),
+                view=GiveawayView(gid),
+                wait=True,
+            )
             with storage.connect() as con:
                 con.execute("UPDATE giveaways SET message_id=? WHERE id=?", (msg.id, gid))
         except Exception:
