@@ -190,6 +190,9 @@ class UtilityCog(commands.Cog):
     @app_commands.command(name="convert", description="常用單位換算")
     @app_commands.describe(value="數值", from_unit="原單位", to_unit="目標單位")
     async def convert(self, interaction: discord.Interaction, value: float, from_unit: str, to_unit: str):
+        if not math.isfinite(value):
+            await interaction.response.send_message("請輸入有效的有限數值。", ephemeral=True)
+            return
         units = {
             ("km","m"): 1000, ("m","km"): .001,
             ("m","cm"): 100, ("cm","m"): .01,
@@ -230,12 +233,17 @@ class UtilityCog(commands.Cog):
     @app_commands.command(name="choose", description="從多個選項裡隨機挑一個")
     @app_commands.describe(options="用逗號分隔，例如 A,B,C")
     async def choose(self, interaction: discord.Interaction, options: str):
+        if len(options) > 1500:
+            await interaction.response.send_message("選項內容太長，請控制在 1500 字內。", ephemeral=True)
+            return
         items = [x.strip() for x in options.split(",") if x.strip()]
         if len(items) < 2:
             await interaction.response.send_message("至少丟兩個選項給我啦，例如 A,B,C。", ephemeral=True)
             return
+        if any(len(item) > 1800 for item in items):
+            await interaction.response.send_message("單一選項最多 1800 字。", ephemeral=True)
+            return
         await interaction.response.send_message(f"我幫你選：**{random.choice(items)}** 😎")
-
     @app_commands.command(name="password", description="產生一組隨機密碼")
     @app_commands.describe(length="長度 8 到 64")
     async def password(self, interaction: discord.Interaction, length: app_commands.Range[int, 8, 64] = 16):
