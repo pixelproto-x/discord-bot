@@ -4,7 +4,10 @@
 - `DISCORD_TOKEN`：Discord Bot Token。
 - `OWNER_ID`、`ALLOWED_ROLE_ID`：受限管理功能使用的管理識別。
 
-目前程式尚未實作 `GUILD_IDS` 伺服器白名單；請勿設定或依賴這個變數來限制 Bot 可加入或運作的伺服器。Slash commands 會依 Bot 的一般全域同步流程註冊。
+### 可選：伺服器白名單
+設定 `GUILD_IDS` 可限制 Bot 的 Slash commands 只註冊在指定伺服器，並在執行時拒絕其他伺服器的指令。格式為逗號分隔的伺服器 ID，例如 `GUILD_IDS=123456789012345678,234567890123456789`。留空代表維持全域指令、不限制伺服器。
+
+啟用白名單後，啟動時會清除 Bot 已註冊的全域 Slash commands，並將指令同步至白名單中的伺服器。Discord 端的舊指令顯示可能需要一點時間才更新。確認 ID 正確後再部署；若設定了不存在或 Bot 無法存取的伺服器 ID，同步可能失敗。
 
 ## 音樂
 音樂功能除了 Python 套件外，還需要系統層級的 FFmpeg。

@@ -32,6 +32,23 @@ ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "1509577038443319416"))
 MAX_COUNT = 1_000_000_000_000
 MAX_CONTENT_LEN = 2000
 
+def parse_guild_ids(raw: str) -> set[int]:
+    ids: set[int] = set()
+    for value in raw.split(','):
+        value = value.strip()
+        if not value:
+            continue
+        if not value.isdecimal():
+            raise RuntimeError('GUILD_IDS 格式錯誤：請使用逗號分隔的 Discord 伺服器 ID。')
+        guild_id = int(value)
+        if guild_id <= 0:
+            raise RuntimeError('GUILD_IDS 格式錯誤：伺服器 ID 必須大於 0。')
+        ids.add(guild_id)
+    return ids
+
+
+ALLOWED_GUILD_IDS = parse_guild_ids(os.getenv('GUILD_IDS', ''))
+
 active_spam: dict[tuple[int, int], dict] = {}
 
 
@@ -56,6 +73,23 @@ class ChannelSelectView(discord.ui.View):
             pass
 
 
+class GuildRestrictedCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if ALLOWED_GUILD_IDS and (
+            interaction.guild_id is None or interaction.guild_id not in ALLOWED_GUILD_IDS
+        ):
+            message = '這個 Bot 目前只允許在管理者設定的伺服器中使用。'
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(message, ephemeral=True)
+                else:
+                    await interaction.response.send_message(message, ephemeral=True)
+            except discord.HTTPException:
+                pass
+            return False
+        return True
+
+
 class Bot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -67,7 +101,7 @@ class Bot(commands.Bot):
             intents.auto_moderation_execution = True
         if hasattr(intents, "auto_moderation_configuration"):
             intents.auto_moderation_configuration = True
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        super().__init__(command_prefix="!", intents=intents, help_command=None, tree_cls=GuildRestrictedCommandTree)
 
     async def setup_hook(self):
         storage.init_db()
@@ -96,18 +130,38 @@ class Bot(commands.Bot):
         if failed_modules:
             raise RuntimeError("Cog 載入失敗: " + ", ".join(failed_modules))
 
+        global_commands = list(self.tree.get_commands())
         for attempt in range(3):
             try:
-                synced = await self.tree.sync()
-                print(f"Synced {len(synced)} global slash commands")
+                if ALLOWED_GUILD_IDS:
+                    guilds = [discord.Object(id=guild_id) for guild_id in sorted(ALLOWED_GUILD_IDS)]
+                    for guild in guilds:
+                        self.tree.clear_commands(guild=guild)
+                        self.tree.copy_global_to(guild=guild)
+                    self.tree.clear_commands(guild=None)
+                    try:
+                        await self.tree.sync()
+                    finally:
+                        for command in global_commands:
+                            self.tree.add_command(command)
+                    synced_total = 0
+                    for guild in guilds:
+                        synced = await self.tree.sync(guild=guild)
+                        synced_total += len(synced)
+                    print(
+                        f"Synced {synced_total} guild slash commands "
+                        f"across {len(ALLOWED_GUILD_IDS)} allowlisted guild(s)"
+                    )
+                else:
+                    synced = await self.tree.sync()
+                    print(f"Synced {len(synced)} global slash commands")
                 break
             except Exception as exc:
-                print(f"Global slash command sync failed (attempt {attempt + 1}/3): {exc!r}")
+                print(f"Slash command sync failed (attempt {attempt + 1}/3): {exc!r}")
                 if attempt < 2:
                     await asyncio.sleep(2 * (attempt + 1))
                 else:
                     traceback.print_exc()
-
     async def on_guild_join(self, guild: discord.Guild):
         print(f"Joined guild {guild.id} ({guild.name})")
 
