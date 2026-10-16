@@ -326,7 +326,7 @@ class ModerationCog(commands.Cog):
             await interaction.response.send_message(f"{member.display_name} 目前沒有警告紀錄。", ephemeral=True)
             return
         lines = [f"{i+1}. {row['reason'][:160]}" for i, row in enumerate(rows[:10])]
-        await interaction.response.send_message(f"{member.mention} 的警告：\\n" + "\\n".join(lines), ephemeral=True)
+        await interaction.response.send_message(f"{member.mention} 的警告：\n" + "\n".join(lines), ephemeral=True)
 
     @app_commands.command(name="timeout", description="暫時讓成員不能聊天")
     @app_commands.describe(member="要處理的人", minutes="分鐘", reason="原因")
