@@ -50,11 +50,9 @@ function setupConfig(){
       link.target="_blank";
       link.rel="noopener noreferrer";
     }else{
-      link.href="#";
-      link.addEventListener("click",event=>{
-        event.preventDefault();
-        toast("目前尚未設定 Bot 邀請連結。",true);
-      });
+      link.hidden=true;
+      link.removeAttribute("href");
+      link.setAttribute("aria-hidden","true");
     }
   });
 
@@ -64,11 +62,9 @@ function setupConfig(){
       link.target="_blank";
       link.rel="noopener noreferrer";
     }else{
-      link.href="#";
-      link.addEventListener("click",event=>{
-        event.preventDefault();
-        toast("目前尚未設定支援連結。",true);
-      });
+      link.hidden=true;
+      link.removeAttribute("href");
+      link.setAttribute("aria-hidden","true");
     }
   });
 }
@@ -316,7 +312,15 @@ function setupParallax(){
 }
 
 async function loadStatus(){
-  if(!C.statusEndpoint)return;
+  if(!C.statusEndpoint){
+    $("#statusTitle").textContent="尚未設定即時狀態";
+    $("#statusDetail").textContent="網站尚未連接狀態資料來源，因此目前無法提供即時服務狀態。";
+    $("#lastUpdate").textContent="—";
+    $("#heroStatus").textContent="未設定";
+    $("#heroState").textContent="STATUS NOT CONFIGURED";
+    $("#statusDot").className="status-dot-large";
+    return;
+  }
   try{
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),6500);
