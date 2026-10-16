@@ -473,13 +473,17 @@ class MusicCog(commands.Cog):
 
     @music.command(name="skip", description="跳到下一首")
     async def skip(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if player and player.voice and (player.voice.is_playing() or player.voice.is_paused()):
+        if not interaction.guild:
+            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
+            return
+        async with self.lock_for(interaction.guild.id):
+            player = self.players.get(interaction.guild.id)
+            if not player or not player.voice or not (player.voice.is_playing() or player.voice.is_paused()):
+                await interaction.response.send_message("現在沒東西可以跳。", ephemeral=True)
+                return
+            player.skip_current = True
             player.voice.stop()
-            await interaction.response.send_message("好，下一首。")
-        else:
-            await interaction.response.send_message("現在沒東西可以跳。", ephemeral=True)
-
+        await interaction.response.send_message("好，下一首。")
     @music.command(name="volume", description="調整音量 0 到 100")
     @app_commands.describe(value="音量百分比")
     async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
