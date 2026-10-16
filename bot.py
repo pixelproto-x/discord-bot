@@ -133,14 +133,15 @@ class Bot(commands.Bot):
         for attempt in range(3):
             try:
                 if ALLOWED_GUILD_IDS:
-                    # Remove previously registered global commands, then publish commands
-                    # only to explicitly allowlisted guilds.
+                    # Copy local commands to each allowlisted guild before clearing the
+                    # global command set, so commands are not accidentally discarded.
+                    guilds = [discord.Object(id=guild_id) for guild_id in sorted(ALLOWED_GUILD_IDS)]
+                    for guild in guilds:
+                        self.tree.copy_global_to(guild=guild)
                     self.tree.clear_commands(guild=None)
                     await self.tree.sync()
                     synced_total = 0
-                    for guild_id in sorted(ALLOWED_GUILD_IDS):
-                        guild = discord.Object(id=guild_id)
-                        self.tree.copy_global_to(guild=guild)
+                    for guild in guilds:
                         synced = await self.tree.sync(guild=guild)
                         synced_total += len(synced)
                     print(
