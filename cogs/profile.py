@@ -156,9 +156,9 @@ class ProfileCog(commands.Cog):
         ]
         unlocked = [label for ok, label in items if ok]
         locked = [label for ok, label in items if not ok]
-        text = "已解鎖：\\n" + ("\\n".join(unlocked) if unlocked else "還沒有，慢慢玩就有了。")
+        text = "已解鎖：\n" + ("\n".join(unlocked) if unlocked else "還沒有，慢慢玩就有了。")
         if locked:
-            text += "\\n\\n還沒解鎖：\\n" + "\\n".join(locked)
+            text += "\n\n還沒解鎖：\n" + "\n".join(locked)
         await interaction.response.send_message(text)
 
     @app_commands.command(name="membercount", description="看看伺服器現在有多少成員")
