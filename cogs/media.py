@@ -240,9 +240,16 @@ class SearchCog(commands.Cog):
         await interaction.response.defer()
         try:
             data = await image.read()
-            pic = Image.open(io.BytesIO(data)).convert("RGBA")
+            with Image.open(io.BytesIO(data)) as source:
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    return
+                pic = source.convert("RGBA")
             ratio = width / pic.width
             height = max(1, int(pic.height * ratio))
+            if height > 20000 or width * height > MAX_IMAGE_PIXELS:
+                await interaction.followup.send("縮放後的圖片比例過長，請先裁切再試。")
+                return
             pic = pic.resize((width, height), Image.Resampling.LANCZOS)
 
             out = io.BytesIO()
@@ -267,7 +274,11 @@ class SearchCog(commands.Cog):
         await interaction.response.defer()
         try:
             data = await image.read()
-            pic = Image.open(io.BytesIO(data)).convert("RGB").resize((1, 1))
+            with Image.open(io.BytesIO(data)) as source:
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    return
+                pic = source.convert("RGB").resize((1, 1))
             r, g, b = ImageStat.Stat(pic).mean
             hex_color = f"#{int(r):02X}{int(g):02X}{int(b):02X}"
             await interaction.followup.send(
