@@ -433,15 +433,31 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
 async def reminder_worker():
     try:
         for row in storage.due_reminders():
-            channel = bot.get_channel(row["channel_id"])
-            if not channel:
-                continue
+            reminder_text = f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}"
             try:
-                await channel.send(f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}")
-                storage.complete_reminder(row["id"])
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                channel = bot.get_channel(row['channel_id'])
+                if channel is None:
+                    channel = await bot.fetch_channel(row['channel_id'])
+                await channel.send(
+                    reminder_text,
+                    allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=int(row['user_id']))]),
+                )
+                storage.complete_reminder(row['id'])
+            except (discord.NotFound, discord.Forbidden):
+                # The original channel may have been deleted or become inaccessible.
+                # Try a DM once, then retire the reminder to avoid retrying forever.
+                try:
+                    user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
+                    await user.send(f"⏰ 你之前叫我提醒你的：{row['message']}\n（原本的提醒頻道目前無法使用。）")
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    pass
+                storage.complete_reminder(row['id'])
+            except discord.HTTPException as exc:
+                print(f"Reminder delivery failed for {row['id']}: {exc}")
                 continue
-
+            except Exception:
+                traceback.print_exc()
+                continue
         now = __import__("time").time()
         for row in storage.list_active_polls():
             if row["ends_at"] and row["ends_at"] <= now:
