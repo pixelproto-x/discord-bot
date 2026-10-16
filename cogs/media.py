@@ -13,6 +13,10 @@ from discord.ext import commands
 from google import genai
 
 
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_PIXELS = 25_000_000
+
+
 class SearchCog(commands.Cog):
     search = app_commands.Group(name="search", description="在 YouTube、Wikipedia、GitHub 找東西")
     image = app_commands.Group(name="image", description="簡單的圖片處理工具")
