@@ -62,7 +62,7 @@ class RolePanelView(ui.View):
             return
 
         roles = [guild.get_role(role_id) for role_id in self.role_ids]
-        roles = [role for role in roles if role and is_safe_self_assignable_role(role)]
+        roles = [role for role in roles if role and not role.is_default()]
 
         if self.mode == "select":
             options = [
