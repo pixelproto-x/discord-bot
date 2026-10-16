@@ -130,16 +130,20 @@ class Bot(commands.Bot):
         if failed_modules:
             raise RuntimeError("Cog 載入失敗: " + ", ".join(failed_modules))
 
+        global_commands = list(self.tree.get_commands())
         for attempt in range(3):
             try:
                 if ALLOWED_GUILD_IDS:
-                    # Copy local commands to each allowlisted guild before clearing the
-                    # global command set, so commands are not accidentally discarded.
                     guilds = [discord.Object(id=guild_id) for guild_id in sorted(ALLOWED_GUILD_IDS)]
                     for guild in guilds:
+                        self.tree.clear_commands(guild=guild)
                         self.tree.copy_global_to(guild=guild)
                     self.tree.clear_commands(guild=None)
-                    await self.tree.sync()
+                    try:
+                        await self.tree.sync()
+                    finally:
+                        for command in global_commands:
+                            self.tree.add_command(command)
                     synced_total = 0
                     for guild in guilds:
                         synced = await self.tree.sync(guild=guild)
@@ -158,7 +162,6 @@ class Bot(commands.Bot):
                     await asyncio.sleep(2 * (attempt + 1))
                 else:
                     traceback.print_exc()
-
     async def on_guild_join(self, guild: discord.Guild):
         print(f"Joined guild {guild.id} ({guild.name})")
 
