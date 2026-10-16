@@ -302,8 +302,7 @@ class RolePanelCog(commands.Cog):
             embed.add_field(name="怎麼用", value="可以一次選好幾個，送出後就會套用；再選一次也能取消。", inline=False)
         try:
             await interaction.response.defer()
-            await interaction.followup.send(embed=embed, view=view)
-            msg = await interaction.original_response()
+            msg = await interaction.followup.send(embed=embed, view=view, wait=True)
             with storage.connect() as con:
                 con.execute("UPDATE role_panels SET message_id=? WHERE id=?", (msg.id, panel_id))
             await interaction.followup.send(f"面板好了，編號是 {panel_id}。重開 Bot 也會保留。", ephemeral=True)
@@ -438,8 +437,7 @@ class PollCog(commands.Cog):
         embed.set_footer(text=("可複選" if multiple else "單選") + (f" · <t:{int(ends_at)}:R>" if ends_at else " · 不限時間"))
         try:
             await interaction.response.defer()
-            await interaction.followup.send(embed=embed, view=view)
-            msg = await interaction.original_response()
+            msg = await interaction.followup.send(embed=embed, view=view, wait=True)
             with storage.connect() as con:
                 con.execute("UPDATE polls SET message_id=? WHERE id=?", (msg.id, poll_id))
         except Exception:
