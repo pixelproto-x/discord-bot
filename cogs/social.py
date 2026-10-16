@@ -12,6 +12,36 @@ import storage
 
 ROLE_ID_RE = re.compile(r"(?:<@&)?(\d{15,25})>?")
 
+SENSITIVE_SELF_ROLE_PERMISSIONS = (
+    "administrator",
+    "manage_guild",
+    "manage_roles",
+    "manage_channels",
+    "manage_messages",
+    "moderate_members",
+    "kick_members",
+    "ban_members",
+    "manage_webhooks",
+    "manage_expressions",
+    "manage_emojis_and_stickers",
+    "manage_events",
+    "manage_threads",
+    "manage_nicknames",
+    "view_audit_log",
+    "mention_everyone",
+    "mute_members",
+    "deafen_members",
+    "move_members",
+    "administrator",
+)
+
+
+def is_safe_self_assignable_role(role: discord.Role) -> bool:
+    if role.is_default():
+        return False
+    permissions = role.permissions
+    return not any(getattr(permissions, name, False) for name in SENSITIVE_SELF_ROLE_PERMISSIONS)
+
 def parse_role_ids(text: str) -> list[int]:
     ids = [int(x) for x in ROLE_ID_RE.findall(text)]
     return list(dict.fromkeys(ids))
@@ -32,7 +62,7 @@ class RolePanelView(ui.View):
             return
 
         roles = [guild.get_role(role_id) for role_id in self.role_ids]
-        roles = [role for role in roles if role and not role.is_default()]
+        roles = [role for role in roles if role and is_safe_self_assignable_role(role)]
 
         if self.mode == "select":
             options = [
@@ -63,7 +93,8 @@ class RolePanelView(ui.View):
                     changes = []
                     for raw_id in select.values:
                         target = interaction.guild.get_role(int(raw_id))
-                        if not target or target.is_default():
+                        if not target or not is_safe_self_assignable_role(target):
+                            changes.append("這個身分組有管理權限，不能自助領取")
                             continue
                         if target >= bot_member.top_role:
                             changes.append(f"{target.name} 我碰不到")
@@ -102,7 +133,7 @@ class RolePanelView(ui.View):
                     if not member or not target or not bot_member:
                         await interaction.followup.send("這個身分組找不到了。", ephemeral=True)
                         return
-                    if target.is_default() or target >= bot_member.top_role:
+                    if not is_safe_self_assignable_role(target) or target >= bot_member.top_role:
                         await interaction.followup.send("這個身分組我碰不到，請把 Bot 的最高身分組往上移。", ephemeral=True)
                         return
                     try:
@@ -282,6 +313,9 @@ class RolePanelCog(commands.Cog):
             await interaction.response.send_message("這些身分組我找不到。", ephemeral=True)
             return
         bot_member = interaction.guild.me
+        if any(not is_safe_self_assignable_role(role) for role in real_roles):
+            await interaction.response.send_message("自助身分組不能包含 @everyone 或具有管理、封禁、改頻道等高權限的身分組。", ephemeral=True)
+            return
         if any(r >= bot_member.top_role for r in real_roles):
             await interaction.response.send_message("有身分組比我的最高身分組還高，先把 Bot 身分組往上移。", ephemeral=True)
             return
