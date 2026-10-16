@@ -4,7 +4,7 @@
 const C=Object.assign({
   brandName:"Discord Bot",
   shortName:"B",
-  creator:"Your Name",
+  creator:"pixelproto-x",
   version:"v1.0.0",
   inviteUrl:"",
   supportUrl:"",
