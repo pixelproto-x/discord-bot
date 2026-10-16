@@ -8,6 +8,7 @@ import secrets
 import string
 import urllib.parse
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import aiohttp
 import discord
@@ -293,7 +294,7 @@ class UtilityCog(commands.Cog):
     async def age(self, interaction: discord.Interaction, birthday: str):
         try:
             birth = datetime.strptime(birthday, "%Y-%m-%d").date()
-            today = datetime.now().date()
+            today = datetime.now(ZoneInfo("Asia/Taipei")).date()
             if birth > today:
                 raise ValueError
             years = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
