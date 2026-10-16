@@ -1,1 +1,1 @@
-window.BOT_SITE_CONFIG={brandName:"Discord Bot",shortName:"B",creator:"Your Name",version:"v1.0.0",inviteUrl:"",supportUrl:"",githubUrl:"https://github.com/a0983439343-dot/discord-bot",statusEndpoint:"",defaultLocale:"zh-TW"};
+window.BOT_SITE_CONFIG={brandName:"Discord Bot",shortName:"B",creator:"Your Name",version:"v1.0.0",inviteUrl:"",supportUrl:"",githubUrl:"https://github.com/pixelproto-x/discord-bot",statusEndpoint:"",defaultLocale:"zh-TW"};
