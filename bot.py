@@ -300,7 +300,12 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
         await interaction.followup.send("選的頻道我都沒有足夠權限。", ephemeral=True)
         return
 
-    active_spam[job_key] = {"running": True, "task": None}
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
+        return
+
+    active_spam[job_key] = {"running": True, "task": None, "cancelled": False, "view": view}
     embed = discord.Embed(
         title="好，開始了",
         description=f"次數：{count}\n頻道：{', '.join(c.mention for c in valid_channels)}",
@@ -309,6 +314,10 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
     if skipped:
         embed.add_field(name="我跳過了", value=", ".join(skipped), inline=False)
     await interaction.followup.send(embed=embed, ephemeral=True)
+
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        return
 
     task = asyncio.create_task(
         run_spam(job_key, interaction.channel, valid_channels, content, count)
