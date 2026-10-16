@@ -10,7 +10,7 @@ window.BOT_FEATURES=[
 {name:"🎵 語音音樂",title:"不用找網址，直接搜尋",desc:"進入語音後輸入歌曲名稱就能讓 Bot 搜尋 YouTube。支援搜尋選歌、播放佇列、暫停、繼續、跳歌、循環、隨機、音量等。"},
 {name:"🖼️ 圖片工具",title:"丟圖片就能處理",desc:"查看頭像與 Banner，也能把圖片縮放、抓平均顏色；OCR 可在設定 API Key 後使用。"},
 {name:"🔎 搜尋",title:"Discord 裡直接查",desc:"可以在 Discord 搜 YouTube、Wikipedia 與 GitHub 公開專案，不用一直切到瀏覽器。"},
-{name:"🤖 AI",title:"需要再開，不會硬塞",desc:"提供 AI 問答、翻譯、摘要等功能；使用前設定 OPENAI_API_KEY，Bot 會用比較像朋友聊天的語氣回覆。"},
+{name:"🤖 AI",title:"需要再開，不會硬塞",desc:"提供 AI 問答、翻譯、摘要等功能；使用前設定 GEMINI_API_KEY，Bot 會用比較像朋友聊天的語氣回覆。"},
 {name:"🔊 語音",title:"除了音樂，語音也能管",desc:"可以建立臨時語音、語音進出通知、語音統計；沒人的臨時語音可以自動清掉。"},
 {name:"🛡️ 管理",title:"常用管理指令集中處理",desc:"清訊息、慢速模式、鎖頻道、解鎖、警告、Timeout、Kick、Ban、Unban 與管理紀錄都整合進來。"},
 {name:"🚨 防濫用",title:"大量 @ 直接攔",desc:"預設一則訊息出現 5 個以上 Mention 就會立即刪除，另外可開啟防刷、邀請連結與大量大寫字母攔截。"},
