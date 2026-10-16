@@ -185,7 +185,8 @@ class UtilityCog(commands.Cog):
             return
         try:
             value = safe_calculate(expression)
-            await interaction.response.send_message(f"{expression} = **{value:g}**")
+            formatted = str(value) if type(value) is int else f"{value:g}"
+            await interaction.response.send_message(f"{expression} = **{formatted}**")
         except Exception:
             await interaction.response.send_message("這題算不出來或數值太大，檢查一下算式吧。", ephemeral=True)
     @app_commands.command(name="convert", description="常用單位換算")
