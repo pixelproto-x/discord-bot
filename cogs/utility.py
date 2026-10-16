@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import io
 import math
@@ -28,6 +29,58 @@ def parse_duration(text: str) -> int | None:
     seconds = n * mult
     return seconds if 1 <= seconds <= 31_536_000 else None
 
+
+def safe_calculate(expression: str) -> int | float:
+    tree = ast.parse(expression.replace('^', '**'), mode='eval')
+    if sum(1 for _ in ast.walk(tree)) > 45:
+        raise ValueError('算式太複雜')
+
+    def bounded(value):
+        if type(value) is int:
+            if value.bit_length() > 512:
+                raise ValueError('數值太大')
+            return value
+        if type(value) is float and math.isfinite(value) and abs(value) <= 1e100:
+            return value
+        raise ValueError('結果不是可用的有限數值')
+
+    def visit(node, depth=0):
+        if depth > 20:
+            raise ValueError('算式太深')
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return bounded(node.value)
+        if isinstance(node, ast.UnaryOp):
+            value = visit(node.operand, depth + 1)
+            if isinstance(node.op, ast.UAdd):
+                return bounded(value)
+            if isinstance(node.op, ast.USub):
+                return bounded(-value)
+            raise ValueError('不支援的運算')
+        if isinstance(node, ast.BinOp):
+            left = visit(node.left, depth + 1)
+            right = visit(node.right, depth + 1)
+            if isinstance(node.op, ast.Add):
+                result = left + right
+            elif isinstance(node.op, ast.Sub):
+                result = left - right
+            elif isinstance(node.op, ast.Mult):
+                result = left * right
+            elif isinstance(node.op, ast.Div):
+                result = left / right
+            elif isinstance(node.op, ast.FloorDiv):
+                result = left // right
+            elif isinstance(node.op, ast.Mod):
+                result = left % right
+            elif isinstance(node.op, ast.Pow):
+                if abs(right) > 8 or abs(left) > 1e12:
+                    raise ValueError('次方太大')
+                result = left ** right
+            else:
+                raise ValueError('不支援的運算')
+            return bounded(result)
+        raise ValueError('只允許數字與一般四則運算')
+
+    return visit(tree.body)
 
 class UtilityCog(commands.Cog):
     remind = app_commands.Group(name="remind", description="設定與管理提醒")
@@ -130,16 +183,10 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message("這個算式我看不懂，先只支援一般數學運算。", ephemeral=True)
             return
         try:
-            safe = expression.replace("^", "**")
-            if any(int(x) > 8 for x in re.findall(r"\*\*(\d+)", safe)):
-                raise ValueError
-            value = eval(safe, {"__builtins__": {}}, {})
-            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-                raise ValueError
+            value = safe_calculate(expression)
             await interaction.response.send_message(f"{expression} = **{value:g}**")
         except Exception:
-            await interaction.response.send_message("這題算不出來，檢查一下算式吧。", ephemeral=True)
-
+            await interaction.response.send_message("這題算不出來或數值太大，檢查一下算式吧。", ephemeral=True)
     @app_commands.command(name="convert", description="常用單位換算")
     @app_commands.describe(value="數值", from_unit="原單位", to_unit="目標單位")
     async def convert(self, interaction: discord.Interaction, value: float, from_unit: str, to_unit: str):
