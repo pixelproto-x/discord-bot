@@ -104,6 +104,12 @@ class SearchCog(commands.Cog):
         if not query:
             await interaction.response.send_message("請輸入搜尋關鍵字。", ephemeral=True)
             return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
 
         await interaction.response.defer()
         try:
@@ -274,6 +280,12 @@ class SearchCog(commands.Cog):
     @image.command(name="ocr", description="從圖片抓文字，需要設定 OCR_SPACE_API_KEY")
     @app_commands.describe(image="有文字的圖片")
     async def ocr(self, interaction, image: discord.Attachment):
+        if not image.content_type or not image.content_type.startswith("image/"):
+            await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
+            return
+        if image.size > MAX_IMAGE_BYTES:
+            await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
+            return
         key = os.getenv("OCR_SPACE_API_KEY", "").strip()
         if not key:
             await interaction.response.send_message(
