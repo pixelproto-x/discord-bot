@@ -24,6 +24,8 @@ class VoiceCog(commands.Cog):
             return
         source = interaction.user.voice.channel
         category = getattr(source, "category", None)
+        channel = None
+        await interaction.response.defer(thinking=True)
         try:
             channel = await interaction.guild.create_voice_channel(
                 name=name[:100],
@@ -33,10 +35,25 @@ class VoiceCog(commands.Cog):
             self.temp_channels.add(channel.id)
             storage.add_temp_channel(interaction.guild.id, channel.id)
             await interaction.user.move_to(channel)
-            await interaction.response.send_message(f"好了，幫你開了 {channel.mention}。沒人了我會幫你清掉。")
+            await interaction.followup.send(f"好了，幫你開了 {channel.mention}。沒人了我會幫你清掉。")
         except discord.Forbidden:
-            await interaction.response.send_message("我沒有建立或移動語音頻道的權限。", ephemeral=True)
-
+            if channel:
+                storage.remove_temp_channel(channel.id)
+                self.temp_channels.discard(channel.id)
+                try:
+                    await channel.delete(reason="臨時語音建立未完成")
+                except discord.HTTPException:
+                    pass
+            await interaction.followup.send("我沒有建立或移動語音頻道的權限。", ephemeral=True)
+        except discord.HTTPException:
+            if channel:
+                storage.remove_temp_channel(channel.id)
+                self.temp_channels.discard(channel.id)
+                try:
+                    await channel.delete(reason="臨時語音建立未完成")
+                except discord.HTTPException:
+                    pass
+            await interaction.followup.send("Discord 這次建立語音頻道失敗了，再試一次。", ephemeral=True)
     @voice.command(name="notice", description="設定誰進出語音時要在哪個文字頻道通知")
     @app_commands.describe(channel="通知頻道")
     async def notice(self, interaction, channel: discord.TextChannel):
