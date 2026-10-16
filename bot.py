@@ -260,10 +260,15 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
         await interaction.response.send_message("內容太長，或是根本沒內容。", ephemeral=True)
         return
 
-    active_spam[job_key] = {"running": False, "task": None}
     view = ChannelSelectView()
+    active_spam[job_key] = {"running": False, "task": None, "cancelled": False, "view": view}
     await interaction.response.send_message("要發去哪幾個頻道？選完我再開始。", view=view, ephemeral=True)
     await view.wait()
+
+    if active_spam.get(job_key, {}).get("cancelled"):
+        active_spam.pop(job_key, None)
+        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
+        return
 
     if not view.selected_channels:
         active_spam.pop(job_key, None)
@@ -333,8 +338,13 @@ async def stopspam(interaction: discord.Interaction, member: discord.Member | No
 
     target_key = (interaction.guild.id, target.id)
     if target_key in active_spam:
-        active_spam[target_key]["running"] = False
-        task = active_spam[target_key].get("task")
+        state = active_spam[target_key]
+        state["running"] = False
+        state["cancelled"] = True
+        view = state.get("view")
+        if view and not view.is_finished():
+            view.stop()
+        task = state.get("task")
         if task and not task.done():
             task.cancel()
         await interaction.response.send_message(f"好，{target.mention} 的工作停掉了。", ephemeral=True)
