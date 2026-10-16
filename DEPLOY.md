@@ -9,6 +9,13 @@
 
 啟用白名單後，啟動時會清除 Bot 已註冊的全域 Slash commands，並將指令同步至白名單中的伺服器。Discord 端的舊指令顯示可能需要一點時間才更新。確認 ID 正確後再部署；若設定了不存在或 Bot 無法存取的伺服器 ID，同步可能失敗。
 
+## Discord Developer Portal 權限
+在 Discord Developer Portal 的 Bot 設定中，請依功能啟用需要的 Privileged Gateway Intents：
+- **Server Members Intent**：新人自動身分組、歡迎訊息、離開通知。
+- **Message Content Intent**：自動回覆、防刷與依訊息內容判斷的功能。
+- Bot 還必須在伺服器具有相應權限，例如讀取／傳送訊息、管理身分組、管理訊息；身分組面板與新人身分組要求 Bot 的最高身分組高於目標身分組。
+
+程式碼開啟了相關 intents，但仍必須在 Developer Portal 同時開啟對應項目；否則相關事件或訊息功能可能不會正常運作。
 ## 音樂
 音樂功能除了 Python 套件外，還需要系統層級的 FFmpeg。
 可以直接把 ffmpeg 放進系統 PATH，或設定 `FFMPEG_PATH` 指向 executable。
