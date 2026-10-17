@@ -104,6 +104,12 @@ class UtilityCog(commands.Cog):
             return
         due = datetime.now(timezone.utc).timestamp() + seconds
         rid = storage.add_reminder(interaction.guild.id, interaction.user.id, interaction.channel.id, message, due)
+        if rid is None:
+            await interaction.response.send_message(
+                f"你最多只能同時有 {storage.MAX_ACTIVE_REMINDERS_PER_USER} 個待處理提醒，先取消幾個再試。",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_message(
             f"好，幫你記著了。⏰ {after} 後提醒你「{message}」\n提醒編號：{rid}",
             ephemeral=True,
@@ -154,6 +160,12 @@ class UtilityCog(commands.Cog):
             "⏰ 時間到啦！",
             datetime.now(timezone.utc).timestamp() + seconds,
         )
+        if rid is None:
+            await interaction.response.send_message(
+                f"你最多只能同時有 {storage.MAX_ACTIVE_REMINDERS_PER_USER} 個待處理提醒，先取消幾個再試。",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_message(
             f"開始啦，{duration} 後提醒你。⏳\n提醒編號：{rid}",
             ephemeral=True,
@@ -172,6 +184,12 @@ class UtilityCog(commands.Cog):
             "⏰ 好了，時間到。",
             datetime.now(timezone.utc).timestamp() + seconds,
         )
+        if rid is None:
+            await interaction.response.send_message(
+                f"你最多只能同時有 {storage.MAX_ACTIVE_REMINDERS_PER_USER} 個待處理提醒，先取消幾個再試。",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_message(
             f"倒數 {seconds} 秒，開始。\n提醒編號：{rid}",
             ephemeral=True,
