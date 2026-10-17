@@ -1,6 +1,7 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from cogs.media import SearchCog
 
@@ -51,6 +52,34 @@ class AiDiagnosticsTests(unittest.TestCase):
         log_line = " ".join(str(call.args[0]) for call in printer.call_args_list)
         self.assertIn("http_status=503", log_line)
         self.assertNotIn("sensitive-response-body", log_line)
+
+
+    def test_gemini_chat_uses_low_thinking_and_a_larger_output_budget(self):
+        response = SimpleNamespace(
+            text="我剛剛在忙一點事情，現在才看到你的訊息。",
+            candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=20,
+                candidates_token_count=18,
+                thoughts_token_count=5,
+            ),
+        )
+        generate_content = AsyncMock(return_value=response)
+        cog = object.__new__(SearchCog)
+        cog.gemini_model = "gemini-3.8-flash"
+        cog.gemini_client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+        )
+        cog.groq_client = None
+        cog.groq_model = "openai/gpt-oss-120b"
+
+        with patch("builtins.print"):
+            answer = asyncio.run(cog._generate_gemini_chat("我剛剛在忙，你呢？"))
+
+        self.assertTrue(answer)
+        config = generate_content.await_args.kwargs["config"]
+        self.assertEqual(config["thinking_config"]["thinking_level"], "low")
+        self.assertEqual(config["max_output_tokens"], 768)
 
 
 if __name__ == "__main__":
