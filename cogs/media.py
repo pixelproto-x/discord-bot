@@ -534,11 +534,12 @@ class SearchCog(commands.Cog):
         if len(self.chat_history) > 500:
             self.chat_history = dict(list(self.chat_history.items())[-300:])
 
-        prompt = re.sub(rf"<@!?{bot_id}>", "", message.content).strip()
-        prompt = prompt or "有人叫了你一聲，接一句自然又有梗的話。"
-        if len(prompt) > 3000:
-            prompt = prompt[:3000]
+        user_prompt = re.sub(rf"<@!?{bot_id}>", "", message.content).strip()
+        user_prompt = user_prompt or "有人叫了你一聲，接一句自然又有梗的話。"
+        if len(user_prompt) > 3000:
+            user_prompt = user_prompt[:3000]
 
+        prompt = user_prompt
         history_key = (message.guild.id, message.channel.id)
         history = self.chat_history.get(history_key, [])
         if history:
@@ -546,7 +547,7 @@ class SearchCog(commands.Cog):
                 f"{'朋友' if role == 'user' else '你'}：{text}"
                 for role, text in history[-self.chat_history_limit:]
             )
-            prompt = f"最近的聊天上下文（用來接話，不要重複摘要）：\n{context}\n\n這次朋友說：{prompt}"
+            prompt = f"最近的聊天上下文（用來接話，不要重複摘要）：\n{context}\n\n這次朋友說：{user_prompt}"
 
         try:
             async with message.channel.typing():
@@ -566,7 +567,7 @@ class SearchCog(commands.Cog):
             # Record only successful, non-empty turns so the next reply can follow the thread.
             history = self.chat_history.setdefault(history_key, [])
             history.extend([
-                ("user", prompt[-3000:]),
+                ("user", user_prompt[-3000:]),
                 ("assistant", answer[-3000:]),
             ])
             self.chat_history[history_key] = history[-self.chat_history_limit:]
