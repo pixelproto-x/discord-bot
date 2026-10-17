@@ -113,7 +113,7 @@ class SearchCog(commands.Cog):
             response = await asyncio.wait_for(
                 self.gemini_client.aio.models.generate_content(
                     model=self.gemini_model,
-                    contents=f"{system_instruction}\\n\\n對方說：{prompt}\\n直接接話，不要解釋你在做什麼。",
+                    contents=f"{system_instruction}\n\n對方說：{prompt}\n直接接話，不要解釋你在做什麼。",
                     config={"temperature": 1.15, "max_output_tokens": 160},
                 ),
                 timeout=18,
