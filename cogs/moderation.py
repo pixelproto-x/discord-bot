@@ -19,7 +19,25 @@ class ModerationCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.message_times = defaultdict(deque)
+        self.message_times: dict[tuple[int, int], deque[float]] = {}
+        self._last_message_times_prune = 0.0
+
+    def _prune_message_times(self, now: float | None = None, *, force: bool = False):
+        """Expire inactive anti-spam buckets so departed/idle users do not accumulate forever."""
+        now = time.monotonic() if now is None else now
+        if not force and now - self._last_message_times_prune < 60:
+            return
+        self._last_message_times_prune = now
+        for key, timestamps in list(self.message_times.items()):
+            while timestamps and now - timestamps[0] > 6:
+                timestamps.popleft()
+            if not timestamps:
+                self.message_times.pop(key, None)
+
+
+def count_message_mentions(user_ids, role_ids, mentions_everyone: bool = False) -> int:
+    """Count user/role mentions plus Discord's @everyone/@here broadcast mention."""
+    return len(set(user_ids) | set(role_ids)) + int(bool(mentions_everyone))
 
     def can_manage(self, interaction: discord.Interaction) -> bool:
         return bool(
@@ -138,6 +156,7 @@ class ModerationCog(commands.Cog):
             return
         if not isinstance(message.author, discord.Member):
             return
+        self._prune_message_times()
         if (
             message.author.guild_permissions.administrator
             or message.author.guild_permissions.manage_messages
@@ -148,7 +167,11 @@ class ModerationCog(commands.Cog):
         limit = int(storage.get_setting(message.guild.id, "mention_limit", 5))
         mentioned_users = set(message.raw_mentions)
         mentioned_roles = set(getattr(message, "raw_role_mentions", []))
-        mention_count = len(mentioned_users | mentioned_roles)
+        mention_count = count_message_mentions(
+            mentioned_users,
+            mentioned_roles,
+            getattr(message, "mention_everyone", False),
+        )
         if limit > 0 and mention_count > limit:
             await self.punish_message(message, f"一次標記了 {mention_count} 個人／身分組，超過上限 {limit}")
             return
@@ -166,7 +189,8 @@ class ModerationCog(commands.Cog):
         flood_limit = int(storage.get_setting(message.guild.id, "flood_limit", 0))
         if flood_limit > 0:
             now = time.monotonic()
-            q = self.message_times[(message.guild.id, message.author.id)]
+            key = (message.guild.id, message.author.id)
+            q = self.message_times.setdefault(key, deque())
             q.append(now)
             while q and now - q[0] > 6:
                 q.popleft()
@@ -406,10 +430,19 @@ class ModerationCog(commands.Cog):
         if not self.can_ban(interaction):
             await interaction.response.send_message("你需要封鎖成員權限。", ephemeral=True)
             return
+        normalized_id = user_id.strip()
+        if not re.fullmatch(r"\d{15,25}", normalized_id):
+            await interaction.response.send_message("請輸入有效的 Discord 使用者 ID（15～25 位數字）。", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         try:
-            user = await self.bot.fetch_user(int(user_id))
+            user = await self.bot.fetch_user(int(normalized_id))
             await interaction.guild.unban(user, reason=f"解除封鎖 by {interaction.user}")
+            await self.log_event(
+                interaction.guild,
+                "🔓 成員解除封鎖",
+                f"**使用者**：{user.mention}（{user.id}）\\n**操作者**：{interaction.user.mention}",
+            )
             await interaction.followup.send(f"好了，{user} 解鎖。", ephemeral=True)
         except (ValueError, discord.NotFound):
             await interaction.followup.send("這個 ID 找不到，或他本來就沒被封。", ephemeral=True)
