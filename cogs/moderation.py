@@ -35,9 +35,10 @@ class ModerationCog(commands.Cog):
                 self.message_times.pop(key, None)
 
 
-def count_message_mentions(user_ids, role_ids, mentions_everyone: bool = False) -> int:
-    """Count user/role mentions plus Discord's @everyone/@here broadcast mention."""
-    return len(set(user_ids) | set(role_ids)) + int(bool(mentions_everyone))
+    @staticmethod
+    def count_message_mentions(user_ids, role_ids, mentions_everyone: bool = False) -> int:
+        """Count user/role mentions plus Discord's @everyone/@here broadcast mention."""
+        return len(set(user_ids) | set(role_ids)) + int(bool(mentions_everyone))
 
     def can_manage(self, interaction: discord.Interaction) -> bool:
         return bool(
@@ -167,7 +168,7 @@ def count_message_mentions(user_ids, role_ids, mentions_everyone: bool = False) 
         limit = int(storage.get_setting(message.guild.id, "mention_limit", 5))
         mentioned_users = set(message.raw_mentions)
         mentioned_roles = set(getattr(message, "raw_role_mentions", []))
-        mention_count = count_message_mentions(
+        mention_count = self.count_message_mentions(
             mentioned_users,
             mentioned_roles,
             getattr(message, "mention_everyone", False),
