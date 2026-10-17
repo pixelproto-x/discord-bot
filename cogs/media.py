@@ -55,6 +55,7 @@ class SearchCog(commands.Cog):
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
         self.ocr_cooldown_seconds = 8
+        self._last_cooldown_prune = 0.0
         self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
@@ -87,6 +88,12 @@ class SearchCog(commands.Cog):
     async def _check_cooldown(self, interaction, bucket, seconds):
         key = (interaction.guild.id if interaction.guild else 0, interaction.user.id)
         now = time.monotonic()
+        if now - self._last_cooldown_prune >= 60:
+            for cache in (self.ai_cooldowns, self.ocr_cooldowns):
+                for stale_key, timestamp in list(cache.items()):
+                    if now - timestamp >= max(self.ai_cooldown_seconds, self.ocr_cooldown_seconds):
+                        cache.pop(stale_key, None)
+            self._last_cooldown_prune = now
         last = bucket.get(key, 0)
         remaining = seconds - (now - last)
         if remaining > 0:
