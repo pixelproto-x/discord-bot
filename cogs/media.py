@@ -454,12 +454,25 @@ class SearchCog(commands.Cog):
                 )
                 if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "PROMPT_BLOCK")):
                     return ""
-                if answer and "MAX_TOKENS" not in finish_reason:
+                if "MAX_TOKENS" in finish_reason:
+                    last_failure = "max_tokens"
+                    print("[Gemini API] output reached the token limit; switching to Groq fallback")
+                    break
+                if answer:
                     return _strip_emojis(answer)
-                last_failure = "max_tokens" if "MAX_TOKENS" in finish_reason else "empty_response"
+                last_failure = "empty_response"
             except Exception as exc:
                 last_failure = "gemini_error"
                 self._log_ai_error(f"Gemini API attempt {attempt + 1}/3", exc)
+                status = self._api_status_code(exc)
+                error_type = type(exc).__name__.lower()
+                fatal = status in (400, 401, 403, 404) or any(
+                    marker in error_type
+                    for marker in ("authentication", "permissiondenied", "notfound", "badrequest")
+                )
+                if fatal:
+                    print("[Gemini API] non-retryable request/authentication error; switching to fallback")
+                    break
                 if attempt < 2:
                     await asyncio.sleep(1.0 * (attempt + 1))
 
