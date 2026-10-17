@@ -29,7 +29,8 @@ from cogs import (
 
 OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "1509577038443319416"))
-MAX_COUNT = 1_000_000_000_000
+MAX_COUNT = 100
+MAX_TOTAL_SPAM_MESSAGES = 100
 MAX_CONTENT_LEN = 2000
 
 def parse_guild_ids(raw: str) -> set[int]:
@@ -210,6 +211,8 @@ async def run_spam(job_key: tuple[int, int], notify_channel, target_channels: li
                     try:
                         await ch.send(content, allowed_mentions=discord.AllowedMentions.none())
                         sent_count += 1
+                        # Limit message throughput to reduce accidental or abusive channel flooding.
+                        await asyncio.sleep(0.2)
                         break
                     except discord.HTTPException as exc:
                         if exc.status == 429:
@@ -298,6 +301,17 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
     if not valid_channels:
         active_spam.pop(job_key, None)
         await interaction.followup.send("選的頻道我都沒有足夠權限。", ephemeral=True)
+        return
+
+    total_messages = count * len(valid_channels)
+    if total_messages > MAX_TOTAL_SPAM_MESSAGES:
+        active_spam.pop(job_key, None)
+        max_rounds = max(1, MAX_TOTAL_SPAM_MESSAGES // len(valid_channels))
+        await interaction.followup.send(
+            f"單次工作最多送出 {MAX_TOTAL_SPAM_MESSAGES} 則訊息。"
+            f"你選了 {len(valid_channels)} 個頻道，請把次數調到 {max_rounds} 次以下，或減少頻道數。",
+            ephemeral=True,
+        )
         return
 
     if active_spam.get(job_key, {}).get("cancelled"):
