@@ -19,6 +19,7 @@ ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=ENV_FILE, override=True)
 
 from google import genai
+from openai import AsyncOpenAI
 
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -39,6 +40,9 @@ class SearchCog(commands.Cog):
         self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
+        self.openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+        self.openai_client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
 
         if self.gemini_client:
             print(f"[Gemini] GEMINI_API_KEY loaded; model={self.gemini_model}")
@@ -512,6 +516,103 @@ class SearchCog(commands.Cog):
         )
 
 
+
+    @ai.command(name="ask", description="使用 OpenAI 認真回答問題、協助解題與除錯")
+    @app_commands.describe(question="想詢問或需要協助解決的問題")
+    async def ai_ask(self, interaction: discord.Interaction, question: str):
+        question = question.strip()
+        if not self.openai_client:
+            await interaction.response.send_message(
+                "OpenAI 尚未設定 OPENAI_API_KEY。請確認專案根目錄的 .env，然後重新啟動 Bot。",
+                ephemeral=True,
+            )
+            return
+        if not question:
+            await interaction.response.send_message("請輸入問題。", ephemeral=True)
+            return
+        if len(question) > 12000:
+            await interaction.response.send_message("問題太長了，請控制在 12000 字內。", ephemeral=True)
+            return
+        if not await self._check_ai_limit(interaction):
+            return
+        await interaction.response.defer(thinking=True)
+        try:
+            response = await asyncio.wait_for(
+                self.openai_client.chat.completions.create(
+                    model=self.openai_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "你是 Discord 伺服器裡認真、可靠的繁體中文 AI 助手。"
+                                "優先協助使用者解決問題、解釋知識、寫程式與除錯。"
+                                "回答清楚、具體、可執行；不確定時要坦白，不要捏造。"
+                                "使用者以其他語言提問時，跟隨使用者的語言。"
+                            ),
+                        },
+                        {"role": "user", "content": question},
+                    ],
+                ),
+                timeout=40,
+            )
+            answer = (response.choices[0].message.content or "").strip()
+            await self._send_ai_output(
+                interaction,
+                answer,
+                "openai-answer.txt",
+                "OpenAI 這次沒有產生文字回覆。",
+            )
+        except asyncio.TimeoutError:
+            print(f"[OpenAI ask] TimeoutError: model={self.openai_model}")
+            await interaction.followup.send("OpenAI 回覆逾時，請稍後再試。")
+        except Exception as exc:
+            detail = str(exc)
+            if self.openai_key:
+                detail = detail.replace(self.openai_key, "[REDACTED_API_KEY]")
+            print(f"[OpenAI ask] {type(exc).__name__}: {detail[:800]}")
+            await interaction.followup.send(
+                f"OpenAI 回覆失敗（{type(exc).__name__}）。請查看 Bot 終端機的診斷訊息；不會顯示 API Key。"
+            )
+
+    @ai.command(name="openai-test", description="實際測試 OpenAI API 與模型是否可用")
+    async def ai_openai_test(self, interaction: discord.Interaction):
+        if not self.openai_client:
+            file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
+            key_in_file = bool(str(file_values.get("OPENAI_API_KEY") or "").strip())
+            await interaction.response.send_message(
+                "❌ OpenAI Client 沒有建立。\\n"
+                f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\\n"
+                f".env 能讀到 OPENAI_API_KEY：{'是' if key_in_file else '否'}\\n"
+                "不會顯示金鑰內容。請確認 OPENAI_API_KEY 在專案根目錄的 .env 中，然後重啟 Bot。",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            response = await asyncio.wait_for(
+                self.openai_client.chat.completions.create(
+                    model=self.openai_model,
+                    messages=[{"role": "user", "content": "請只回覆 OK。"}],
+                ),
+                timeout=25,
+            )
+            answer = (response.choices[0].message.content or "").strip()
+            await interaction.followup.send(
+                f"✅ OpenAI API 測試成功。\\n模型：\`{self.openai_model}\`\\n測試回覆：{answer[:150] or '(空白)'}",
+                ephemeral=True,
+            )
+        except asyncio.TimeoutError:
+            print(f"[OpenAI test] TimeoutError: model={self.openai_model}")
+            await interaction.followup.send("❌ OpenAI API 測試逾時（25 秒）。", ephemeral=True)
+        except Exception as exc:
+            detail = str(exc)
+            if self.openai_key:
+                detail = detail.replace(self.openai_key, "[REDACTED_API_KEY]")
+            print(f"[OpenAI test] {type(exc).__name__}: {detail[:800]}")
+            await interaction.followup.send(
+                f"❌ OpenAI API 測試失敗。錯誤類型：\`{type(exc).__name__}\`。請查看 Bot 終端機的診斷訊息；金鑰不會顯示。",
+                ephemeral=True,
+            )
 
     @ai.command(name="test", description="實際測試 Gemini API 與模型是否可用")
     async def ai_test(self, interaction: discord.Interaction):
