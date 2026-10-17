@@ -268,24 +268,25 @@ class RolePanelCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.views_registered = False
+        self.registered_panel_ids: set[int] = set()
 
     @commands.Cog.listener()
     async def on_ready(self):
-        if self.views_registered:
-            return
         for row in storage.get_role_panels():
+            panel_id = int(row["id"])
+            if panel_id in self.registered_panel_ids or not row["message_id"]:
+                continue
             guild = self.bot.get_guild(row["guild_id"])
-            if not guild or not row["message_id"]:
+            if not guild:
                 continue
             try:
                 self.bot.add_view(
                     RolePanelView.for_guild(row, guild),
                     message_id=row["message_id"],
                 )
+                self.registered_panel_ids.add(panel_id)
             except Exception as exc:
-                print(f"Failed to restore role panel {row['id']}: {exc!r}")
-        self.views_registered = True
+                print(f"Failed to restore role panel {panel_id}: {exc!r}")
 
     def admin(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_roles)
@@ -416,25 +417,26 @@ class PollCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.views_registered = False
+        self.registered_poll_ids: set[int] = set()
 
     @commands.Cog.listener()
     async def on_ready(self):
-        if self.views_registered:
-            return
         for row in storage.list_active_polls():
+            poll_id = int(row["id"])
+            if poll_id in self.registered_poll_ids or not row["message_id"]:
+                continue
             guild = self.bot.get_guild(row["guild_id"])
-            if not guild or not row["message_id"]:
+            if not guild:
                 continue
             try:
                 options = json.loads(row["options"])
                 self.bot.add_view(
-                    PollView(int(row["id"]), options, bool(row["multiple"])),
+                    PollView(poll_id, options, bool(row["multiple"])),
                     message_id=row["message_id"],
                 )
+                self.registered_poll_ids.add(poll_id)
             except Exception as exc:
-                print(f"Failed to restore poll {row['id']}: {exc!r}")
-        self.views_registered = True
+                print(f"Failed to restore poll {poll_id}: {exc!r}")
 
     @staticmethod
     def build_embed(row, counts):
