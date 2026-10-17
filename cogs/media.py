@@ -97,6 +97,35 @@ class SearchCog(commands.Cog):
                 file=discord.File(data, filename=filename),
             )
 
+    async def _generate_gemini_chat(self, prompt: str) -> str:
+        """Fast, short Gemini responses tuned for casual Discord banter."""
+        if not self.gemini_client:
+            return ""
+
+        system_instruction = (
+            "你是 Discord 群組裡那個嘴很快、很會接梗的朋友，不是客服也不是老師。"
+            "用自然的繁體中文聊天，像真人打字：短句、口語、吐槽、幹話、反差梗都可以。"
+            "通常只回 1 到 3 句，能一句講完就不要寫一段；不要列點、不要長篇解釋、不要每次都反問。"
+            "不要重複使用制式開場，不要說「作為 AI」，不要把普通聊天變成正式回答。"
+            "可以友善互嗆但不要針對脆弱點羞辱人。遇到真正嚴肅、危險或求助的問題，先正常認真回應。"
+        )
+        try:
+            response = await asyncio.wait_for(
+                self.gemini_client.aio.models.generate_content(
+                    model=self.gemini_model,
+                    contents=f"{system_instruction}\\n\\n對方說：{prompt}\\n直接接話，不要解釋你在做什麼。",
+                    config={"temperature": 1.15, "max_output_tokens": 160},
+                ),
+                timeout=18,
+            )
+            return (getattr(response, "text", "") or "").strip()
+        except Exception as exc:
+            detail = str(exc)
+            if self.gemini_key:
+                detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
+            print(f"[Gemini chat] {type(exc).__name__}: {detail[:500]}")
+            return ""
+
     async def _generate_ai(self, prompt: str, system_instruction: str) -> str:
         if not self.gemini_client:
             return ""
@@ -411,16 +440,16 @@ class SearchCog(commands.Cog):
 
         await interaction.response.defer()
 
-        answer = await self._generate_ai(
-            prompt,
-            "你是 Discord 群組裡很會接梗的聊天夥伴，主要負責輕鬆閒聊、幹話、吐槽和搞笑互動。語氣自然、有個性但不要惡意羞辱人；可以幽默，不要把普通閒聊講成正式報告。使用繁體中文，除非使用者使用其他語言。若對方真的在問重要或需要認真處理的事，仍要友善且負責任地回答。",
-        )
+        answer = await self._generate_gemini_chat(prompt)
+        if not answer:
+            await interaction.followup.send("蛤我剛剛當機了，等一下再嘴我一次 😂")
+            return
 
         await self._send_ai_output(
             interaction,
             answer,
-            "ai-answer.txt",
-            "Gemini 這次沒回來，再試一次。",
+            "ai-chat.txt",
+            "Gemini 這次沒接到梗，再試一次。",
         )
 
     @ai.command(name="translate", description="讓 Gemini 幫你翻譯並順一下語氣")
