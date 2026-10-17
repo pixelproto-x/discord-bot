@@ -169,8 +169,8 @@ class AutoReplyCog(commands.Cog):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有有管理伺服器權限的人可以改。", ephemeral=True)
             return
-        if not trigger.strip() or len(trigger) > 100 or len(response) > 1500:
-            await interaction.response.send_message("觸發文字最多 100 字，回覆最多 1500 字。", ephemeral=True)
+        if not trigger.strip() or not response.strip() or len(trigger) > 100 or len(response) > 1500:
+            await interaction.response.send_message("觸發文字和回覆都不能空白；觸發文字最多 100 字，回覆最多 1500 字。", ephemeral=True)
             return
         rid = storage.add_autoreply(interaction.guild.id, trigger.strip(), response.strip(), "exact" if exact else "contains")
         await interaction.response.send_message(f"好，設好了。有人講「{trigger.strip()}」時，我就回你設定的那句。編號：{rid}", ephemeral=True)
