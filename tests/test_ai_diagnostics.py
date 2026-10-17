@@ -82,5 +82,39 @@ class AiDiagnosticsTests(unittest.TestCase):
         self.assertEqual(config["max_output_tokens"], 768)
 
 
+    def test_gemini_short_chat_reply_is_retried_before_accepting(self):
+        def response(text):
+            return SimpleNamespace(
+                text=text,
+                candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))],
+                usage_metadata=SimpleNamespace(
+                    prompt_token_count=18,
+                    candidates_token_count=10,
+                    thoughts_token_count=4,
+                ),
+            )
+
+        generate_content = AsyncMock(
+            side_effect=[
+                response("還好啊"),
+                response("今天事情有點多，現在總算忙完了，終於能休息一下。"),
+            ]
+        )
+        cog = object.__new__(SearchCog)
+        cog.gemini_model = "gemini-3.8-flash"
+        cog.gemini_client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+        )
+        cog.groq_client = None
+        cog.groq_model = "openai/gpt-oss-120b"
+
+        with patch("builtins.print"):
+            answer = asyncio.run(cog._generate_gemini_chat("我剛剛在忙，你呢？"))
+
+        self.assertIn("今天事情有點多", answer)
+        self.assertEqual(generate_content.await_count, 2)
+        self.assertIn("上一個回覆太短", generate_content.await_args_list[1].kwargs["contents"])
+
+
 if __name__ == "__main__":
     unittest.main()
