@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import storage
 from cogs.games import GameCog
-from cogs.moderation import ModerationCog, count_message_mentions
+from cogs.moderation import ModerationCog
 from cogs.settings import autorole_is_safe
 
 
@@ -27,8 +27,8 @@ class StorageConnectionTests(unittest.TestCase):
 
 class ModerationHardeningTests(unittest.TestCase):
     def test_everyone_and_here_count_toward_mention_limit(self):
-        self.assertEqual(count_message_mentions([10, 11, 11], [20], False), 3)
-        self.assertEqual(count_message_mentions([10], [20], True), 3)
+        self.assertEqual(ModerationCog.count_message_mentions([10, 11, 11], [20], False), 3)
+        self.assertEqual(ModerationCog.count_message_mentions([10], [20], True), 3)
 
     def test_old_antispam_buckets_are_removed(self):
         cog = object.__new__(ModerationCog)
