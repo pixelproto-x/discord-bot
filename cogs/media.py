@@ -928,6 +928,8 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
             return
+        if not await self._check_ai_limit(interaction):
+            return
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             response = await asyncio.wait_for(
@@ -969,6 +971,8 @@ class SearchCog(commands.Cog):
             )
             return
 
+        if not await self._check_ai_limit(interaction):
+            return
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             response = await asyncio.wait_for(
