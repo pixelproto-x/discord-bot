@@ -3,6 +3,7 @@ import functools
 import os
 import re
 import shutil
+from urllib.parse import urlsplit
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -28,6 +29,40 @@ YTDL_STREAM = {
     "noplaylist": True,
     "format": "bestaudio/best",
 }
+
+MAX_QUEUE_SIZE = 50
+MAX_QUERY_LENGTH = 200
+
+
+def normalize_music_query(query: str) -> tuple[str | None, str | None]:
+    """Trim and validate user input before passing it to yt-dlp."""
+    value = query.strip() if isinstance(query, str) else ""
+    if not value:
+        return None, "請輸入歌名、歌手或 YouTube 連結。"
+    if len(value) > MAX_QUERY_LENGTH:
+        return None, f"搜尋內容最多 {MAX_QUERY_LENGTH} 個字。"
+
+    if re.match(r"^https?://", value, re.IGNORECASE):
+        try:
+            parsed = urlsplit(value)
+            host = (parsed.hostname or "").lower().rstrip(".")
+            port = parsed.port
+        except ValueError:
+            return None, "這個網址格式不正確。"
+
+        scheme = parsed.scheme.lower()
+        valid_host = host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
+        expected_port = 80 if scheme == "http" else 443
+        if (
+            scheme not in {"http", "https"}
+            or not valid_host
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in (None, expected_port)
+        ):
+            return None, "目前只支援一般歌名搜尋或 YouTube 連結。"
+
+    return value, None
 
 
 @dataclass
@@ -230,6 +265,10 @@ class MusicCog(commands.Cog):
 
         guild_id = interaction.guild.id
         async with self.lock_for(guild_id):
+            player = self.players.get(guild_id)
+            if player and len(player.queue) >= MAX_QUEUE_SIZE:
+                return False, f"這個伺服器的等待佇列最多 {MAX_QUEUE_SIZE} 首，先播放或移除幾首再加。"
+
             voice_channel = interaction.user.voice.channel
             player = self.player(guild_id)
             try:
@@ -390,6 +429,10 @@ class MusicCog(commands.Cog):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
+        query, error_message = normalize_music_query(query)
+        if error_message:
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
         await interaction.response.defer()
         try:
             results = await self.ytdlp_search(query)
@@ -409,9 +452,13 @@ class MusicCog(commands.Cog):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
+        query, error_message = normalize_music_query(query)
+        if error_message:
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
         await interaction.response.defer()
         try:
-            results = await self.ytdlp_search(query if re.match(r"^https?://", query) else f"ytsearch5:{query}")
+            results = await self.ytdlp_search(query if re.match(r"^https?://", query, re.IGNORECASE) else f"ytsearch5:{query}")
         except Exception:
             await interaction.followup.send("YouTube 這次搜尋失敗了，再試一次。")
             return
