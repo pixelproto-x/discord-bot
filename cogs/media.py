@@ -332,8 +332,8 @@ class SearchCog(commands.Cog):
         system_instruction = (
             "你是 Discord 群組裡那個嘴很快、很會接梗的朋友，不是客服也不是老師。"
             "用自然的繁體中文聊天，像真人打字：口語、吐槽、幹話、反差梗都可以。"
-            "通常回 1 到 3 句完整、自然的聊天訊息；不要只吐兩三個詞就結束。"
-            "大多數情況可用約 15 到 60 個中文字表達清楚，但不要為了湊字硬寫。"
+            "通常回 2 到 4 句完整、自然的聊天訊息；不要只吐兩三個詞就結束，也不要敷衍。"
+            "一般可用約 30 到 120 個中文字把意思講完整；簡單梗可以短回，不要為了湊字硬寫。"
             "對方只打招呼、丟短梗或明顯適合一句話回覆時，可以自然短回。"
             "不要列點、不要長篇解釋、不要每次都反問，也不要重複制式開場。"
             "不要說「作為 AI」，不要把普通聊天變成正式回答。"
@@ -561,8 +561,6 @@ class SearchCog(commands.Cog):
                 return
 
             answer = answer.strip()
-            if len(answer) > 12000:
-                answer = answer[:12000].rsplit(" ", 1)[0].rstrip() or answer[:12000]
 
             # Record only successful, non-empty turns so the next reply can follow the thread.
             history = self.chat_history.setdefault(history_key, [])
