@@ -3,6 +3,7 @@ import io
 import os
 import time
 import urllib.parse
+from pathlib import Path
 
 import aiohttp
 import discord
@@ -10,6 +11,13 @@ import yt_dlp
 from PIL import Image, ImageStat
 from discord import app_commands
 from discord.ext import commands
+from dotenv import dotenv_values, load_dotenv
+
+# Load the project-root .env here as well, so this cog works even when imported
+# by an entry point that did not load dotenv first.
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=ENV_FILE, override=True)
+
 from google import genai
 
 
@@ -29,8 +37,19 @@ class SearchCog(commands.Cog):
         self.ai_cooldown_seconds = 8
         self.ocr_cooldown_seconds = 8
         self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
+
+        if self.gemini_client:
+            print(f"[Gemini] GEMINI_API_KEY loaded; model={self.gemini_model}")
+        else:
+            file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
+            print(
+                "[Gemini] GEMINI_API_KEY is missing. "
+                f".env exists={ENV_FILE.is_file()}, key parsed from .env={key_in_file}. "
+                "Check that GEMINI_API_KEY=YOUR_KEY is on its own line in .env."
+            )
 
     async def _check_cooldown(self, interaction, bucket, seconds):
         key = (interaction.guild.id if interaction.guild else 0, interaction.user.id)
