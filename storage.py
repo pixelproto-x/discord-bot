@@ -9,6 +9,7 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "bot.sqlite3"
+MAX_ACTIVE_REMINDERS_PER_USER = 50
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def connect():
@@ -220,7 +221,17 @@ def find_autoreplies(guild_id: int, content: str, channel_id: int):
     return result
 
 def add_reminder(guild_id, user_id, channel_id, message, due_at):
+    """Create a reminder unless this member already has the maximum active count."""
     with connect() as con:
+        # Lock before counting so concurrent slash commands cannot race past the cap.
+        con.execute("BEGIN IMMEDIATE")
+        active_count = con.execute(
+            "SELECT COUNT(*) FROM reminders WHERE guild_id=? AND user_id=? AND done=0",
+            (guild_id, user_id),
+        ).fetchone()[0]
+        if active_count >= MAX_ACTIVE_REMINDERS_PER_USER:
+            return None
+
         cur = con.execute(
             "INSERT INTO reminders(guild_id,user_id,channel_id,message,due_at) VALUES(?,?,?,?,?)",
             (guild_id, user_id, channel_id, message, due_at),
