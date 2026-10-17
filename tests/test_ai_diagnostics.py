@@ -141,5 +141,50 @@ class AiDiagnosticsTests(unittest.TestCase):
         ))
 
 
+    def test_generic_gemini_generation_falls_back_instead_of_repeating_max_tokens(self):
+        response = SimpleNamespace(
+            text="",
+            candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="MAX_TOKENS"))],
+            usage_metadata=SimpleNamespace(
+                prompt_token_count=20,
+                candidates_token_count=0,
+                thoughts_token_count=18,
+            ),
+        )
+        generate_content = AsyncMock(return_value=response)
+        cog = object.__new__(SearchCog)
+        cog.gemini_model = "gemini-3.8-flash"
+        cog.gemini_client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+        )
+        cog._generate_groq_text = AsyncMock(return_value="備援完成")
+
+        with patch("builtins.print"):
+            answer = asyncio.run(cog._generate_ai("整理這段內容", "摘要助手"))
+
+        self.assertEqual(answer, "備援完成")
+        self.assertEqual(generate_content.await_count, 1)
+        cog._generate_groq_text.assert_awaited_once()
+
+    def test_generic_gemini_generation_does_not_retry_fatal_400_errors(self):
+        class SyntheticBadRequest(Exception):
+            status_code = 400
+
+        generate_content = AsyncMock(side_effect=SyntheticBadRequest("bad request"))
+        cog = object.__new__(SearchCog)
+        cog.gemini_model = "gemini-3.8-flash"
+        cog.gemini_client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+        )
+        cog._generate_groq_text = AsyncMock(return_value="備援完成")
+
+        with patch("builtins.print"):
+            answer = asyncio.run(cog._generate_ai("整理這段內容", "摘要助手"))
+
+        self.assertEqual(answer, "備援完成")
+        self.assertEqual(generate_content.await_count, 1)
+        cog._generate_groq_text.assert_awaited_once()
+
+
 if __name__ == "__main__":
     unittest.main()
