@@ -7,6 +7,16 @@ from cogs.social import is_safe_self_assignable_role
 
 
 
+def autorole_is_safe(role, bot_member) -> bool:
+    return bool(
+        role
+        and bot_member
+        and bot_member.guild_permissions.manage_roles
+        and is_safe_self_assignable_role(role)
+        and role < bot_member.top_role
+    )
+
+
 SETTINGS_CATEGORIES = [
     ("security", "安全防護", "短時間刷屏、邀請連結、大量大寫與標記上限"),
     ("notifications", "紀錄／語音", "管理紀錄頻道及語音進出通知"),
@@ -371,10 +381,7 @@ class SettingsRoleSelect(discord.ui.RoleSelect):
         role = self.values[0]
         bot_member = interaction.guild.me
         if (
-            bot_member is None
-            or not bot_member.guild_permissions.manage_roles
-            or not is_safe_self_assignable_role(role)
-            or role >= bot_member.top_role
+            not autorole_is_safe(role, bot_member)
         ):
             await interaction.response.send_message(
                 "這個身分組不能安全自動發放，或 Bot 缺少管理身分組權限／身分組位階太低。設定沒有變更。",
@@ -453,7 +460,7 @@ class SettingsCog(commands.Cog):
             return
         if role:
             bot_member = interaction.guild.me
-            if not is_safe_self_assignable_role(role) or role >= bot_member.top_role or not bot_member.guild_permissions.manage_roles:
+            if not autorole_is_safe(role, bot_member):
                 await interaction.response.send_message("這個身分組不能自動發放（可能有管理權限），或它比 Bot 高，或 Bot 缺少管理身分組權限。", ephemeral=True)
                 return
         storage.set_setting(interaction.guild.id, "autorole_id", role.id if role else 0)
@@ -470,8 +477,12 @@ class SettingsCog(commands.Cog):
             if not perms.view_channel or not perms.send_messages:
                 await interaction.response.send_message("我不能在那個頻道發歡迎訊息，先檢查 Bot 的頻道權限。", ephemeral=True)
                 return
+        message = message.strip()
+        if not message or len(message) > 1500:
+            await interaction.response.send_message("歡迎訊息不能空白，最多 1500 字；設定沒有變更。", ephemeral=True)
+            return
         storage.set_setting(interaction.guild.id, "welcome_channel_id", channel.id if channel else 0)
-        storage.set_setting(interaction.guild.id, "welcome_message", message.strip()[:1500])
+        storage.set_setting(interaction.guild.id, "welcome_message", message)
         await interaction.response.send_message(
             f"歡迎訊息{'開好了，會發到 ' + channel.mention if channel else '關掉了'}。",
             ephemeral=True,
@@ -488,8 +499,12 @@ class SettingsCog(commands.Cog):
             if not perms.view_channel or not perms.send_messages:
                 await interaction.response.send_message("我不能在那個頻道發離開通知，先檢查 Bot 的頻道權限。", ephemeral=True)
                 return
+        message = message.strip()
+        if not message or len(message) > 1500:
+            await interaction.response.send_message("離開通知不能空白，最多 1500 字；設定沒有變更。", ephemeral=True)
+            return
         storage.set_setting(interaction.guild.id, "goodbye_channel_id", channel.id if channel else 0)
-        storage.set_setting(interaction.guild.id, "goodbye_message", message.strip()[:1500])
+        storage.set_setting(interaction.guild.id, "goodbye_message", message)
         await interaction.response.send_message(
             f"離開通知{'開好了，會發到 ' + channel.mention if channel else '關掉了'}。",
             ephemeral=True,
@@ -552,17 +567,26 @@ class MemberEventsCog(commands.Cog):
         role_id = storage.get_setting(member.guild.id, "autorole_id", 0)
         if role_id:
             role = member.guild.get_role(int(role_id))
-            if role and role < member.guild.me.top_role:
+            bot_member = member.guild.me
+            if autorole_is_safe(role, bot_member):
                 try:
                     await member.add_roles(role, reason="自動新人身分組")
-                except Exception:
-                    pass
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"Autorole assignment failed in guild {member.guild.id}: {exc!r}")
+            else:
+                # A saved role may have become privileged or moved above the bot since setup.
+                storage.set_setting(member.guild.id, "autorole_id", 0)
         channel_id = storage.get_setting(member.guild.id, "welcome_channel_id", 0)
         channel = member.guild.get_channel(int(channel_id)) if channel_id else None
         if channel:
             msg = storage.get_setting(member.guild.id, "welcome_message", "歡迎 {user} 來到 {server}！")
             try:
-                await channel.send(msg.replace("{user}", member.mention).replace("{server}", member.guild.name))
+                await channel.send(
+                    msg.replace("{user}", member.mention).replace("{server}", member.guild.name),
+                    allowed_mentions=discord.AllowedMentions(
+                        users=[member], roles=False, everyone=False, replied_user=False
+                    ),
+                )
             except Exception:
                 pass
 
@@ -573,7 +597,10 @@ class MemberEventsCog(commands.Cog):
         if channel:
             msg = storage.get_setting(member.guild.id, "goodbye_message", "{user} 離開了，掰。")
             try:
-                await channel.send(msg.replace("{user}", str(member)).replace("{server}", member.guild.name))
+                await channel.send(
+                    msg.replace("{user}", str(member)).replace("{server}", member.guild.name),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
             except Exception:
                 pass
 
