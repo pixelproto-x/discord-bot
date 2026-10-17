@@ -56,7 +56,7 @@ class GameSessionCleanupTests(unittest.TestCase):
 
         self.assertEqual(cog.guess_sessions, {})
         self.assertEqual(cog.wordle_sessions, {})
-        self.assertNotIn((1, 3), cog.hangman_sessions)
+        self.assertEqual(cog.hangman_sessions, {})
         self.assertEqual(cog.higher_sessions, {})
 
 
