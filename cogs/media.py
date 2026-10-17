@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import re
 import time
 import urllib.parse
 from pathlib import Path
@@ -24,6 +25,23 @@ from openai import AsyncOpenAI
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 25_000_000
+
+
+def _strip_emojis(text: str) -> str:
+    """Remove emoji and presentation/sequence characters from Gemini output."""
+    text = re.sub(
+        "["
+        "\\U0001F000-\\U0001FAFF"
+        "\\U0001FC00-\\U0001FFFF"
+        "\\u2300-\\u23FF"
+        "\\u2600-\\u27BF"
+        "\\u2B00-\\u2BFF"
+        "\\uFE0E\\uFE0F\\u200D\\u20E3"
+        "]",
+        "",
+        text,
+    )
+    return text
 
 
 class SearchCog(commands.Cog):
@@ -197,6 +215,7 @@ class SearchCog(commands.Cog):
             "通常只回 1 到 3 句，能一句講完就不要寫一段；不要列點、不要長篇解釋、不要每次都反問。"
             "不要重複使用制式開場，不要說「作為 AI」，不要把普通聊天變成正式回答。"
             "可以友善互嗆但不要針對脆弱點羞辱人。遇到真正嚴肅、危險或求助的問題，先正常認真回應。"
+            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只用純文字。"
         )
         try:
             response = await asyncio.wait_for(
@@ -207,7 +226,7 @@ class SearchCog(commands.Cog):
                 ),
                 timeout=18,
             )
-            return (getattr(response, "text", "") or "").strip()
+            return _strip_emojis((getattr(response, "text", "") or "").strip())
         except Exception as exc:
             self._log_ai_error("Gemini chat", exc)
             return ""
@@ -216,7 +235,11 @@ class SearchCog(commands.Cog):
         if not self.gemini_client:
             return ""
 
-        request = f"{system_instruction}\n\n{prompt}"
+        request = (
+            f"{system_instruction}\n\n"
+            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。\n\n"
+            f"{prompt}"
+        )
 
         for attempt in range(3):
             try:
@@ -227,7 +250,7 @@ class SearchCog(commands.Cog):
                     ),
                     timeout=35,
                 )
-                return (getattr(response, "text", "") or "").strip()
+                return _strip_emojis((getattr(response, "text", "") or "").strip())
             except Exception as exc:
                 self._log_ai_error(f"Gemini API attempt {attempt + 1}/3", exc)
                 if attempt < 2:
@@ -525,7 +548,7 @@ class SearchCog(commands.Cog):
 
         answer = await self._generate_gemini_chat(prompt)
         if not answer:
-            await interaction.followup.send("蛤我剛剛當機了，等一下再嘴我一次 😂")
+            await interaction.followup.send("蛤我剛剛當機了，等一下再嘴我一次。")
             return
 
         await self._send_ai_output(
