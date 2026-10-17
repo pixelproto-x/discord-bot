@@ -380,8 +380,8 @@ class SearchCog(commands.Cog):
             print(f"OCR error: {exc}")
             await interaction.followup.send("OCR 這次失敗了，再試一次。")
 
-    @ai.command(name="ask", description="詢問 Gemini AI")
-    @app_commands.describe(prompt="想問的內容")
+    @ai.command(name="chat", description="和 Gemini 幹話聊天、吐槽與接梗")
+    @app_commands.describe(prompt="想聊的內容")
     async def ask(self, interaction, prompt: str):
         prompt = prompt.strip()
 
@@ -413,7 +413,7 @@ class SearchCog(commands.Cog):
 
         answer = await self._generate_ai(
             prompt,
-            "你是在朋友群裡幫忙的 Discord Bot。回答自然、清楚、直接。使用繁體中文。",
+            "你是 Discord 群組裡很會接梗的聊天夥伴，主要負責輕鬆閒聊、幹話、吐槽和搞笑互動。語氣自然、有個性但不要惡意羞辱人；可以幽默，不要把普通閒聊講成正式報告。使用繁體中文，除非使用者使用其他語言。若對方真的在問重要或需要認真處理的事，仍要友善且負責任地回答。",
         )
 
         await self._send_ai_output(
