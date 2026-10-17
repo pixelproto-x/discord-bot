@@ -8,3 +8,4 @@ tzdata>=2024.1,<2027
 imageio-ffmpeg==0.6.0
 google-genai>=1.0.0
 python-dotenv>=1.0.0
+openai>=1.0.0
