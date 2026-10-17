@@ -36,25 +36,26 @@ class GiveawayCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.views_registered = False
+        self.registered_giveaway_ids: set[int] = set()
         self.finish_locks = {}
 
     @commands.Cog.listener()
     async def on_ready(self):
-        if self.views_registered:
-            return
         for row in storage.list_active_giveaways():
+            giveaway_id = int(row["id"])
+            if giveaway_id in self.registered_giveaway_ids or not row["message_id"]:
+                continue
             guild = self.bot.get_guild(row["guild_id"])
-            if not guild or not row["message_id"]:
+            if not guild:
                 continue
             try:
                 self.bot.add_view(
-                    GiveawayView(int(row["id"])),
+                    GiveawayView(giveaway_id),
                     message_id=row["message_id"],
                 )
+                self.registered_giveaway_ids.add(giveaway_id)
             except Exception as exc:
-                print(f"Failed to restore giveaway {row['id']}: {exc!r}")
-        self.views_registered = True
+                print(f"Failed to restore giveaway {giveaway_id}: {exc!r}")
 
 
     @staticmethod
