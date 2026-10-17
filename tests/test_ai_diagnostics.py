@@ -117,5 +117,29 @@ class AiDiagnosticsTests(unittest.TestCase):
         self.assertIn("上一個回覆太短", generate_content.await_args_list[1].kwargs["contents"])
 
 
+    def test_ai_provider_diagnostic_commands_respect_shared_cooldown(self):
+        async def exercise(command, client_attr, client_value, model_attr, model_value):
+            cog = object.__new__(SearchCog)
+            setattr(cog, client_attr, client_value)
+            setattr(cog, model_attr, model_value)
+            cog._check_ai_limit = AsyncMock(return_value=False)
+            interaction = SimpleNamespace(
+                response=SimpleNamespace(send_message=AsyncMock()),
+                followup=SimpleNamespace(send=AsyncMock()),
+            )
+            await command.callback(cog, interaction)
+            cog._check_ai_limit.assert_awaited_once_with(interaction)
+            interaction.response.defer.assert_not_awaited() if hasattr(interaction.response, "defer") else None
+
+        asyncio.run(exercise(
+            SearchCog.ai_groq_test,
+            "groq_client", object(), "groq_model", "openai/gpt-oss-120b"
+        ))
+        asyncio.run(exercise(
+            SearchCog.ai_test,
+            "gemini_client", object(), "gemini_model", "gemini-3.8-flash"
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()
