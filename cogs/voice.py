@@ -16,6 +16,21 @@ class VoiceCog(commands.Cog):
         self.joined_at: dict[tuple[int,int], float] = {}
         self.temp_channels: set[int] = set()
 
+    async def _delete_temp_channel(self, channel, *, reason: str) -> bool:
+        """Delete a temporary channel before removing its persistent tracking record."""
+        try:
+            await channel.delete(reason=reason)
+        except discord.NotFound:
+            # It is already gone, so removing the stale database entry is safe.
+            pass
+        except (discord.Forbidden, discord.HTTPException):
+            # Keep the record so startup or a later voice event can retry cleanup.
+            return False
+
+        storage.remove_temp_channel(channel.id)
+        self.temp_channels.discard(channel.id)
+        return True
+
     @voice.command(name="temp", description="在你目前的語音位置建立一個臨時語音頻道")
     @app_commands.describe(name="頻道名稱")
     async def temp(self, interaction, name: str = "臨時語音"):
@@ -38,12 +53,7 @@ class VoiceCog(commands.Cog):
             await interaction.followup.send(f"好了，幫你開了 {channel.mention}。沒人了我會幫你清掉。")
         except discord.Forbidden:
             if channel:
-                storage.remove_temp_channel(channel.id)
-                self.temp_channels.discard(channel.id)
-                try:
-                    await channel.delete(reason="臨時語音建立未完成")
-                except discord.HTTPException:
-                    pass
+                await self._delete_temp_channel(channel, reason="臨時語音建立未完成")
             await interaction.followup.send("我沒有建立或移動語音頻道的權限。", ephemeral=True)
         except discord.HTTPException:
             if channel:
@@ -131,16 +141,10 @@ class VoiceCog(commands.Cog):
                 continue
             self.temp_channels.add(channel.id)
             if not channel.members:
-                try:
-                    await channel.delete(reason="臨時語音無人自動刪除")
-                except discord.Forbidden:
-                    continue
-                except discord.NotFound:
-                    pass
-                except discord.HTTPException:
-                    continue
-                storage.remove_temp_channel(channel.id)
-                self.temp_channels.discard(channel.id)
+                await self._delete_temp_channel(
+                    channel,
+                    reason="臨時語音無人自動刪除",
+                )
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -182,12 +186,10 @@ class VoiceCog(commands.Cog):
 
         for ch in [before.channel, after.channel]:
             if ch and ch.id in self.temp_channels and len(ch.members) == 0:
-                try:
-                    await ch.delete(reason="臨時語音無人自動刪除")
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                    pass
-                storage.remove_temp_channel(ch.id)
-                self.temp_channels.discard(ch.id)
+                await self._delete_temp_channel(
+                    ch,
+                    reason="臨時語音無人自動刪除",
+                )
 
 
 async def setup(bot):
