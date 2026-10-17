@@ -337,6 +337,7 @@ class SearchCog(commands.Cog):
             "可以互嗆、嘴砲、回得有點欠揍，但要像熟人鬧著玩，不要針對外貌、身分、創傷或其他脆弱點羞辱人。"
             "不要每次都附和；覺得對方講得不合理可以直接講，別為了討好而假裝同意。"
             "通常回 1 到 4 句，長短看情境；梗就短接，值得聊的才多講幾句。不要硬湊字、不要寫成作文。"
+            "不要把朋友的每句話都當成需要最短回答的指令；可以補一句自己的反應、吐槽或延伸，讓對話像真的在來回聊天。"
             "少用反問句，不要每句最後都問問題；能直接接話就直接接。避免重複開場、總結和多餘的客套結尾。"
             "不要說「作為 AI」，不要提自己在模仿朋友，也不要解釋你正在使用什麼聊天風格。"
             "遇到真正嚴肅、危險或求助的問題時，先認真幫忙，不要硬開玩笑。"
@@ -384,7 +385,10 @@ class SearchCog(commands.Cog):
                 fatal = status in (400, 401, 403, 404) or any(
                     marker in error_type for marker in ("authentication", "permissiondenied", "notfound")
                 )
-                if attempt == 0 and not fatal:
+                # A 429 quota/rate-limit response usually will not recover after a sub-second retry.
+                # Fall back immediately instead of sending a second request that is likely to fail too.
+                rate_limited = status == 429 or "resource_exhausted" in str(exc).lower()
+                if attempt == 0 and not fatal and not rate_limited:
                     await asyncio.sleep(0.8)
                     continue
                 break
