@@ -724,7 +724,7 @@ class SearchCog(commands.Cog):
                 "❌ Groq Client 沒有建立。\n"
                 f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
                 f".env 能讀到 GROQ_API_KEY：{'是' if key_in_file else '否'}\n"
-                "不會顯示金鑰內容。請確認 OPENAI_API_KEY 在專案根目錄的 .env 中，然後重啟 Bot。",
+                "不會顯示金鑰內容。請確認 GROQ_API_KEY 在專案根目錄的 .env 中，然後重啟 Bot。",
                 ephemeral=True,
             )
             return
