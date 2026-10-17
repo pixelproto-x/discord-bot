@@ -56,6 +56,10 @@ class SearchCog(commands.Cog):
         self.ai_cooldown_seconds = 8
         self.ocr_cooldown_seconds = 8
         self._last_cooldown_prune = 0.0
+        self.chat_cooldowns = {}
+        self.chat_history = {}
+        self.chat_cooldown_seconds = 4
+        self.chat_history_limit = 8
         self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
@@ -340,7 +344,7 @@ class SearchCog(commands.Cog):
         if not self.gemini_client:
             return await self._generate_groq_text(
                 prompt, system_instruction, label="Groq chat (Gemini unavailable)",
-                max_tokens=256, temperature=1.0,
+                max_tokens=1024, temperature=1.0,
             )
 
         base_contents = (
@@ -363,7 +367,7 @@ class SearchCog(commands.Cog):
                         model=self.gemini_model,
                         contents=contents,
                         config={
-                            "max_output_tokens": 768,
+                            "max_output_tokens": 1536,
                             "thinking_config": {"thinking_level": "low"},
                         },
                     ),
@@ -423,7 +427,7 @@ class SearchCog(commands.Cog):
             prompt,
             system_instruction,
             label=f"Groq chat fallback ({failure_reason})",
-            max_tokens=256,
+            max_tokens=1024,
             temperature=1.0,
         )
 
@@ -488,6 +492,102 @@ class SearchCog(commands.Cog):
             system_instruction,
             label=f"Groq fallback ({last_failure})",
         )
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Reply to direct mentions/replies like a casual server friend, without interrupting every chat."""
+        if message.author.bot or message.guild is None or self.bot.user is None:
+            return
+
+        bot_id = self.bot.user.id
+        is_mentioned = any(user.id == bot_id for user in message.mentions)
+        is_reply_to_bot = False
+        reference = message.reference
+        if reference and reference.message_id:
+            referenced = reference.resolved
+            if referenced is None:
+                try:
+                    referenced = await message.channel.fetch_message(reference.message_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    referenced = None
+            is_reply_to_bot = bool(
+                referenced and getattr(getattr(referenced, "author", None), "id", None) == bot_id
+            )
+
+        if not (is_mentioned or is_reply_to_bot):
+            return
+
+        now = time.monotonic()
+        cooldown_key = (message.guild.id, message.channel.id, message.author.id)
+        last = self.chat_cooldowns.get(cooldown_key, 0.0)
+        if now - last < self.chat_cooldown_seconds:
+            return
+        self.chat_cooldowns[cooldown_key] = now
+
+        # Keep cooldown/history caches bounded over long-running bot sessions.
+        if len(self.chat_cooldowns) > 2000:
+            cutoff = now - self.chat_cooldown_seconds
+            self.chat_cooldowns = {
+                key: stamp for key, stamp in self.chat_cooldowns.items()
+                if stamp >= cutoff
+            }
+        if len(self.chat_history) > 500:
+            self.chat_history = dict(list(self.chat_history.items())[-300:])
+
+        prompt = re.sub(rf"<@!?{bot_id}>", "", message.content).strip()
+        prompt = prompt or "有人叫了你一聲，接一句自然又有梗的話。"
+        if len(prompt) > 3000:
+            prompt = prompt[:3000]
+
+        history_key = (message.guild.id, message.channel.id)
+        history = self.chat_history.get(history_key, [])
+        if history:
+            context = "\n".join(
+                f"{'朋友' if role == 'user' else '你'}：{text}"
+                for role, text in history[-self.chat_history_limit:]
+            )
+            prompt = f"最近的聊天上下文（用來接話，不要重複摘要）：\n{context}\n\n這次朋友說：{prompt}"
+
+        try:
+            async with message.channel.typing():
+                answer = await self._generate_gemini_chat(prompt)
+            if not answer:
+                await message.reply(
+                    "我剛剛卡了一下，等我一下再嘴你。",
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                return
+
+            answer = answer.strip()
+            if len(answer) > 12000:
+                answer = answer[:12000].rsplit(" ", 1)[0].rstrip() or answer[:12000]
+
+            # Record only successful, non-empty turns so the next reply can follow the thread.
+            history = self.chat_history.setdefault(history_key, [])
+            history.extend([
+                ("user", prompt[-3000:]),
+                ("assistant", answer[-3000:]),
+            ])
+            self.chat_history[history_key] = history[-self.chat_history_limit:]
+
+            chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)]
+            for index, chunk in enumerate(chunks):
+                if index == 0:
+                    await message.reply(
+                        chunk,
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                else:
+                    await message.channel.send(
+                        chunk,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            self._log_ai_error("Discord casual chat send", exc)
+        except Exception as exc:
+            self._log_ai_error("Discord casual chat", exc)
 
     @search.command(name="youtube", description="搜尋 YouTube 並列出幾個結果")
     @app_commands.describe(query="關鍵字")
