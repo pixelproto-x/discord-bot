@@ -42,10 +42,33 @@ class GameCog(commands.Cog):
     def allowed(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild)
 
+    def _prune_expired_sessions(self, now: float | None = None):
+        now = time.monotonic() if now is None else now
+        for name, ttl in (
+            ("guess_sessions", 600),
+            ("wordle_sessions", 1800),
+            ("hangman_sessions", 1800),
+        ):
+            sessions = getattr(self, name, None)
+            if not isinstance(sessions, dict):
+                continue
+            for key, state in list(sessions.items()):
+                started = state.get("started") if isinstance(state, dict) else None
+                if not isinstance(started, (int, float)) or now - started > ttl:
+                    sessions.pop(key, None)
+
+        higher_sessions = getattr(self, "higher_sessions", None)
+        if isinstance(higher_sessions, dict):
+            for key, state in list(higher_sessions.items()):
+                if not isinstance(state, dict) or now > state.get("expires", 0):
+                    higher_sessions.pop(key, None)
+
     def session_key(self, interaction: discord.Interaction):
+        self._prune_expired_sessions()
         return (interaction.guild.id if interaction.guild else 0, interaction.user.id)
 
     def answer_key(self, interaction: discord.Interaction):
+        self._prune_expired_sessions()
         return (
             interaction.guild.id if interaction.guild else 0,
             interaction.channel.id if interaction.channel else 0,
