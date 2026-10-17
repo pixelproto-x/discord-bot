@@ -79,7 +79,7 @@ class AiDiagnosticsTests(unittest.TestCase):
         self.assertTrue(answer)
         config = generate_content.await_args.kwargs["config"]
         self.assertEqual(config["thinking_config"]["thinking_level"], "low")
-        self.assertEqual(config["max_output_tokens"], 768)
+        self.assertEqual(config["max_output_tokens"], 1536)
         self.assertNotIn("temperature", config)
 
 
