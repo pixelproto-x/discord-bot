@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
 
 import discord
 from discord import app_commands
@@ -297,7 +297,6 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
                 skipped.append(resolved.name)
         else:
             skipped.append(str(selected.id))
-
     if not valid_channels:
         active_spam.pop(job_key, None)
         await interaction.followup.send("選的頻道我都沒有足夠權限。", ephemeral=True)
