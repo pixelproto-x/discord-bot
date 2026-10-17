@@ -131,15 +131,23 @@ class GiveawayCog(commands.Cog):
             await interaction.response.send_message("這個只有管理人員可以用。", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        await self.finish(giveaway_id, interaction.guild, manual=True)
-        await interaction.followup.send("好，抽獎處理完了。", ephemeral=True)
+        finished = await self.finish(giveaway_id, interaction.guild, manual=True)
+        await interaction.followup.send(
+            "抽獎已結束並完成抽選。" if finished
+            else "找不到這個抽獎、它已經結束，或它不屬於這個伺服器。",
+            ephemeral=True,
+        )
 
     async def finish(self, giveaway_id, guild, manual=False):
         lock = self.finish_locks.setdefault(int(giveaway_id), __import__("asyncio").Lock())
         async with lock:
             row = storage.get_giveaway(giveaway_id)
             if not row or row["ended"] or row["guild_id"] != guild.id:
-                return
+                return False
+
+            # Close the giveaway before awaiting Discord API calls so late button clicks
+            # cannot enter after the winner list has already been selected.
+            storage.end_giveaway(giveaway_id)
             entries = storage.get_giveaway_entries(giveaway_id)
             winners = random.sample(entries, min(row["winners"], len(entries))) if entries else []
             ch = guild.get_channel(row["channel_id"])
@@ -163,7 +171,7 @@ class GiveawayCog(commands.Cog):
                     except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                         pass
             storage.record_giveaway_winners(giveaway_id, winners)
-            storage.end_giveaway(giveaway_id)
+            return True
 
 
 
