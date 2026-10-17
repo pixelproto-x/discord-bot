@@ -29,7 +29,7 @@ MAX_IMAGE_PIXELS = 25_000_000
 class SearchCog(commands.Cog):
     search = app_commands.Group(name="search", description="在 YouTube、Wikipedia、GitHub 找東西")
     image = app_commands.Group(name="image", description="簡單的圖片處理工具")
-    ai = app_commands.Group(name="ai", description="Gemini AI 工具")
+    ai = app_commands.Group(name="ai", description="聊天、問答、翻譯與摘要工具")
 
     def __init__(self, bot):
         self.bot = bot
@@ -76,6 +76,95 @@ class SearchCog(commands.Cog):
             self.ai_cooldown_seconds,
         )
 
+    @staticmethod
+    def _api_status_code(exc: Exception):
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+        try:
+            return int(status) if status is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _friendly_ai_error(cls, provider: str, exc: Exception) -> str:
+        """Turn provider exceptions into useful user-facing messages without exposing raw errors."""
+        status = cls._api_status_code(exc)
+        error_type = type(exc).__name__.lower()
+        details = str(exc).lower()
+        provider_name = "OpenAI" if provider.lower() == "openai" else "Gemini"
+
+        if isinstance(exc, asyncio.TimeoutError) or "timeout" in error_type:
+            return f"⏱️ {provider_name} 回覆逾時。可以縮短問題後再試一次。"
+
+        if any(marker in details for marker in (
+            "credit_balance_exhausted",
+            "insufficient_quota",
+            "no credits remaining",
+            "billing hard limit",
+            "exceeded your current quota",
+        )):
+            return (
+                f"💳 {provider_name} API 額度或帳戶餘額不足，暫時無法回答。"
+                "需要由機器人管理者確認 API 用量／免費額度，或改用其他 AI 服務。"
+            )
+
+        if status == 401 or "authenticationerror" in error_type:
+            return (
+                f"🔐 {provider_name} 驗證失敗，API 憑證可能無效或已撤銷。"
+                "需要由機器人管理者更新設定。"
+            )
+
+        if status == 403 or "permissiondenied" in error_type:
+            return (
+                f"⛔ {provider_name} 目前沒有權限使用這項服務或模型。"
+                "請由機器人管理者確認帳戶、專案權限與模型設定。"
+            )
+
+        if status == 404 or "model_not_found" in details or "model not found" in details:
+            return (
+                f"🧩 {provider_name} 找不到目前設定的模型，或此帳戶無法使用該模型。"
+                "需要由機器人管理者確認模型名稱與可用權限。"
+            )
+
+        if status == 429 or "ratelimit" in error_type or "resource_exhausted" in details:
+            if provider_name == "Gemini" and (
+                "quota" in details or "resource_exhausted" in details
+            ):
+                return (
+                    "📊 Gemini 已達目前模型或帳戶的配額上限。"
+                    "請等配額重置後再試，或暫時改用其他 AI 服務。"
+                )
+            return (
+                f"🐢 {provider_name} 目前達到請求頻率或用量上限。"
+                "請稍後再試；如果帳戶額度已用完，需要先恢復可用額度。"
+            )
+
+        if "connection" in error_type or "connecterror" in error_type:
+            return f"🌐 目前連不上 {provider_name} 服務，請確認機器人主機的網路後再試。"
+
+        if status is not None and status >= 500:
+            return f"🛠️ {provider_name} 服務暫時異常，請過一會兒再試。"
+
+        if status == 400:
+            return (
+                f"📝 {provider_name} 無法接受這個請求。請縮短問題或換個方式描述；"
+                "若每個問題都失敗，可能是模型設定不相容。"
+            )
+
+        status_note = f"（HTTP {status}）" if status is not None else ""
+        return (
+            f"⚠️ {provider_name} 這次沒有完成回覆{status_note}。"
+            "請稍後再試，或改用其他 AI 指令。"
+        )
+
+    @staticmethod
+    def _log_ai_error(label: str, exc: Exception):
+        # Keep diagnostics local and minimal; never print raw exception bodies or credentials.
+        status = SearchCog._api_status_code(exc)
+        status_note = f", HTTP {status}" if status is not None else ""
+        print(f"[{label}] {type(exc).__name__}{status_note}")
+
     async def _send_ai_output(self, interaction, answer: str, filename: str, empty_message: str):
         answer = (answer or "").strip()
         if not answer:
@@ -120,10 +209,7 @@ class SearchCog(commands.Cog):
             )
             return (getattr(response, "text", "") or "").strip()
         except Exception as exc:
-            detail = str(exc)
-            if self.gemini_key:
-                detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
-            print(f"[Gemini chat] {type(exc).__name__}: {detail[:500]}")
+            self._log_ai_error("Gemini chat", exc)
             return ""
 
     async def _generate_ai(self, prompt: str, system_instruction: str) -> str:
@@ -143,10 +229,7 @@ class SearchCog(commands.Cog):
                 )
                 return (getattr(response, "text", "") or "").strip()
             except Exception as exc:
-                detail = str(exc)
-                if self.gemini_key:
-                    detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
-                print(f"Gemini API error (attempt {attempt + 1}/3): {type(exc).__name__}: {detail[:600]}")
+                self._log_ai_error(f"Gemini API attempt {attempt + 1}/3", exc)
                 if attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
 
@@ -592,16 +675,11 @@ class SearchCog(commands.Cog):
                 "OpenAI 這次沒有產生文字回覆。",
             )
         except asyncio.TimeoutError:
-            print(f"[OpenAI ask] TimeoutError: model={self.openai_model}")
-            await interaction.followup.send("OpenAI 回覆逾時，請稍後再試。")
+            self._log_ai_error("OpenAI ask", exc)
+            await interaction.followup.send(self._friendly_ai_error("OpenAI", exc))
         except Exception as exc:
-            detail = str(exc)
-            if self.openai_key:
-                detail = detail.replace(self.openai_key, "[REDACTED_API_KEY]")
-            print(f"[OpenAI ask] {type(exc).__name__}: {detail[:800]}")
-            await interaction.followup.send(
-                f"OpenAI 回覆失敗（{type(exc).__name__}）。請查看 Bot 終端機的診斷訊息；不會顯示 API Key。"
-            )
+            self._log_ai_error("OpenAI ask", exc)
+            await interaction.followup.send(self._friendly_ai_error("OpenAI", exc))
 
     @ai.command(name="openai-test", description="實際測試 OpenAI API 與模型是否可用")
     async def ai_openai_test(self, interaction: discord.Interaction):
@@ -631,15 +709,15 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
         except asyncio.TimeoutError:
-            print(f"[OpenAI test] TimeoutError: model={self.openai_model}")
-            await interaction.followup.send("❌ OpenAI API 測試逾時（25 秒）。", ephemeral=True)
-        except Exception as exc:
-            detail = str(exc)
-            if self.openai_key:
-                detail = detail.replace(self.openai_key, "[REDACTED_API_KEY]")
-            print(f"[OpenAI test] {type(exc).__name__}: {detail[:800]}")
+            self._log_ai_error("OpenAI test", exc)
             await interaction.followup.send(
-                f"❌ OpenAI API 測試失敗。錯誤類型：`{type(exc).__name__}`。請查看 Bot 終端機的診斷訊息；金鑰不會顯示。",
+                self._friendly_ai_error("OpenAI", exc),
+                ephemeral=True,
+            )
+        except Exception as exc:
+            self._log_ai_error("OpenAI test", exc)
+            await interaction.followup.send(
+                self._friendly_ai_error("OpenAI", exc),
                 ephemeral=True,
             )
 
@@ -678,20 +756,15 @@ class SearchCog(commands.Cog):
                     ephemeral=True,
                 )
         except asyncio.TimeoutError:
-            print(f"[Gemini test] TimeoutError: model={self.gemini_model}")
+            self._log_ai_error("Gemini test", exc)
             await interaction.followup.send(
-                "❌ Gemini API 測試逾時（25 秒）。請檢查網路或稍後再試。",
+                self._friendly_ai_error("Gemini", exc),
                 ephemeral=True,
             )
         except Exception as exc:
-            detail = str(exc)
-            if self.gemini_key:
-                detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
-            print(f"[Gemini test] {type(exc).__name__}: {detail[:800]}")
+            self._log_ai_error("Gemini test", exc)
             await interaction.followup.send(
-                "❌ Gemini API 測試失敗。\n"
-                f"錯誤類型：`{type(exc).__name__}`\n"
-                "請查看啟動 Bot 的終端機中 Gemini test 診斷行；金鑰不會顯示在 Discord。",
+                self._friendly_ai_error("Gemini", exc),
                 ephemeral=True,
             )
 
