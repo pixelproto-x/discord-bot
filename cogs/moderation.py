@@ -1,7 +1,7 @@
 import asyncio
 import re
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import timedelta
 
 import discord
