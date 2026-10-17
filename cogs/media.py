@@ -107,13 +107,21 @@ class SearchCog(commands.Cog):
 
     @staticmethod
     def _api_status_code(exc: Exception):
-        status = getattr(exc, "status_code", None)
-        if status is None:
-            status = getattr(getattr(exc, "response", None), "status_code", None)
-        try:
-            return int(status) if status is not None else None
-        except (TypeError, ValueError):
-            return None
+        """Extract HTTP status codes from common SDK exception shapes."""
+        candidates = (
+            getattr(exc, "status_code", None),
+            getattr(getattr(exc, "response", None), "status_code", None),
+            getattr(exc, "code", None),
+        )
+        for candidate in candidates:
+            candidate = getattr(candidate, "value", candidate)
+            if isinstance(candidate, int) and 100 <= candidate <= 599:
+                return candidate
+            if candidate is not None:
+                match = re.search(r"\b([1-5][0-9]{2})\b", str(candidate))
+                if match:
+                    return int(match.group(1))
+        return None
 
     @classmethod
     def _friendly_ai_error(cls, provider: str, exc: Exception) -> str:
@@ -189,10 +197,41 @@ class SearchCog(commands.Cog):
 
     @staticmethod
     def _log_ai_error(label: str, exc: Exception):
-        # Keep diagnostics local and minimal; never print raw exception bodies or credentials.
+        """Log useful diagnostic metadata without dumping prompts, response bodies, or secrets."""
         status = SearchCog._api_status_code(exc)
-        status_note = f", HTTP {status}" if status is not None else ""
-        print(f"[{label}] {type(exc).__name__}{status_note}")
+        fields = [f"error={type(exc).__name__}"]
+        if status is not None:
+            fields.append(f"http_status={status}")
+
+        error_code = getattr(exc, "code", None)
+        if error_code is not None:
+            safe_code = str(getattr(error_code, "name", None) or error_code)
+            if re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", safe_code):
+                fields.append(f"error_code={safe_code}")
+
+        request_id = (
+            getattr(exc, "request_id", None)
+            or getattr(exc, "requestId", None)
+            or getattr(getattr(exc, "response", None), "headers", {}).get("x-request-id")
+        )
+        if request_id is not None and re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", str(request_id)):
+            fields.append(f"request_id={request_id}")
+
+        print(f"[{label}] " + " ".join(fields))
+
+    @staticmethod
+    def _gemini_response_stats(response):
+        """Return finish reason and token usage; never log generated text or the prompt."""
+        candidates = getattr(response, "candidates", None) or []
+        finish_reason = "NO_CANDIDATE"
+        if candidates:
+            raw_reason = getattr(candidates[0], "finish_reason", None)
+            finish_reason = str(getattr(raw_reason, "name", None) or raw_reason or "UNKNOWN").upper()
+
+        usage = getattr(response, "usage_metadata", None)
+        input_tokens = getattr(usage, "prompt_token_count", None) or 0
+        output_tokens = getattr(usage, "candidates_token_count", None) or 0
+        return finish_reason, input_tokens, output_tokens
 
     async def _send_ai_output(self, interaction, answer: str, filename: str, empty_message: str):
         answer = (answer or "").strip()
@@ -215,59 +254,202 @@ class SearchCog(commands.Cog):
                 file=discord.File(data, filename=filename),
             )
 
-    async def _generate_gemini_chat(self, prompt: str) -> str:
-        """Fast, short Gemini responses tuned for casual Discord banter."""
-        if not self.gemini_client:
+    async def _generate_groq_text(
+        self,
+        prompt: str,
+        system_instruction: str,
+        *,
+        label: str = "Groq fallback",
+        max_tokens: int = 768,
+        temperature: float = 0.7,
+    ) -> str:
+        """Generate a fallback answer through Groq using the same task instructions."""
+        if not self.groq_client:
+            print(f"[{label}] skipped; GROQ_API_KEY is not configured")
             return ""
 
-        system_instruction = (
-            "你是 Discord 群組裡那個嘴很快、很會接梗的朋友，不是客服也不是老師。"
-            "用自然的繁體中文聊天，像真人打字：短句、口語、吐槽、幹話、反差梗都可以。"
-            "通常只回 1 到 3 句，能一句講完就不要寫一段；不要列點、不要長篇解釋、不要每次都反問。"
-            "不要重複使用制式開場，不要說「作為 AI」，不要把普通聊天變成正式回答。"
-            "可以友善互嗆但不要針對脆弱點羞辱人。遇到真正嚴肅、危險或求助的問題，先正常認真回應。"
-            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只用純文字。"
+        request = (
+            f"{system_instruction}\n\n"
+            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。"
         )
         try:
             response = await asyncio.wait_for(
-                self.gemini_client.aio.models.generate_content(
-                    model=self.gemini_model,
-                    contents=f"{system_instruction}\n\n對方說：{prompt}\n直接接話，不要解釋你在做什麼。",
-                    config={"temperature": 1.15, "max_output_tokens": 160},
+                self.groq_client.chat.completions.create(
+                    model=self.groq_model,
+                    messages=[
+                        {"role": "system", "content": request},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                 ),
-                timeout=18,
+                timeout=25,
             )
-            return _strip_emojis((getattr(response, "text", "") or "").strip())
+            choices = getattr(response, "choices", None) or []
+            choice = choices[0] if choices else None
+            answer = ((getattr(getattr(choice, "message", None), "content", None) or "") if choice else "").strip()
+            finish_reason = getattr(choice, "finish_reason", None) or "UNKNOWN"
+            usage = getattr(response, "usage", None)
+            input_tokens = getattr(usage, "prompt_tokens", None) or 0
+            output_tokens = getattr(usage, "completion_tokens", None) or 0
+            print(
+                f"[{label}] model={self.groq_model} finish_reason={finish_reason} "
+                f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
+            )
+            return _strip_emojis(answer)
         except Exception as exc:
-            self._log_ai_error("Gemini chat", exc)
+            self._log_ai_error(label, exc)
             return ""
+
+    async def _generate_gemini_chat(self, prompt: str) -> str:
+        """Generate a casual Gemini reply, retry transient failures, then fail over to Groq."""
+        system_instruction = (
+            "你是 Discord 群組裡那個嘴很快、很會接梗的朋友，不是客服也不是老師。"
+            "用自然的繁體中文聊天，像真人打字：口語、吐槽、幹話、反差梗都可以。"
+            "通常回 1 到 3 句完整、自然的聊天訊息；不要只吐兩三個詞就結束。"
+            "大多數情況可用約 15 到 60 個中文字表達清楚，但不要為了湊字硬寫。"
+            "對方只打招呼、丟短梗或明顯適合一句話回覆時，可以自然短回。"
+            "不要列點、不要長篇解釋、不要每次都反問，也不要重複制式開場。"
+            "不要說「作為 AI」，不要把普通聊天變成正式回答。"
+            "可以友善互嗆但不要針對脆弱點羞辱人。遇到真正嚴肅、危險或求助的問題，先正常認真回應。"
+            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只用純文字。"
+        )
+
+        if not self.gemini_client:
+            return await self._generate_groq_text(
+                prompt, system_instruction, label="Groq chat (Gemini unavailable)",
+                max_tokens=256, temperature=1.0,
+            )
+
+        base_contents = (
+            f"{system_instruction}\n\n對方說：{prompt}\n"
+            "直接接話，不要解釋你在做什麼。"
+        )
+        failure_reason = "gemini_failed"
+
+        for attempt in range(2):
+            contents = base_contents
+            if attempt == 1 and failure_reason == "short_response":
+                contents += (
+                    "\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
+                    "不要只回兩三個詞；仍要像朋友聊天，不要寫成正式文章。"
+                )
+
+            try:
+                response = await asyncio.wait_for(
+                    self.gemini_client.aio.models.generate_content(
+                        model=self.gemini_model,
+                        contents=contents,
+                        config={"temperature": 1.0, "max_output_tokens": 512},
+                    ),
+                    timeout=22,
+                )
+            except Exception as exc:
+                failure_reason = "gemini_error"
+                self._log_ai_error(f"Gemini chat attempt {attempt + 1}/2", exc)
+                status = self._api_status_code(exc)
+                error_type = type(exc).__name__.lower()
+                # Retry one transient failure, but do not waste time retrying bad auth/model requests.
+                fatal = status in (400, 401, 403, 404) or any(
+                    marker in error_type for marker in ("authentication", "permissiondenied", "notfound")
+                )
+                if attempt == 0 and not fatal:
+                    await asyncio.sleep(0.8)
+                    continue
+                break
+
+            try:
+                answer = (getattr(response, "text", "") or "").strip()
+            except Exception:
+                answer = ""
+
+            finish_reason, input_tokens, output_tokens = self._gemini_response_stats(response)
+            print(
+                f"[Gemini chat] model={self.gemini_model} finish_reason={finish_reason} "
+                f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
+            )
+
+            # Don't try to route around a safety block; report it as an empty result instead.
+            if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII")):
+                return ""
+
+            if "MAX_TOKENS" in finish_reason:
+                failure_reason = "max_tokens"
+                print("[Gemini chat] output stopped at the token limit; trying Groq fallback")
+                break
+
+            if not answer:
+                failure_reason = "empty_response"
+                if attempt == 0:
+                    continue
+                break
+
+            if len(answer) < 8 and len(prompt) >= 8:
+                failure_reason = "short_response"
+                if attempt == 0:
+                    print("[Gemini chat] reply unusually short; requesting one fuller reply")
+                    continue
+                print("[Gemini chat] retry was still unusually short; trying Groq fallback")
+                break
+
+            return _strip_emojis(answer)
+
+        return await self._generate_groq_text(
+            prompt,
+            system_instruction,
+            label=f"Groq chat fallback ({failure_reason})",
+            max_tokens=256,
+            temperature=1.0,
+        )
 
     async def _generate_ai(self, prompt: str, system_instruction: str) -> str:
-        if not self.gemini_client:
-            return ""
-
         request = (
             f"{system_instruction}\n\n"
             "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。\n\n"
             f"{prompt}"
         )
 
+        if not self.gemini_client:
+            return await self._generate_groq_text(
+                prompt, system_instruction, label="Groq fallback (Gemini unavailable)"
+            )
+
+        last_failure = "gemini_failed"
         for attempt in range(3):
             try:
                 response = await asyncio.wait_for(
                     self.gemini_client.aio.models.generate_content(
                         model=self.gemini_model,
                         contents=request,
+                        config={"max_output_tokens": 2048},
                     ),
                     timeout=35,
                 )
-                return _strip_emojis((getattr(response, "text", "") or "").strip())
+                try:
+                    answer = (getattr(response, "text", "") or "").strip()
+                except Exception:
+                    answer = ""
+                finish_reason, input_tokens, output_tokens = self._gemini_response_stats(response)
+                print(
+                    f"[Gemini API] model={self.gemini_model} finish_reason={finish_reason} "
+                    f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
+                )
+                if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII")):
+                    return ""
+                if answer and "MAX_TOKENS" not in finish_reason:
+                    return _strip_emojis(answer)
+                last_failure = "max_tokens" if "MAX_TOKENS" in finish_reason else "empty_response"
             except Exception as exc:
+                last_failure = "gemini_error"
                 self._log_ai_error(f"Gemini API attempt {attempt + 1}/3", exc)
                 if attempt < 2:
-                    await asyncio.sleep(1.5 * (attempt + 1))
+                    await asyncio.sleep(1.0 * (attempt + 1))
 
-        return ""
+        return await self._generate_groq_text(
+            prompt,
+            system_instruction,
+            label=f"Groq fallback ({last_failure})",
+        )
 
     @search.command(name="youtube", description="搜尋 YouTube 並列出幾個結果")
     @app_commands.describe(query="關鍵字")
@@ -531,9 +713,9 @@ class SearchCog(commands.Cog):
     async def ask(self, interaction, prompt: str):
         prompt = prompt.strip()
 
-        if not self.gemini_client:
+        if not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini AI 還沒設定 GEMINI_API_KEY。",
+                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
                 ephemeral=True,
             )
             return
@@ -559,7 +741,7 @@ class SearchCog(commands.Cog):
 
         answer = await self._generate_gemini_chat(prompt)
         if not answer:
-            await interaction.followup.send("蛤我剛剛當機了，等一下再嘴我一次。")
+            await interaction.followup.send("AI 這次沒有產生正常回覆，Gemini 與 Groq 備援都沒接上。請稍後再試。")
             return
 
         await self._send_ai_output(
