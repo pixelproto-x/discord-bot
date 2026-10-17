@@ -58,9 +58,20 @@ class SearchCog(commands.Cog):
         self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
-        self.openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-        self.openai_client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
+        self.groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        self.groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
+        self.groq_client = (
+            AsyncOpenAI(
+                api_key=self.groq_key,
+                base_url="https://api.groq.com/openai/v1",
+            )
+            if self.groq_key
+            else None
+        )
+        if self.groq_client:
+            print(f"[Groq] GROQ_API_KEY loaded; model={self.groq_model}")
+        else:
+            print("[Groq] GROQ_API_KEY is missing; /ai ask needs a Groq API key in the project-root .env.")
 
         if self.gemini_client:
             print(f"[Gemini] GEMINI_API_KEY loaded; model={self.gemini_model}")
@@ -110,7 +121,7 @@ class SearchCog(commands.Cog):
         status = cls._api_status_code(exc)
         error_type = type(exc).__name__.lower()
         details = str(exc).lower()
-        provider_name = "OpenAI" if provider.lower() == "openai" else "Gemini"
+        provider_name = {"openai": "OpenAI", "groq": "Groq"}.get(provider.lower(), "Gemini")
 
         if isinstance(exc, asyncio.TimeoutError) or "timeout" in error_type:
             return f"⏱️ {provider_name} 回覆逾時。可以縮短問題後再試一次。"
@@ -652,13 +663,13 @@ class SearchCog(commands.Cog):
 
 
 
-    @ai.command(name="ask", description="使用 OpenAI 認真回答問題、協助解題與除錯")
+    @ai.command(name="ask", description="使用 Groq AI 認真回答問題、協助解題與除錯")
     @app_commands.describe(question="想詢問或需要協助解決的問題")
     async def ai_ask(self, interaction: discord.Interaction, question: str):
         question = question.strip()
-        if not self.openai_client:
+        if not self.groq_client:
             await interaction.response.send_message(
-                "OpenAI 尚未設定 OPENAI_API_KEY。請確認專案根目錄的 .env，然後重新啟動 Bot。",
+                "Groq AI 還沒設定 GROQ_API_KEY。請在專案根目錄的 .env 加入金鑰，然後重新啟動 Bot。",
                 ephemeral=True,
             )
             return
@@ -673,8 +684,8 @@ class SearchCog(commands.Cog):
         await interaction.response.defer(thinking=True)
         try:
             response = await asyncio.wait_for(
-                self.openai_client.chat.completions.create(
-                    model=self.openai_model,
+                self.groq_client.chat.completions.create(
+                    model=self.groq_model,
                     messages=[
                         {
                             "role": "system",
@@ -694,25 +705,25 @@ class SearchCog(commands.Cog):
             await self._send_ai_output(
                 interaction,
                 answer,
-                "openai-answer.txt",
-                "OpenAI 這次沒有產生文字回覆。",
+                "groq-answer.txt",
+                "Groq 這次沒有產生文字回覆。",
             )
         except asyncio.TimeoutError as exc:
-            self._log_ai_error("OpenAI ask", exc)
-            await interaction.followup.send(self._friendly_ai_error("OpenAI", exc))
+            self._log_ai_error("Groq ask", exc)
+            await interaction.followup.send(self._friendly_ai_error("Groq", exc))
         except Exception as exc:
-            self._log_ai_error("OpenAI ask", exc)
-            await interaction.followup.send(self._friendly_ai_error("OpenAI", exc))
+            self._log_ai_error("Groq ask", exc)
+            await interaction.followup.send(self._friendly_ai_error("Groq", exc))
 
-    @ai.command(name="openai-test", description="實際測試 OpenAI API 與模型是否可用")
-    async def ai_openai_test(self, interaction: discord.Interaction):
-        if not self.openai_client:
+    @ai.command(name="groq-test", description="實際測試 Groq API 與模型是否可用")
+    async def ai_groq_test(self, interaction: discord.Interaction):
+        if not self.groq_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("OPENAI_API_KEY") or "").strip())
+            key_in_file = bool(str(file_values.get("GROQ_API_KEY") or "").strip())
             await interaction.response.send_message(
-                "❌ OpenAI Client 沒有建立。\n"
+                "❌ Groq Client 沒有建立。\n"
                 f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
-                f".env 能讀到 OPENAI_API_KEY：{'是' if key_in_file else '否'}\n"
+                f".env 能讀到 GROQ_API_KEY：{'是' if key_in_file else '否'}\n"
                 "不會顯示金鑰內容。請確認 OPENAI_API_KEY 在專案根目錄的 .env 中，然後重啟 Bot。",
                 ephemeral=True,
             )
@@ -720,27 +731,27 @@ class SearchCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             response = await asyncio.wait_for(
-                self.openai_client.chat.completions.create(
-                    model=self.openai_model,
+                self.groq_client.chat.completions.create(
+                    model=self.groq_model,
                     messages=[{"role": "user", "content": "請只回覆 OK。"}],
                 ),
                 timeout=25,
             )
             answer = (response.choices[0].message.content or "").strip()
             await interaction.followup.send(
-                f"✅ OpenAI API 測試成功。\n模型：`{self.openai_model}`\n測試回覆：{answer[:150] or '(空白)'}",
+                f"✅ Groq API 測試成功。\n模型：`{self.groq_model}`\n測試回覆：{answer[:150] or '(空白)'}",
                 ephemeral=True,
             )
         except asyncio.TimeoutError as exc:
-            self._log_ai_error("OpenAI test", exc)
+            self._log_ai_error("Groq test", exc)
             await interaction.followup.send(
-                self._friendly_ai_error("OpenAI", exc),
+                self._friendly_ai_error("Groq", exc),
                 ephemeral=True,
             )
         except Exception as exc:
-            self._log_ai_error("OpenAI test", exc)
+            self._log_ai_error("Groq test", exc)
             await interaction.followup.send(
-                self._friendly_ai_error("OpenAI", exc),
+                self._friendly_ai_error("Groq", exc),
                 ephemeral=True,
             )
 
