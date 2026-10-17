@@ -12,14 +12,26 @@ DB_PATH = BASE_DIR / "data" / "bot.sqlite3"
 MAX_ACTIVE_REMINDERS_PER_USER = 50
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+class ClosingConnection(sqlite3.Connection):
+    """SQLite connection that commits/rolls back and then always closes in a with block."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def connect():
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=10, factory=ClosingConnection)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=10000")
     return con
+
 
 def init_db():
     with connect() as con:
+        con.execute("PRAGMA journal_mode=WAL")
         con.executescript("""
         CREATE TABLE IF NOT EXISTS reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
