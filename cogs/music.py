@@ -246,7 +246,9 @@ class MusicCog(commands.Cog):
                 await self._play_next_locked(guild_id)
                 if player.current is song:
                     return True, f"好，正在播 **{song.title}** 🎵"
-                return True, f"加進去了：**{song.title}**。"
+                if song in player.queue:
+                    return True, f"加進去了：**{song.title}**。"
+                return False, f"這首沒能播放，已經跳過：**{song.title}**。換一首試試。"
             position = len(player.queue)
             return True, f"加進去了：**{song.title}**。現在排在第 {position} 首。"
 
