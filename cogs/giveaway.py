@@ -145,11 +145,14 @@ class GiveawayCog(commands.Cog):
             if not row or row["ended"] or row["guild_id"] != guild.id:
                 return False
 
-            # Close the giveaway before awaiting Discord API calls so late button clicks
-            # cannot enter after the winner list has already been selected.
-            storage.end_giveaway(giveaway_id)
             entries = storage.get_giveaway_entries(giveaway_id)
             winners = random.sample(entries, min(row["winners"], len(entries))) if entries else []
+
+            # Persist the result and close entries before awaiting Discord API calls.
+            # Late button clicks then cannot join after the winner list is selected.
+            storage.record_giveaway_winners(giveaway_id, winners)
+            storage.end_giveaway(giveaway_id)
+
             ch = guild.get_channel(row["channel_id"])
             if ch and row["message_id"]:
                 ending = (
@@ -170,7 +173,6 @@ class GiveawayCog(commands.Cog):
                         await ch.send(f"🎉 恭喜 {' '.join(f'<@{uid}>' for uid in winners)}！抽到的是 **{row['prize']}**。")
                     except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                         pass
-            storage.record_giveaway_winners(giveaway_id, winners)
             return True
 
 
