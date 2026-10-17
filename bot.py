@@ -23,6 +23,7 @@ from cogs import (
     giveaway,
     media,
     settings,
+    banter,
     help as help_cog,
 )
 
@@ -117,6 +118,7 @@ class Bot(commands.Bot):
             giveaway,
             media,
             settings,
+            banter,
             help_cog,
         ]
         failed_modules = []
