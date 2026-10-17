@@ -234,10 +234,19 @@ class SearchCog(commands.Cog):
             raw_reason = getattr(candidates[0], "finish_reason", None)
             finish_reason = str(getattr(raw_reason, "name", None) or raw_reason or "UNKNOWN").upper()
 
+        if not candidates:
+            feedback = getattr(response, "prompt_feedback", None)
+            block_reason = getattr(feedback, "block_reason", None)
+            if block_reason:
+                finish_reason = "PROMPT_BLOCK_" + str(
+                    getattr(block_reason, "name", None) or block_reason
+                ).upper()
+
         usage = getattr(response, "usage_metadata", None)
         input_tokens = getattr(usage, "prompt_token_count", None) or 0
         output_tokens = getattr(usage, "candidates_token_count", None) or 0
-        return finish_reason, input_tokens, output_tokens
+        thinking_tokens = getattr(usage, "thoughts_token_count", None) or 0
+        return finish_reason, input_tokens, output_tokens, thinking_tokens
 
     async def _send_ai_output(self, interaction, answer: str, filename: str, empty_message: str):
         answer = (answer or "").strip()
@@ -369,14 +378,14 @@ class SearchCog(commands.Cog):
             except Exception:
                 answer = ""
 
-            finish_reason, input_tokens, output_tokens = self._gemini_response_stats(response)
+            finish_reason, input_tokens, output_tokens, thinking_tokens = self._gemini_response_stats(response)
             print(
                 f"[Gemini chat] model={self.gemini_model} finish_reason={finish_reason} "
-                f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
+                f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens} thinking_tokens={thinking_tokens}"
             )
 
             # Don't try to route around a safety block; report it as an empty result instead.
-            if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII")):
+            if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "PROMPT_BLOCK")):
                 return ""
 
             if "MAX_TOKENS" in finish_reason:
@@ -435,12 +444,12 @@ class SearchCog(commands.Cog):
                     answer = (getattr(response, "text", "") or "").strip()
                 except Exception:
                     answer = ""
-                finish_reason, input_tokens, output_tokens = self._gemini_response_stats(response)
+                finish_reason, input_tokens, output_tokens, thinking_tokens = self._gemini_response_stats(response)
                 print(
                     f"[Gemini API] model={self.gemini_model} finish_reason={finish_reason} "
-                    f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
+                    f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens} thinking_tokens={thinking_tokens}"
                 )
-                if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII")):
+                if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "PROMPT_BLOCK")):
                     return ""
                 if answer and "MAX_TOKENS" not in finish_reason:
                     return _strip_emojis(answer)
@@ -768,9 +777,9 @@ class SearchCog(commands.Cog):
         text = text.strip()
         target = target.strip() or "繁體中文"
 
-        if not self.gemini_client:
+        if not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini AI 還沒設定 GEMINI_API_KEY。",
+                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
                 ephemeral=True,
             )
             return
@@ -811,9 +820,9 @@ class SearchCog(commands.Cog):
     async def summarize(self, interaction, text: str):
         text = text.strip()
 
-        if not self.gemini_client:
+        if not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini AI 還沒設定 GEMINI_API_KEY。",
+                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
                 ephemeral=True,
             )
             return
