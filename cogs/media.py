@@ -327,7 +327,7 @@ class SearchCog(commands.Cog):
             self._log_ai_error(label, exc)
             return ""
 
-    async def _generate_gemini_chat(self, prompt: str) -> str:
+    async def _generate_gemini_chat(self, prompt: str, visual_parts=None) -> str:
         """Generate a casual Gemini reply, retry transient failures, then fail over to Groq."""
         creator_id = 1140900506198351924
         system_instruction = (
@@ -351,6 +351,8 @@ class SearchCog(commands.Cog):
         )
 
         if not self.gemini_client:
+            if visual_parts:
+                prompt += "\\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
             return await self._generate_groq_text(
                 prompt, system_instruction, label="Groq chat (Gemini unavailable)",
                 max_tokens=1024, temperature=1.0,
@@ -363,7 +365,7 @@ class SearchCog(commands.Cog):
         failure_reason = "gemini_failed"
 
         for attempt in range(2):
-            contents = base_contents
+            contents = [base_contents, *(visual_parts or [])] if visual_parts else base_contents
             if attempt == 1 and failure_reason == "short_response":
                 contents += (
                     "\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
@@ -551,6 +553,80 @@ class SearchCog(commands.Cog):
         if len(user_prompt) > 3000:
             user_prompt = user_prompt[:3000]
 
+        # Download a small, bounded set of visuals for Gemini vision. GIFs are sampled
+        # into a few frames so the model can understand the action instead of one frame only.
+        visual_parts = []
+        visual_count = 0
+        visual_sources = []
+        for attachment in message.attachments:
+            content_type = (attachment.content_type or "").lower()
+            filename = (attachment.filename or "").lower()
+            if content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+                visual_sources.append(("attachment", attachment.url, attachment.size, content_type))
+        for sticker in message.stickers:
+            sticker_format = getattr(sticker, "format", None)
+            # Discord stickers may be PNG, APNG, or Lottie. PNG/APNG URLs are viewable;
+            # Lottie stickers are JSON animations and are skipped safely.
+            if str(getattr(sticker_format, "name", sticker_format)).upper() in ("PNG", "APNG", "1", "2"):
+                visual_sources.append(("sticker", sticker.url, 0, "image/png"))
+        for embed in message.embeds:
+            image_url = getattr(getattr(embed, "image", None), "url", None)
+            thumb_url = getattr(getattr(embed, "thumbnail", None), "url", None)
+            for url in (image_url, thumb_url):
+                if url and len(visual_sources) < 5:
+                    visual_sources.append(("embed", str(url), 0, ""))
+        try:
+            timeout = aiohttp.ClientTimeout(total=8)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                for source_kind, source_url, source_size, source_type in visual_sources:
+                    if visual_count >= 4:
+                        break
+                    if source_size and source_size > MAX_IMAGE_BYTES:
+                        continue
+                    try:
+                        async with session.get(source_url, timeout=timeout) as response:
+                            if response.status != 200:
+                                continue
+                            data = await response.content.read(MAX_IMAGE_BYTES + 1)
+                        if not data or len(data) > MAX_IMAGE_BYTES:
+                            continue
+                        with Image.open(io.BytesIO(data)) as source_image:
+                            if source_image.width * source_image.height > MAX_IMAGE_PIXELS:
+                                continue
+                            frame_count = getattr(source_image, "n_frames", 1)
+                            if frame_count > 1:
+                                # GIF/APNG: sample start, middle and end, capped to 3 frames.
+                                indexes = sorted(set((0, frame_count // 2, frame_count - 1)))
+                                for frame_index in indexes:
+                                    if visual_count >= 4:
+                                        break
+                                    source_image.seek(frame_index)
+                                    frame = source_image.convert("RGB")
+                                    frame.thumbnail((1280, 1280))
+                                    frame_bytes = io.BytesIO()
+                                    frame.save(frame_bytes, format="JPEG", quality=82)
+                                    visual_parts.append(genai.types.Part.from_bytes(
+                                        data=frame_bytes.getvalue(), mime_type="image/jpeg"
+                                    ))
+                                    visual_count += 1
+                            else:
+                                source_image = source_image.convert("RGB")
+                                source_image.thumbnail((1280, 1280))
+                                frame_bytes = io.BytesIO()
+                                source_image.save(frame_bytes, format="JPEG", quality=82)
+                                visual_parts.append(genai.types.Part.from_bytes(
+                                    data=frame_bytes.getvalue(), mime_type="image/jpeg"
+                                ))
+                                visual_count += 1
+                    except Exception as visual_exc:
+                        print(f"[Gemini vision] skipped unsupported visual: {type(visual_exc).__name__}")
+        except Exception as visual_exc:
+            print(f"[Gemini vision] download failed: {type(visual_exc).__name__}")
+        if visual_parts:
+            user_prompt += f"\\n[系統提示：訊息附帶了 {visual_count} 張圖片畫面，請實際查看並自然回應；若是 GIF，畫面可能是不同時間點。]"
+        elif message.attachments or message.stickers or message.embeds:
+            user_prompt += "\\n[訊息可能含有無法讀取的圖片、貼圖或動畫格式；若看不到內容，不要假裝看懂。]"
+
         # Include a trusted identity marker derived from Discord's author ID, not message text.
         creator_marker = (
             "[系統身分資訊：這則訊息的作者是創作者，Discord ID=1140900506198351924。]"
@@ -569,7 +645,7 @@ class SearchCog(commands.Cog):
 
         try:
             async with message.channel.typing():
-                answer = await self._generate_gemini_chat(prompt)
+                answer = await self._generate_gemini_chat(prompt, visual_parts=visual_parts)
             if not answer:
                 await message.reply(
                     "我剛剛卡了一下，等我一下再嘴你。",
