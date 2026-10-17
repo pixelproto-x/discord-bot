@@ -367,10 +367,11 @@ class SearchCog(commands.Cog):
         for attempt in range(2):
             contents = [base_contents, *(visual_parts or [])] if visual_parts else base_contents
             if attempt == 1 and failure_reason == "short_response":
-                contents += (
-                    "\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
+                retry_instruction = (
+                    "\\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
                     "不要只回兩三個詞；仍要像朋友聊天，不要寫成正式文章。"
                 )
+                contents = [*contents, retry_instruction] if isinstance(contents, list) else contents + retry_instruction
 
             try:
                 response = await asyncio.wait_for(
