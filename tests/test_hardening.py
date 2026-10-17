@@ -52,7 +52,7 @@ class GameSessionCleanupTests(unittest.TestCase):
         cog.hangman_sessions = {(1, 3): {"word": "python", "started": 99.0}}
         cog.higher_sessions = {(1, 4): {"value": 20, "expires": 99.0}}
 
-        GameCog._prune_expired_sessions(cog, now=100.0)
+        GameCog._prune_expired_sessions(cog, now=4000.0)
 
         self.assertEqual(cog.guess_sessions, {})
         self.assertEqual(cog.wordle_sessions, {})
