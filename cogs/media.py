@@ -580,9 +580,9 @@ class SearchCog(commands.Cog):
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
             key_in_file = bool(str(file_values.get("OPENAI_API_KEY") or "").strip())
             await interaction.response.send_message(
-                "❌ OpenAI Client 沒有建立。\\n"
-                f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\\n"
-                f".env 能讀到 OPENAI_API_KEY：{'是' if key_in_file else '否'}\\n"
+                "❌ OpenAI Client 沒有建立。\n"
+                f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
+                f".env 能讀到 OPENAI_API_KEY：{'是' if key_in_file else '否'}\n"
                 "不會顯示金鑰內容。請確認 OPENAI_API_KEY 在專案根目錄的 .env 中，然後重啟 Bot。",
                 ephemeral=True,
             )
@@ -598,7 +598,7 @@ class SearchCog(commands.Cog):
             )
             answer = (response.choices[0].message.content or "").strip()
             await interaction.followup.send(
-                f"✅ OpenAI API 測試成功。\\n模型：\`{self.openai_model}\`\\n測試回覆：{answer[:150] or '(空白)'}",
+                f"✅ OpenAI API 測試成功。\n模型：`{self.openai_model}`\n測試回覆：{answer[:150] or '(空白)'}",
                 ephemeral=True,
             )
         except asyncio.TimeoutError:
@@ -610,7 +610,7 @@ class SearchCog(commands.Cog):
                 detail = detail.replace(self.openai_key, "[REDACTED_API_KEY]")
             print(f"[OpenAI test] {type(exc).__name__}: {detail[:800]}")
             await interaction.followup.send(
-                f"❌ OpenAI API 測試失敗。錯誤類型：\`{type(exc).__name__}\`。請查看 Bot 終端機的診斷訊息；金鑰不會顯示。",
+                f"❌ OpenAI API 測試失敗。錯誤類型：`{type(exc).__name__}`。請查看 Bot 終端機的診斷訊息；金鑰不會顯示。",
                 ephemeral=True,
             )
 
