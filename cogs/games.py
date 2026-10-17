@@ -88,9 +88,8 @@ class GameCog(commands.Cog):
             state = None
 
         if state is None:
-            self.guess_sessions[key] = {"target": random.randint(1, 100), "started": now}
-            await interaction.response.send_message("好，數字選好了，從 1 到 100 開始猜。")
-            return
+            state = {"target": random.randint(1, 100), "started": now}
+            self.guess_sessions[key] = state
 
         target = state["target"]
         if number == target:
