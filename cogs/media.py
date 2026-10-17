@@ -356,7 +356,6 @@ class SearchCog(commands.Cog):
                         model=self.gemini_model,
                         contents=contents,
                         config={
-                            "temperature": 1.0,
                             "max_output_tokens": 768,
                             "thinking_config": {"thinking_level": "low"},
                         },
