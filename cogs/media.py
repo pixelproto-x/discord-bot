@@ -19,7 +19,7 @@ from dotenv import dotenv_values, load_dotenv
 # Load the project-root .env here as well, so this cog works even when imported
 # by an entry point that did not load dotenv first.
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
-load_dotenv(dotenv_path=ENV_FILE, override=True)
+load_dotenv(dotenv_path=ENV_FILE, override=False)
 
 from google import genai
 from openai import AsyncOpenAI
@@ -64,7 +64,7 @@ class SearchCog(commands.Cog):
         self.chat_history = {}
         self.chat_cooldown_seconds = 4
         self.chat_history_limit = 8
-        self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        self.gemini_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip())
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
         self.groq_key = os.getenv("GROQ_API_KEY", "").strip()
@@ -86,11 +86,11 @@ class SearchCog(commands.Cog):
             print(f"[Gemini] GEMINI_API_KEY loaded; model={self.gemini_model}")
         else:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or file_values.get("GOOGLE_API_KEY") or "").strip())
             print(
-                "[Gemini] GEMINI_API_KEY is missing. "
+                "[Gemini] Gemini API key is missing (GEMINI_API_KEY / GOOGLE_API_KEY). "
                 f".env exists={ENV_FILE.is_file()}, key parsed from .env={key_in_file}. "
-                "Check that GEMINI_API_KEY=YOUR_KEY is on its own line in .env."
+                "Check GEMINI_API_KEY or GOOGLE_API_KEY in the project-root .env."
             )
 
     async def _check_cooldown(self, interaction, bucket, seconds):
@@ -297,7 +297,6 @@ class SearchCog(commands.Cog):
         if not self.groq_client:
             print(f"[{label}] skipped; GROQ_API_KEY is not configured")
             return ""
-
         request = (
             f"{system_instruction}\n\n"
             "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。"
@@ -997,7 +996,6 @@ class SearchCog(commands.Cog):
             extracted = "\n".join(
                 text.strip() for text in texts if text.strip()
             )[:1800]
-
             await interaction.followup.send(
                 ("抓到的文字：\n" + extracted)
                 if extracted
@@ -1242,12 +1240,12 @@ class SearchCog(commands.Cog):
     async def ai_test(self, interaction: discord.Interaction):
         if not self.gemini_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or file_values.get("GOOGLE_API_KEY") or "").strip())
             await interaction.response.send_message(
                 "❌ Gemini Client 沒有建立。\n"
                 f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
-                f".env 能讀到 GEMINI_API_KEY：{'是' if key_in_file else '否'}\n"
-                "不會顯示金鑰內容。請確認是從含有 bot.py 的 discord-bot 資料夾啟動，並重新啟動 Bot。",
+                f".env 能讀到 Gemini API Key：{'是' if key_in_file else '否'}\n"
+                "不會顯示金鑰內容。可設定 GEMINI_API_KEY 或 GOOGLE_API_KEY；確認 .env 位於 bot.py 同一層，然後重新啟動 Bot。",
                 ephemeral=True,
             )
             return
