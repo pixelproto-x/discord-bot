@@ -3,12 +3,14 @@ import io
 import os
 import re
 import time
+import tempfile
 import urllib.parse
 from pathlib import Path
 
 import aiohttp
 import discord
 import yt_dlp
+import imageio_ffmpeg
 from PIL import Image, ImageStat
 from discord import app_commands
 from discord.ext import commands
@@ -25,6 +27,8 @@ from openai import AsyncOpenAI
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 25_000_000
+MAX_VIDEO_BYTES = 20 * 1024 * 1024
+MAX_VIDEO_SECONDS = 30
 
 
 def _strip_emojis(text: str) -> str:
@@ -559,10 +563,13 @@ class SearchCog(commands.Cog):
         visual_parts = []
         visual_count = 0
         visual_sources = []
+        video_sources = []
         for attachment in message.attachments:
             content_type = (attachment.content_type or "").lower()
             filename = (attachment.filename or "").lower()
-            if content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+            if content_type.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".m4v", ".mpeg", ".mpg")):
+                video_sources.append((attachment.url, attachment.size, filename))
+            elif content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
                 visual_sources.append(("attachment", attachment.url, attachment.size, content_type))
         for sticker in message.stickers:
             sticker_format = getattr(sticker, "format", None)
@@ -623,8 +630,68 @@ class SearchCog(commands.Cog):
                         print(f"[Gemini vision] skipped unsupported visual: {type(visual_exc).__name__}")
         except Exception as visual_exc:
             print(f"[Gemini vision] download failed: {type(visual_exc).__name__}")
+        # Extract a few frames from short video attachments with bundled FFmpeg.
+        # Videos are size-limited, and only a few frames from the first 30 seconds are sent.
+        for video_url, video_size, video_name in video_sources:
+            if visual_count >= 4:
+                break
+            if video_size and video_size > MAX_VIDEO_BYTES:
+                print("[Gemini vision] skipped video: attachment exceeds size limit")
+                continue
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12)) as session:
+                    async with session.get(video_url) as response:
+                        if response.status != 200:
+                            continue
+                        video_data = await response.content.read(MAX_VIDEO_BYTES + 1)
+                if not video_data or len(video_data) > MAX_VIDEO_BYTES:
+                    continue
+                with tempfile.TemporaryDirectory(prefix="discord_video_") as temp_dir:
+                    video_path = Path(temp_dir) / "input_video"
+                    video_path.write_bytes(video_data)
+                    output_pattern = str(Path(temp_dir) / "frame_%02d.jpg")
+                    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+                    process = await asyncio.create_subprocess_exec(
+                        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", str(video_path), "-t", str(MAX_VIDEO_SECONDS),
+                        "-vf", "fps=1/3,scale=1280:1280:force_original_aspect_ratio=decrease",
+                        "-frames:v", "4", "-q:v", "5", output_pattern,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    try:
+                        _, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
+                    except asyncio.TimeoutError:
+                        process.kill()
+                        await process.communicate()
+                        print("[Gemini vision] video frame extraction timed out")
+                        continue
+                    if process.returncode != 0:
+                        print(f"[Gemini vision] video frame extraction failed: {stderr.decode('utf-8', 'ignore')[:200]}")
+                        continue
+                    for frame_path in sorted(Path(temp_dir).glob("frame_*.jpg")):
+                        if visual_count >= 4:
+                            break
+                        try:
+                            frame_data = frame_path.read_bytes()
+                            with Image.open(io.BytesIO(frame_data)) as frame_image:
+                                if frame_image.width * frame_image.height > MAX_IMAGE_PIXELS:
+                                    continue
+                                frame_image = frame_image.convert("RGB")
+                                frame_image.thumbnail((1280, 1280))
+                                frame_bytes = io.BytesIO()
+                                frame_image.save(frame_bytes, format="JPEG", quality=82)
+                            visual_parts.append(genai.types.Part.from_bytes(
+                                data=frame_bytes.getvalue(), mime_type="image/jpeg"
+                            ))
+                            visual_count += 1
+                        except Exception as frame_exc:
+                            print(f"[Gemini vision] skipped video frame: {type(frame_exc).__name__}")
+            except Exception as video_exc:
+                print(f"[Gemini vision] video processing failed: {type(video_exc).__name__}")
+
         if visual_parts:
-            user_prompt += f"\\n[系統提示：訊息附帶了 {visual_count} 張圖片畫面，請實際查看並自然回應；若是 GIF，畫面可能是不同時間點。]"
+            user_prompt += f"\\n[系統提示：訊息附帶了 {visual_count} 張圖片畫面，請實際查看並自然回應；若是 GIF 或影片，畫面可能是不同時間點。]"
         elif message.attachments or message.stickers or message.embeds:
             user_prompt += "\\n[訊息可能含有無法讀取的圖片、貼圖或動畫格式；若看不到內容，不要假裝看懂。]"
 
