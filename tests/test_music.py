@@ -54,6 +54,7 @@ class MusicQueueTests(unittest.IsolatedAsyncioTestCase):
             is_paused=Mock(return_value=False),
         )
         player = SimpleNamespace(queue=[], current=None, voice=voice)
+        cog.players = {guild_id: player}
         lock = asyncio.Lock()
 
         cog.lock_for = lambda _guild_id: lock
