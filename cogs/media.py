@@ -110,7 +110,10 @@ class SearchCog(commands.Cog):
                 )
                 return (getattr(response, "text", "") or "").strip()
             except Exception as exc:
-                print(f"Gemini API error (attempt {attempt + 1}/3): {exc}")
+                detail = str(exc)
+                if self.gemini_key:
+                    detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
+                print(f"Gemini API error (attempt {attempt + 1}/3): {type(exc).__name__}: {detail[:600]}")
                 if attempt < 2:
                     await asyncio.sleep(1.5 * (attempt + 1))
 
@@ -507,6 +510,60 @@ class SearchCog(commands.Cog):
             "ai-summary.txt",
             "Gemini 整理這次沒回來。",
         )
+
+
+
+    @ai.command(name="test", description="實際測試 Gemini API 與模型是否可用")
+    async def ai_test(self, interaction: discord.Interaction):
+        if not self.gemini_client:
+            file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
+            await interaction.response.send_message(
+                "❌ Gemini Client 沒有建立。\n"
+                f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
+                f".env 能讀到 GEMINI_API_KEY：{'是' if key_in_file else '否'}\n"
+                "不會顯示金鑰內容。請確認是從含有 bot.py 的 discord-bot 資料夾啟動，並重新啟動 Bot。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            response = await asyncio.wait_for(
+                self.gemini_client.aio.models.generate_content(
+                    model=self.gemini_model,
+                    contents="請只回覆 OK。",
+                ),
+                timeout=25,
+            )
+            answer = (getattr(response, "text", "") or "").strip()
+            if answer:
+                await interaction.followup.send(
+                    f"✅ Gemini API 測試成功。\n模型：`{self.gemini_model}`\n測試回覆：{answer[:150]}",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ Gemini API 有回應，但沒有文字輸出。模型：`{self.gemini_model}`",
+                    ephemeral=True,
+                )
+        except asyncio.TimeoutError:
+            print(f"[Gemini test] TimeoutError: model={self.gemini_model}")
+            await interaction.followup.send(
+                "❌ Gemini API 測試逾時（25 秒）。請檢查網路或稍後再試。",
+                ephemeral=True,
+            )
+        except Exception as exc:
+            detail = str(exc)
+            if self.gemini_key:
+                detail = detail.replace(self.gemini_key, "[REDACTED_API_KEY]")
+            print(f"[Gemini test] {type(exc).__name__}: {detail[:800]}")
+            await interaction.followup.send(
+                "❌ Gemini API 測試失敗。\n"
+                f"錯誤類型：`{type(exc).__name__}`\n"
+                "請查看啟動 Bot 的終端機中 Gemini test 診斷行；金鑰不會顯示在 Discord。",
+                ephemeral=True,
+            )
 
 
 async def setup(bot):
