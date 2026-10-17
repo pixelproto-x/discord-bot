@@ -674,7 +674,7 @@ class SearchCog(commands.Cog):
                 "openai-answer.txt",
                 "OpenAI 這次沒有產生文字回覆。",
             )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             self._log_ai_error("OpenAI ask", exc)
             await interaction.followup.send(self._friendly_ai_error("OpenAI", exc))
         except Exception as exc:
@@ -708,7 +708,7 @@ class SearchCog(commands.Cog):
                 f"✅ OpenAI API 測試成功。\n模型：`{self.openai_model}`\n測試回覆：{answer[:150] or '(空白)'}",
                 ephemeral=True,
             )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             self._log_ai_error("OpenAI test", exc)
             await interaction.followup.send(
                 self._friendly_ai_error("OpenAI", exc),
@@ -755,7 +755,7 @@ class SearchCog(commands.Cog):
                     f"⚠️ Gemini API 有回應，但沒有文字輸出。模型：`{self.gemini_model}`",
                     ephemeral=True,
                 )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             self._log_ai_error("Gemini test", exc)
             await interaction.followup.send(
                 self._friendly_ai_error("Gemini", exc),
