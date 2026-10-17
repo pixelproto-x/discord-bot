@@ -180,7 +180,12 @@ class SearchCog(commands.Cog):
         if "connection" in error_type or "connecterror" in error_type:
             return f"🌐 目前連不上 {provider_name} 服務，請確認機器人主機的網路後再試。"
 
-        if status is not None and status >= 500:
+        if (
+            (status is not None and status >= 500)
+            or "servererror" in error_type
+            or "internalservererror" in error_type
+            or "serviceunavailable" in error_type
+        ):
             return f"🛠️ {provider_name} 服務暫時異常，請過一會兒再試。"
 
         if status == 400:
@@ -209,10 +214,11 @@ class SearchCog(commands.Cog):
             if re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", safe_code):
                 fields.append(f"error_code={safe_code}")
 
+        response_headers = getattr(getattr(exc, "response", None), "headers", None) or {}
         request_id = (
             getattr(exc, "request_id", None)
             or getattr(exc, "requestId", None)
-            or getattr(getattr(exc, "response", None), "headers", {}).get("x-request-id")
+            or response_headers.get("x-request-id")
         )
         if request_id is not None and re.fullmatch(r"[A-Za-z0-9_.-]{1,96}", str(request_id)):
             fields.append(f"request_id={request_id}")
@@ -281,7 +287,7 @@ class SearchCog(commands.Cog):
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_tokens,
                 ),
                 timeout=25,
             )
