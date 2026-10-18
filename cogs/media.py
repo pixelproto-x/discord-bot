@@ -710,7 +710,7 @@ class SearchCog(commands.Cog):
         history_key = (message.guild.id, message.channel.id)
         history = self.chat_history.get(history_key, [])
         server_context = await collect_server_chat_context(
-            message.channel, self.bot, before=message
+            message.channel, self.bot, before=message, requester=message.author
         )
 
         prompt_parts = [creator_marker]
@@ -1054,7 +1054,9 @@ class SearchCog(commands.Cog):
 
         await interaction.response.defer()
 
-        server_context = await collect_server_chat_context(interaction.channel, self.bot)
+        server_context = await collect_server_chat_context(
+            interaction.channel, self.bot, requester=interaction.user
+        )
         if server_context:
             prompt = f"{server_context}\n\n這次朋友說：{prompt}"
         answer = await self._generate_gemini_chat(prompt)
