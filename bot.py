@@ -299,8 +299,7 @@ class Bot(commands.Bot):
             channel_label = f"#{channel.name}" if isinstance(channel, (discord.TextChannel, discord.Thread)) else "未選擇"
             return (
                 f"CORE STATUS: {'ONLINE' if self.is_ready() else 'CONNECTING'}\n"
-                f"Bot: {self.user}\n"
-                f"伺服器: {guild_label}\n頻道: {channel_label}\n"
+                f"Bot: {self.user}\n伺服器: {guild_label}\n頻道: {channel_label}\n"
                 f"已連線伺服器數: {len(self.guilds)}"
             )
 
@@ -311,10 +310,7 @@ class Bot(commands.Bot):
                     f"{g.name} | ID: {g.id}" for g in self.guilds
                 ) + "\n用法：/use 伺服器名稱或 ID"
             query = args[1].strip().strip('"').casefold()
-            matches = [
-                g for g in self.guilds
-                if str(g.id) == query or g.name.casefold() == query
-            ]
+            matches = [g for g in self.guilds if str(g.id) == query or g.name.casefold() == query]
             if not matches:
                 matches = [g for g in self.guilds if query in g.name.casefold()]
             if len(matches) != 1:
@@ -362,14 +358,12 @@ class Bot(commands.Bot):
             query = args[1].strip().lstrip("#").strip('"').casefold()
             candidates = [
                 c for c in guild.channels
-                if isinstance(c, (discord.TextChannel, discord.Thread))
-                and c.name.casefold() == query
+                if isinstance(c, (discord.TextChannel, discord.Thread)) and c.name.casefold() == query
             ]
             if not candidates:
                 candidates = [
                     c for c in guild.channels
-                    if isinstance(c, (discord.TextChannel, discord.Thread))
-                    and query in c.name.casefold()
+                    if isinstance(c, (discord.TextChannel, discord.Thread)) and query in c.name.casefold()
                 ]
             if len(candidates) != 1:
                 if not candidates:
@@ -420,9 +414,10 @@ class Bot(commands.Bot):
                 return "請先選擇文字頻道：/use 伺服器名稱，再輸入 /channel 頻道名稱。"
             me = bot_member(channel.guild)
             perms = channel.permissions_for(me) if me else None
-            if not perms or not perms.view_channel or not (
+            can_send = bool(perms and (
                 perms.send_messages or (isinstance(channel, discord.Thread) and perms.send_messages_in_threads)
-            ):
+            ))
+            if not perms or not perms.view_channel or not can_send:
                 return no_perm("查看頻道／傳送訊息")
             if target_member:
                 message = f"{target_member.mention} {message}"
@@ -445,543 +440,15 @@ class Bot(commands.Bot):
             args = raw.strip().split(maxsplit=2)
             channel = self.get_channel(self._terminal_channel_id) if self._terminal_channel_id else None
             target_member = None
-            if cmd == "/reply" or cmd == "/mention":
-                match = re.match(r'^/(?:reply|mention)\s+(@(?:"[^"]+"|\S+))\s+(.+)
-                try:
-                    legacy_channel = self.get_channel(int(args[1])) or await self.fetch_channel(int(args[1]))
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    return "找不到頻道，或 Bot 無權讀取。"
-                if not isinstance(legacy_channel, (discord.TextChannel, discord.Thread)):
-                    return "目前只支援文字頻道或討論串。"
-                channel = legacy_channel
-                message = args[2]
-            else:
-                message = raw.strip()[len(args[0]):].strip()
-                if not message:
-                    return "用法：/say 文字（需先選擇頻道）。"
-            if channel is None and self._terminal_channel_id:
-                try:
-                    channel = await self.fetch_channel(self._terminal_channel_id)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    channel = None
-            return await send_terminal_message(channel, message, target_member)
-
-        if cmd == "/dm":
-            args = raw.strip().split(maxsplit=2)
-            if len(args) < 3:
-                return "用法：/dm 使用者ID 要傳送的私訊"
-            try:
-                user_id = int(args[1])
-            except ValueError:
-                return "使用者 ID 必須是數字。"
-            message = args[2].strip()
-            if not message or len(message) > 2000:
-                return "私訊不能空白，且一次最多 2000 個字。"
-            try:
-                user = self.get_user(user_id) or await self.fetch_user(user_id)
-                await user.send(message, allowed_mentions=discord.AllowedMentions.none())
-                return f"已送出私訊給 {user}；若對方封鎖 Bot 私訊，則會失敗。"
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-                return f"私訊沒有送出：{exc}"
-
-        if cmd == "/nick":
-            args = raw.strip().split(maxsplit=3)
-            if len(args) < 4:
-                return "用法：/nick 伺服器ID 成員ID 新暱稱（要清空暱稱請用 -）"
-            guild, err = await get_guild(args[1])
-            if err:
-                return err
-            member, err = await get_member(guild, args[2])
-            if err:
-                return err
-            me = bot_member(guild)
-            if not me or not me.guild_permissions.manage_nicknames or not hierarchy_ok(guild, member):
-                return no_perm("管理暱稱")
-            try:
-                await member.edit(nick=None if args[3] == "-" else args[3], reason="由本機終端控制")
-                return f"已更新 {member} 的伺服器暱稱。"
-            except discord.HTTPException as exc:
-                return f"更改暱稱失敗：{exc}"
-
-        if cmd == "/role":
-            args = raw.strip().split()
-            if len(args) != 5 or args[1].casefold() not in ("add", "remove"):
-                return "用法：/role add|remove 伺服器ID 成員ID 身分組ID"
-            action, guild_id, member_id, role_id = args[1:]
-            guild, err = await get_guild(guild_id)
-            if err:
-                return err
-            member, err = await get_member(guild, member_id)
-            if err:
-                return err
-            try:
-                role = guild.get_role(int(role_id))
-            except ValueError:
-                role = None
-            me = bot_member(guild)
-            if not role:
-                return "找不到這個身分組。"
-            if not me or not me.guild_permissions.manage_roles or not hierarchy_ok(guild, member) or me.top_role <= role:
-                return no_perm("管理身分組")
-            try:
-                if action.casefold() == "add":
-                    await member.add_roles(role, reason="由本機終端控制")
-                    return f"已把身分組「{role.name}」加給 {member}。"
-                await member.remove_roles(role, reason="由本機終端控制")
-                return f"已移除 {member} 的身分組「{role.name}」。"
-            except discord.HTTPException as exc:
-                return f"身分組操作失敗：{exc}"
-
-        if cmd in ("/timeout", "/kick", "/ban"):
-            args = raw.strip().split(maxsplit=4)
-            if cmd == "/timeout":
-                if len(args) < 4:
-                    return "用法：/timeout 伺服器ID 成員ID 分鐘 [原因]"
-                guild, err = await get_guild(args[1])
-                if err:
-                    return err
-                member, err = await get_member(guild, args[2])
-                if err:
-                    return err
-                try:
-                    minutes = int(args[3])
-                except ValueError:
-                    return "分鐘必須是數字。"
-                if not 1 <= minutes <= 40320:
-                    return "分鐘必須介於 1 至 40320（最多 28 天）。"
-                me = bot_member(guild)
-                if not me or not me.guild_permissions.moderate_members or not hierarchy_ok(guild, member):
-                    return no_perm("暫停成員")
-                reason = args[4] if len(args) > 4 else "由本機終端控制"
-                try:
-                    from datetime import timedelta
-                    await member.timeout(timedelta(minutes=minutes), reason=reason[:512])
-                    return f"已暫停 {member} {minutes} 分鐘。"
-                except discord.HTTPException as exc:
-                    return f"暫停成員失敗：{exc}"
-            if len(args) < 3:
-                return f"用法：{cmd} 伺服器ID 成員ID [原因]"
-            guild, err = await get_guild(args[1])
-            if err:
-                return err
-            member, err = await get_member(guild, args[2])
-            if err:
-                return err
-            me = bot_member(guild)
-            if not me or not hierarchy_ok(guild, member):
-                return "Bot 無法操作伺服器擁有者或身分組階級高於／等於 Bot 的成員。"
-            reason = args[3] if len(args) > 3 else "由本機終端控制"
-            try:
-                if cmd == "/kick":
-                    if not me.guild_permissions.kick_members:
-                        return no_perm("踢出成員")
-                    await member.kick(reason=reason[:512])
-                    return f"已踢出成員 {member}。"
-                if not me.guild_permissions.ban_members:
-                    return no_perm("封鎖成員")
-                await member.ban(reason=reason[:512])
-                return f"已封鎖成員 {member}。"
-            except discord.HTTPException as exc:
-                return f"{cmd} 操作失敗：{exc}"
-
-        if cmd == "/unban":
-            args = raw.strip().split(maxsplit=3)
-            if len(args) < 3:
-                return "用法：/unban 伺服器ID 使用者ID [原因]"
-            guild, err = await get_guild(args[1])
-            if err:
-                return err
-            me = bot_member(guild)
-            if not me or not me.guild_permissions.ban_members:
-                return no_perm("解除封鎖")
-            try:
-                await guild.unban(discord.Object(id=int(args[2])), reason=args[3] if len(args) > 3 else "由本機終端控制")
-                return f"已送出解除封鎖請求：{args[2]}。"
-            except (ValueError, discord.HTTPException) as exc:
-                return f"解除封鎖失敗：{exc}"
-
-        if cmd == "/purge":
-            args = raw.strip().split(maxsplit=2)
-            if len(args) < 3:
-                return "用法：/purge 頻道ID 數量（1 到 100）"
-            try:
-                channel_id, count = int(args[1]), int(args[2])
-            except ValueError:
-                return "頻道 ID 和數量都必須是數字。"
-            if not 1 <= count <= 100:
-                return "一次只能清理 1 到 100 則訊息。"
-            channel = self.get_channel(channel_id)
-            if channel is None:
-                return "找不到頻道；先用 /channels 查詢。"
-            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                return "目前只支援文字頻道或討論串。"
-            me = bot_member(channel.guild)
-            perms = channel.permissions_for(me) if me else None
-            if not perms or not perms.manage_messages or not perms.read_message_history:
-                return no_perm("管理訊息／讀取歷史訊息")
-            try:
-                deleted = await channel.purge(limit=count)
-                return f"已清理 #{channel.name} 的 {len(deleted)} 則訊息。"
-            except discord.HTTPException as exc:
-                return f"清理訊息失敗：{exc}"
-
-        return "未知的 Discord 操作指令。輸入 /help 查看用法。"
-
-
-    async def close(self):
-        reminder_worker.cancel()
-        for job_key in list(active_spam):
-            active_spam[job_key]["running"] = False
-        await super().close()
-
-
-bot = Bot()
-
-
-async def run_spam(job_key: tuple[int, int], notify_channel, target_channels: list, content: str, count: int):
-    user_id = job_key[1]
-    sent_count = 0
-    failed_channels = set()
-
-    async def notify(msg: str):
-        if notify_channel:
-            try:
-                await notify_channel.send(f"<@{user_id}> {msg}")
-            except Exception:
-                pass
-
-    try:
-        for _ in range(count):
-            if not active_spam.get(job_key, {}).get("running", False):
-                await notify(f"好，停掉了。剛剛大概送了 {sent_count} 則。")
-                return
-
-            for ch in target_channels:
-                if ch.id in failed_channels:
-                    continue
-                while True:
-                    if not active_spam.get(job_key, {}).get("running", False):
-                        await notify(f"好，停掉了。剛剛大概送了 {sent_count} 則。")
-                        return
-                    try:
-                        await ch.send(content, allowed_mentions=discord.AllowedMentions.none())
-                        sent_count += 1
-                        
-                        await asyncio.sleep(0.2)
-                        break
-                    except discord.HTTPException as exc:
-                        if exc.status == 429:
-                            await asyncio.sleep(min(float(getattr(exc, "retry_after", 2.0)), 10.0))
-                        else:
-                            failed_channels.add(ch.id)
-                            await notify(f"{ch.mention} 發不出去，我先跳過這個頻道。")
-                            break
-            await asyncio.sleep(0.01)
-
-        await notify(f"好了，總共送了 {sent_count} 則。")
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        await notify(f"這次中間出了點問題，已停止。剛剛送了 {sent_count} 則。")
-    finally:
-        active_spam.pop(job_key, None)
-
-
-def can_spam(interaction: discord.Interaction) -> bool:
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        return False
-    member = interaction.user
-    return (
-        member.guild_permissions.administrator
-        or member.id == OWNER_ID
-        or any(role.id == ALLOWED_ROLE_ID for role in member.roles)
-    )
-
-
-@bot.tree.command(name="spam", description="在多個頻道快速發送同一句訊息")
-@app_commands.describe(content="要發的內容", count="發送次數")
-async def spam(interaction: discord.Interaction, content: str, count: int):
-    if not interaction.guild:
-        await interaction.response.send_message("這個只能在伺服器裡用。", ephemeral=True)
-        return
-    if not can_spam(interaction):
-        await interaction.response.send_message("你沒有這個功能的權限。", ephemeral=True)
-        return
-    job_key = (interaction.guild.id, interaction.user.id)
-    if job_key in active_spam:
-        await interaction.response.send_message("你已經有一個正在跑的，先停掉再開新的。", ephemeral=True)
-        return
-    if not 1 <= count <= MAX_COUNT:
-        await interaction.response.send_message(f"次數要在 1 到 {MAX_COUNT} 之間。", ephemeral=True)
-        return
-    if not content or len(content) > MAX_CONTENT_LEN:
-        await interaction.response.send_message("內容太長，或是根本沒內容。", ephemeral=True)
-        return
-
-    view = ChannelSelectView()
-    active_spam[job_key] = {"running": False, "task": None, "cancelled": False, "view": view}
-    await interaction.response.send_message("要發去哪幾個頻道？選完我再開始。", view=view, ephemeral=True)
-    await view.wait()
-
-    if active_spam.get(job_key, {}).get("cancelled"):
-        active_spam.pop(job_key, None)
-        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
-        return
-
-    if not view.selected_channels:
-        active_spam.pop(job_key, None)
-        await interaction.followup.send("算了，這次沒有選頻道。", ephemeral=True)
-        return
-
-    guild_me = interaction.guild.get_member(bot.user.id)
-    if not guild_me:
-        active_spam.pop(job_key, None)
-        await interaction.followup.send("我找不到自己的成員資料，重試一下。", ephemeral=True)
-        return
-
-    valid_channels = []
-    skipped = []
-    for selected in view.selected_channels:
-        resolved = selected.resolve() or interaction.guild.get_channel(selected.id)
-        if resolved and isinstance(resolved, (discord.TextChannel, discord.Thread)):
-            perms = resolved.permissions_for(guild_me)
-            send_allowed = perms.send_messages or getattr(perms, "send_messages_in_threads", False)
-            if perms.view_channel and send_allowed:
-                valid_channels.append(resolved)
-            else:
-                skipped.append(resolved.name)
-        else:
-            skipped.append(str(selected.id))
-    if not valid_channels:
-        active_spam.pop(job_key, None)
-        await interaction.followup.send("選的頻道我都沒有足夠權限。", ephemeral=True)
-        return
-
-    total_messages = count * len(valid_channels)
-    if total_messages > MAX_TOTAL_SPAM_MESSAGES:
-        active_spam.pop(job_key, None)
-        max_rounds = max(1, MAX_TOTAL_SPAM_MESSAGES // len(valid_channels))
-        await interaction.followup.send(
-            f"單次工作最多送出 {MAX_TOTAL_SPAM_MESSAGES} 則訊息。"
-            f"你選了 {len(valid_channels)} 個頻道，請把次數調到 {max_rounds} 次以下，或減少頻道數。",
-            ephemeral=True,
-        )
-        return
-
-    if active_spam.get(job_key, {}).get("cancelled"):
-        active_spam.pop(job_key, None)
-        await interaction.followup.send("選擇頻道時已取消這次工作。", ephemeral=True)
-        return
-
-    active_spam[job_key] = {"running": True, "task": None, "cancelled": False, "view": view}
-    embed = discord.Embed(
-        title="好，開始了",
-        description=f"次數：{count}\n頻道：{', '.join(c.mention for c in valid_channels)}",
-        color=0x57F287,
-    )
-    if skipped:
-        embed.add_field(name="我跳過了", value=", ".join(skipped), inline=False)
-    await interaction.followup.send(embed=embed, ephemeral=True)
-
-    if active_spam.get(job_key, {}).get("cancelled"):
-        active_spam.pop(job_key, None)
-        return
-
-    task = asyncio.create_task(
-        run_spam(job_key, interaction.channel, valid_channels, content, count)
-    )
-    active_spam[job_key]["task"] = task
-
-
-@bot.tree.command(name="stopspam", description="停止自己或有權限時停止別人的發送工作")
-@app_commands.describe(member="要停止誰，不填就是自己")
-async def stopspam(interaction: discord.Interaction, member: discord.Member | None = None):
-    target = member or interaction.user
-    if not interaction.guild:
-        await interaction.response.send_message("這個只能在伺服器裡用。", ephemeral=True)
-        return
-    invoker = interaction.guild.get_member(interaction.user.id)
-    if not invoker:
-        await interaction.response.send_message("我找不到你的成員資料。", ephemeral=True)
-        return
-    privileged = (
-        invoker.guild_permissions.administrator
-        or invoker.id == OWNER_ID
-        or any(role.id == ALLOWED_ROLE_ID for role in invoker.roles)
-    )
-    if target.id != interaction.user.id and not privileged:
-        await interaction.response.send_message("你不能停別人的工作。", ephemeral=True)
-        return
-
-    target_key = (interaction.guild.id, target.id)
-    if target_key in active_spam:
-        state = active_spam[target_key]
-        state["running"] = False
-        state["cancelled"] = True
-        view = state.get("view")
-        if view and not view.is_finished():
-            view.stop()
-        task = state.get("task")
-        if task and not task.done():
-            task.cancel()
-        await interaction.response.send_message(f"好，{target.mention} 的工作停掉了。", ephemeral=True)
-    else:
-        await interaction.response.send_message("他現在沒有正在跑的發送工作。", ephemeral=True)
-
-
-@bot.tree.command(name="history", description="搜尋並清掉歷史訊息")
-@app_commands.describe(
-    count="搜尋範圍 1 到 1000",
-    member="只處理這位成員",
-    content="只處理包含這段文字的訊息",
-    ch1="頻道 1",
-    ch2="頻道 2",
-    ch3="頻道 3",
-)
-async def history_cmd(
-    interaction: discord.Interaction,
-    count: app_commands.Range[int, 1, 1000],
-    ch1: discord.TextChannel | None = None,
-    ch2: discord.TextChannel | None = None,
-    ch3: discord.TextChannel | None = None,
-    member: discord.Member | None = None,
-    content: str | None = None,
-):
-    if not interaction.guild or not isinstance(interaction.user, discord.Member):
-        await interaction.response.send_message("這個只能在伺服器裡用。", ephemeral=True)
-        return
-    invoker = interaction.user
-    if not (
-        invoker.guild_permissions.administrator
-        or invoker.id == OWNER_ID
-        or any(role.id == ALLOWED_ROLE_ID for role in invoker.roles)
-    ):
-        await interaction.response.send_message("你沒有清理歷史訊息的權限。", ephemeral=True)
-        return
-
-    channels = [c for c in [ch1, ch2, ch3] if c] or [interaction.channel]
-    guild_me = interaction.guild.get_member(bot.user.id)
-    if not guild_me:
-        await interaction.response.send_message("我找不到自己的成員資料。", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    total = 0
-    skipped = []
-    for ch in channels:
-        if not isinstance(ch, discord.TextChannel):
-            continue
-        perms = ch.permissions_for(guild_me)
-        if not perms.manage_messages or not perms.read_message_history:
-            skipped.append(ch.mention)
-            continue
-
-        def check(msg):
-            if member and msg.author.id != member.id:
-                return False
-            return not content or content.casefold() in msg.content.casefold()
-
-        try:
-            deleted = await ch.purge(limit=count, check=check)
-            total += len(deleted)
-        except discord.HTTPException:
-            skipped.append(ch.mention)
-
-    msg = f"處理完了，共清掉 **{total}** 則。"
-    if skipped:
-        msg += "\n這些頻道我沒辦法處理：" + " ".join(skipped)
-    await interaction.followup.send(msg, ephemeral=True)
-
-
-@bot.tree.error
-async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    print("Slash command error:", repr(error))
-    msg = "剛剛那一下沒成功，你再試一次看看。"
-    try:
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.response.send_message(msg, ephemeral=True)
-    except Exception:
-        pass
-
-
-@tasks.loop(seconds=15)
-async def reminder_worker():
-    try:
-        for row in await asyncio.to_thread(storage.due_reminders):
-            reminder_text = f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}"
-            try:
-                channel = bot.get_channel(row['channel_id'])
-                if channel is None:
-                    channel = await bot.fetch_channel(row['channel_id'])
-                await channel.send(
-                    reminder_text,
-                    allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=int(row['user_id']))]),
-                )
-                await asyncio.to_thread(storage.complete_reminder, row['id'])
-            except (discord.NotFound, discord.Forbidden):
-                
-                
-                try:
-                    user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
-                    await user.send(f"⏰ 你之前叫我提醒你的：{row['message']}\n（原本的提醒頻道目前無法使用。）")
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                    pass
-                await asyncio.to_thread(storage.complete_reminder, row['id'])
-            except discord.HTTPException as exc:
-                print(f"Reminder delivery failed for {row['id']}: {exc}")
-                continue
-            except Exception:
-                traceback.print_exc()
-                continue
-        now = __import__("time").time()
-        for row in await asyncio.to_thread(storage.list_active_polls):
-            if row["ends_at"] and row["ends_at"] <= now:
-                await asyncio.to_thread(storage.close_poll, row["id"])
-                channel = bot.get_channel(row["channel_id"])
-                if channel and row["message_id"]:
-                    try:
-                        msg = await channel.fetch_message(row["message_id"])
-                        counts = await asyncio.to_thread(storage.get_poll_counts, row["id"])
-                        embed = social.PollCog.build_embed(row, counts)
-                        embed.set_footer(text="投票結束")
-                        await msg.edit(embed=embed, view=None)
-                    except Exception:
-                        pass
-
-        for row in await asyncio.to_thread(storage.list_active_giveaways):
-            if row["ends_at"] <= now:
-                guild = bot.get_guild(row["guild_id"])
-                if guild:
-                    cog = bot.get_cog("GiveawayCog")
-                    if cog:
-                        await cog.finish(row["id"], guild)
-    except Exception:
-        traceback.print_exc()
-
-
-@reminder_worker.before_loop
-async def before_reminder_worker():
-    await bot.wait_until_ready()
-
-
-def main():
-    token = os.getenv("DISCORD_TOKEN")
-    if not token:
-        raise RuntimeError("DISCORD_TOKEN 未設定。")
-    bot.run(token)
-
-
-if __name__ == "__main__":
-    main(), raw.strip(), re.DOTALL)
+            if cmd in ("/reply", "/mention"):
+                match = re.match(r'^/(?:reply|mention)\s+(@(?:"[^"]+"|\S+))\s+(.+)$', raw.strip(), re.DOTALL)
                 if not match:
                     return '用法：/reply @成員 文字（名稱含空格請用 @"顯示名稱" 文字）'
                 guild = self.get_guild(self._terminal_guild_id) if self._terminal_guild_id else None
                 if guild is None:
                     return "請先用 /use 伺服器名稱選擇伺服器。"
                 target_query = match.group(1).strip()
-                if target_query.startswith('@'):
+                if target_query.startswith("@"):
                     target_query = target_query[1:]
                 target_query = target_query.strip('"').casefold()
                 matches = [
@@ -998,7 +465,7 @@ if __name__ == "__main__":
                 if len(matches) != 1:
                     if not matches:
                         return "找不到這位成員。請確認 Bot 已啟用 Server Members Intent，或改用成員 ID。"
-                    return "成員名稱符合多個結果，請使用完整名稱或 ID：\\n" + "\\n".join(
+                    return "成員名稱符合多個結果，請使用完整名稱或 ID：\n" + "\n".join(
                         f"{m.display_name} (@{m.name}) | ID: {m.id}" for m in matches[:20]
                     )
                 target_member = matches[0]
