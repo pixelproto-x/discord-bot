@@ -1,8 +1,22 @@
 import asyncio
+import base64
+import hashlib
 import hmac
+import json
+import os
 import secrets
-from aiohttp import web
+import time
+from urllib.parse import urlencode
+from aiohttp import ClientSession, web
 import discord
+
+# Discord IDs explicitly approved to use the remote dashboard.
+DASHBOARD_WHITELIST_IDS = {
+    int(value.strip())
+    for value in os.getenv("DASHBOARD_WHITELIST_IDS", "1338493569781989407").split(",")
+    if value.strip().isdecimal() and int(value.strip()) > 0
+}
+DASHBOARD_OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 
 PAGE = r"""<!doctype html>
 <html lang="zh-Hant">
@@ -25,7 +39,7 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 </head>
 <body><main>
 <div class="top"><div><h1>LogRelay <span style="color:var(--accent)">Control</span></h1><div class="sub">本機網頁控制台 · 連接目前執行中的 Discord Bot</div></div><div class="pill" id="connection">等待連線</div></div>
-<section class="card" id="authCard"><h2>連線驗證</h2><label for="token">終端機顯示的控制面板 Token</label><input id="token" type="password" autocomplete="off" placeholder="貼上啟動 Bot 時顯示的 Token"><div style="margin-top:12px"><button id="connect">連線控制台</button></div><div class="note">控制台只監聽本機 127.0.0.1，不會直接對外開放。不要把 Token 分享給別人。</div><div class="message" id="authMsg"></div></section>
+<section class="card" id="authCard"><h2>登入控制台</h2><p>使用 Discord 帳號登入。只有服主與白名單中的 Discord 使用者可以操作。</p><a href="/login" style="display:block;text-decoration:none"><button type="button">使用 Discord 登入</button></a><details style="margin-top:14px"><summary>本機管理員連線</summary><label for="token">終端機顯示的本機控制 Token</label><input id="token" type="password" autocomplete="off" placeholder="只限本機管理員"><button id="connect" style="margin-top:10px">本機連線</button></details><div class="note">不要分享本機控制 Token 或 Discord Bot Token。</div><div class="message" id="authMsg"></div></section>
 <div id="app" class="hidden">
 <div class="grid" style="margin-top:16px">
 <section class="card wide"><div class="toolbar" style="justify-content:space-between"><h2>Bot 狀態</h2><button class="secondary" id="refresh" style="width:auto">重新整理</button></div><div class="stats"><div class="stat"><b id="botName">—</b><span>登入帳號</span></div><div class="stat"><b id="guildCount">—</b><span>已加入伺服器</span></div><div class="stat"><b id="latency">—</b><span>Gateway 延遲</span></div></div><div class="message" id="statusMsg"></div></section>
@@ -62,11 +76,11 @@ async function loadChannels(){
  if(select.value)selectedChannel=select.value;
 }
 async function connect(){
- token=$("token").value.trim();if(!token){message("authMsg","請先貼上 Token。",true);return}
+ token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
  try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="已連線";message("statusMsg","控制台已連接。")}
  catch(e){token="";message("authMsg",e.message,true)}
 }
-$("connect").onclick=connect;$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
+$("connect").onclick=connect;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){/* not logged in yet; keep login card visible */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
 $("guild").onchange=async()=>{selectedChannel="";try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
 $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
@@ -87,25 +101,115 @@ def _get_channel(bot, channel_id):
         return channel
     return None
 
+def _session_secret():
+    return os.getenv("DASHBOARD_SESSION_SECRET", "")
+
+def _sign_session(user_id):
+    secret = _session_secret().encode()
+    payload = base64.urlsafe_b64encode(json.dumps({"uid": int(user_id), "exp": int(time.time()) + 12 * 3600}, separators=(",", ":")).encode()).decode().rstrip("=")
+    signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+    return payload + "." + signature
+
+def _verify_session(value):
+    secret = _session_secret().encode()
+    if not secret or not value or "." not in value:
+        return None
+    payload, signature = value.rsplit(".", 1)
+    expected = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+        data = json.loads(decoded)
+        uid = int(data["uid"])
+        if int(data["exp"]) < int(time.time()):
+            return None
+        if uid != DASHBOARD_OWNER_ID and uid not in DASHBOARD_WHITELIST_IDS:
+            return None
+        return uid
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
 async def start_dashboard(bot):
     if getattr(bot, "_dashboard_runner", None):
         return
     token = secrets.token_urlsafe(24)
+    public_url = os.getenv("DASHBOARD_PUBLIC_URL", "").rstrip("/")
+    oauth_client_id = os.getenv("DISCORD_OAUTH_CLIENT_ID", "")
+    oauth_client_secret = os.getenv("DISCORD_OAUTH_CLIENT_SECRET", "")
+    session_secret = _session_secret()
+    oauth_enabled = bool(public_url.startswith("https://") and oauth_client_id and oauth_client_secret and len(session_secret) >= 32)
     app = web.Application(client_max_size=1024 * 32)
 
     @web.middleware
     async def auth_middleware(request, handler):
-        if request.path == "/" and request.method == "GET":
+        if request.path in ("/", "/login", "/oauth/callback", "/logout") and request.method == "GET":
+            return await handler(request)
+        session_uid = _verify_session(request.cookies.get("dashboard_session", ""))
+        if session_uid is not None:
+            request["dashboard_user_id"] = session_uid
             return await handler(request)
         supplied = request.headers.get("X-Control-Token", "")
-        if not hmac.compare_digest(supplied, token):
-            return _json_error("控制面板 Token 不正確。", 401)
-        return await handler(request)
+        peer = request.remote or ""
+        local_peer = peer in ("127.0.0.1", "::1", "localhost")
+        if local_peer and hmac.compare_digest(supplied, token):
+            request["dashboard_user_id"] = DASHBOARD_OWNER_ID
+            return await handler(request)
+        return _json_error("請先使用已加入白名單的 Discord 帳號登入。", 401)
 
     app.middlewares.append(auth_middleware)
 
     async def index(request):
         return web.Response(text=PAGE, content_type="text/html", charset="utf-8")
+
+    async def login(request):
+        if not oauth_enabled:
+            return web.Response(text="Discord OAuth 尚未設定。請設定 DASHBOARD_PUBLIC_URL、DISCORD_OAUTH_CLIENT_ID、DISCORD_OAUTH_CLIENT_SECRET 與至少 32 字元的 DASHBOARD_SESSION_SECRET。", status=503, content_type="text/plain", charset="utf-8")
+        state = secrets.token_urlsafe(24)
+        redirect_uri = public_url + "/oauth/callback"
+        params = {"client_id": oauth_client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": "identify", "state": state, "prompt": "consent"}
+        response = web.HTTPFound("https://discord.com/oauth2/authorize?" + urlencode(params))
+        response.set_cookie("dashboard_oauth_state", state, max_age=600, httponly=True, secure=True, samesite="Lax", path="/")
+        raise response
+
+    async def oauth_callback(request):
+        if not oauth_enabled:
+            return web.Response(text="Discord OAuth 尚未設定。", status=503, content_type="text/plain", charset="utf-8")
+        state = request.query.get("state", "")
+        expected_state = request.cookies.get("dashboard_oauth_state", "")
+        code = request.query.get("code", "")
+        if not state or not expected_state or not hmac.compare_digest(state, expected_state) or not code:
+            return web.Response(text="登入驗證失敗，請返回控制台重試。", status=400, content_type="text/plain", charset="utf-8")
+        redirect_uri = public_url + "/oauth/callback"
+        try:
+            async with ClientSession() as session:
+                async with session.post("https://discord.com/api/oauth2/token", data={"client_id": oauth_client_id, "client_secret": oauth_client_secret, "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15) as response:
+                    if response.status != 200:
+                        return web.Response(text="Discord OAuth 換取 Token 失敗。", status=502, content_type="text/plain", charset="utf-8")
+                    oauth_data = await response.json()
+                async with session.get("https://discord.com/api/users/@me", headers={"Authorization": "Bearer " + oauth_data.get("access_token", "")}, timeout=15) as response:
+                    if response.status != 200:
+                        return web.Response(text="無法讀取 Discord 使用者身分。", status=502, content_type="text/plain", charset="utf-8")
+                    user = await response.json()
+        except Exception:
+            return web.Response(text="Discord 登入服務暫時無法使用，請稍後再試。", status=502, content_type="text/plain", charset="utf-8")
+        try:
+            user_id = int(user.get("id", "0"))
+        except (ValueError, TypeError):
+            user_id = 0
+        if user_id != DASHBOARD_OWNER_ID and user_id not in DASHBOARD_WHITELIST_IDS:
+            response = web.Response(text="你的 Discord 帳號不在控制面板白名單中。", status=403, content_type="text/plain", charset="utf-8")
+            response.del_cookie("dashboard_oauth_state", path="/")
+            return response
+        response = web.HTTPFound("/")
+        response.set_cookie("dashboard_session", _sign_session(user_id), max_age=12 * 3600, httponly=True, secure=True, samesite="Lax", path="/")
+        response.del_cookie("dashboard_oauth_state", path="/")
+        raise response
+
+    async def logout(request):
+        response = web.HTTPFound("/")
+        response.del_cookie("dashboard_session", path="/")
+        raise response
 
     async def status(request):
         guild = bot.get_guild(bot._terminal_guild_id) if bot._terminal_guild_id else None
@@ -210,6 +314,9 @@ async def start_dashboard(bot):
         return web.json_response({"message": "已引用 " + str(target.author) + " 的訊息並回覆。"})
 
     app.router.add_get("/", index)
+    app.router.add_get("/login", login)
+    app.router.add_get("/oauth/callback", oauth_callback)
+    app.router.add_get("/logout", logout)
     app.router.add_get("/api/status", status)
     app.router.add_get("/api/guilds", guilds)
     app.router.add_get("/api/channels", channels)
@@ -219,15 +326,18 @@ async def start_dashboard(bot):
 
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
-    port = 8765
+    port = int(os.getenv("PORT", "8765"))
+    bind_host = "0.0.0.0" if public_url else "127.0.0.1"
     try:
-        site = web.TCPSite(runner, "127.0.0.1", port)
+        site = web.TCPSite(runner, bind_host, port)
         await site.start()
     except OSError:
         await runner.cleanup()
-        print("[Dashboard] Could not bind 127.0.0.1:8765; local web panel was not started.")
+        print(f"[Dashboard] Could not bind {bind_host}:{port}; web panel was not started.")
         return
     bot._dashboard_runner = runner
     bot._dashboard_token = token
-    print("\n[Dashboard] LogRelay control panel: http://127.0.0.1:8765")
-    print("[Dashboard] Control token (paste into the page; keep private): " + token)
+    print(f"\n[Dashboard] LogRelay control panel: http://127.0.0.1:{port}")
+    if public_url:
+        print(f"[Dashboard] Public URL configured: {public_url} (Discord OAuth {'enabled' if oauth_enabled else 'NOT configured'})")
+    print("[Dashboard] Local control token (never share): " + token)
