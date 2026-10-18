@@ -175,6 +175,51 @@ class Bot(commands.Bot):
         print(f"Connected guilds: {len(self.guilds)}")
         if not reminder_worker.is_running():
             reminder_worker.start()
+        if not getattr(self, "_terminal_speech_started", False):
+            self._terminal_speech_started = True
+            self._terminal_speech_task = asyncio.create_task(self._terminal_speech_console())
+
+    async def _terminal_speech_console(self):
+        print("\\n========== LogRelay 終端控制 ==========")
+        print("在 Discord 加入語音頻道後，直接在這裡打字，LogRelay 就會用中文語音唸出。")
+        print("指令：/join 連接語音、/stop 停止唸話、/leave 離開語音、/help 說明、/exit 關閉終端控制（Bot 繼續運作）")
+        print("======================================")
+        while not self.is_closed():
+            try:
+                raw = await asyncio.to_thread(input, "LogRelay> ")
+            except (EOFError, KeyboardInterrupt):
+                print("\\n終端輸入已結束；Bot 仍會繼續運作。")
+                return
+            text = raw.strip()
+            if not text:
+                continue
+            command = text.casefold()
+            speech = self.get_cog("SpeechControlCog")
+            if command == "/help":
+                print("直接輸入文字 = 讓 LogRelay 說話；/join = 連接你目前所在的語音；/stop = 停止 LogRelay 說話；/leave = 離開語音；/exit = 關閉此控制介面。")
+            elif command == "/exit":
+                print("終端控制介面已關閉，Bot 會繼續運作。要關閉整個 Bot 請按 Ctrl+C。")
+                return
+            elif command == "/join":
+                guild, member, channel = await speech._find_owner_voice() if speech else (None, None, None)
+                if not channel:
+                    print("請先用你的 Discord 帳號加入一個語音頻道。")
+                    continue
+                try:
+                    vc = guild.voice_client
+                    if not vc or not vc.is_connected():
+                        await channel.connect()
+                    elif vc.channel != channel:
+                        await vc.move_to(channel)
+                    print(f"LogRelay 已加入：{guild.name} / {channel.name}")
+                except Exception as exc:
+                    print(f"連接語音失敗：{type(exc).__name__}: {exc}")
+            elif command == "/stop":
+                print(await speech.stop_from_terminal() if speech else "語音模組尚未載入。")
+            elif command == "/leave":
+                print(await speech.leave_from_terminal() if speech else "語音模組尚未載入。")
+            else:
+                print(await speech.speak_from_terminal(text) if speech else "語音模組尚未載入。")
 
 
     async def close(self):
