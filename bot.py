@@ -176,6 +176,25 @@ class Bot(commands.Bot):
     async def on_ready(self):
         print(f"Logged in as {self.user} ({self.user.id})")
         print(f"Connected guilds: {len(self.guilds)}")
+        for guild in sorted(self.guilds, key=lambda item: item.name.casefold()):
+            allowed = not ALLOWED_GUILD_IDS or guild.id in ALLOWED_GUILD_IDS
+            status = "SLASH COMMANDS ENABLED" if allowed else "NOT ALLOWLISTED — slash commands will not appear here"
+            print(f"[Guild] {guild.name} | ID={guild.id} | {status}")
+        if ALLOWED_GUILD_IDS:
+            connected_ids = {guild.id for guild in self.guilds}
+            configured_but_missing = ALLOWED_GUILD_IDS - connected_ids
+            if configured_but_missing:
+                print(
+                    "[Slash commands] GUILD_IDS contains server IDs this bot is not currently in: "
+                    + ", ".join(str(guild_id) for guild_id in sorted(configured_but_missing))
+                )
+            blocked = [guild for guild in self.guilds if guild.id not in ALLOWED_GUILD_IDS]
+            if blocked:
+                print(
+                    "[Slash commands] To enable commands in a listed server, add its ID to GUILD_IDS "
+                    "in your local .env, then restart the bot. Current excluded servers: "
+                    + ", ".join(f"{guild.name} ({guild.id})" for guild in blocked)
+                )
         if not reminder_worker.is_running():
             reminder_worker.start()
         if not getattr(self, "_terminal_speech_started", False):
