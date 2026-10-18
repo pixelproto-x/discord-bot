@@ -21,10 +21,10 @@ class VoiceCog(commands.Cog):
         try:
             await channel.delete(reason=reason)
         except discord.NotFound:
-            # It is already gone, so removing the stale database entry is safe.
+            
             pass
         except (discord.Forbidden, discord.HTTPException):
-            # Keep the record so startup or a later voice event can retry cleanup.
+            
             return False
 
         storage.remove_temp_channel(channel.id)
@@ -96,7 +96,7 @@ class VoiceCog(commands.Cog):
     async def on_ready(self):
         now = time.time()
 
-        # 先結算上次 Bot 離線期間已經離開語音的舊 session。
+        
         for row in storage.list_voice_sessions():
             guild = self.bot.get_guild(row["guild_id"])
             member = guild.get_member(row["user_id"]) if guild else None
