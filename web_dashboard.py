@@ -76,7 +76,7 @@ async function connect(){
  try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="已連線";message("statusMsg","控制台已連接。")}
  catch(e){token="";message("authMsg",e.message,true)}
 }
-$("connect").onclick=connect;$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
+$("connect").onclick=connect;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){/* not logged in yet; keep login card visible */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
 $("guild").onchange=async()=>{selectedChannel="";try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
 $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
