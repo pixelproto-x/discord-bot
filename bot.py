@@ -686,13 +686,15 @@ class Bot(commands.Bot):
 
 bot = Bot()
 
-# Owner-only, hidden text command: !bot on / !bot off.
-# This mode transparently mirrors messages; it does not delete originals or conceal authorship.
+# Owner-only hidden text command: !bot on / !bot off.
+# Messages are mirrored transparently; originals are never deleted and authorship is labeled.
+_RELAY_OWNER_ID = 1140900506198351924
 _relay_webhooks: dict[int, discord.Webhook] = {}
+
 
 @bot.command(name="bot", hidden=True)
 async def owner_message_relay(ctx: commands.Context, action: str = ""):
-    if ctx.author.id != OWNER_ID:
+    if ctx.author.id != _RELAY_OWNER_ID:
         return
     if ctx.guild is None:
         await ctx.reply("請在伺服器文字頻道使用。", mention_author=False)
@@ -704,11 +706,27 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
         return
 
     enabled = action == "on"
-    await asyncio.to_thread(
-        storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
-    )
+    if enabled:
+        me = ctx.guild.me
+        perms = ctx.channel.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.send_messages or not perms.manage_webhooks:
+            await ctx.reply(
+                "無法開啟：Bot 在目前頻道需要「查看頻道」「傳送訊息」「管理 Webhook」權限。",
+                mention_author=False,
+            )
+            return
+
+    try:
+        await asyncio.to_thread(
+            storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
+        )
+    except Exception as exc:
+        print(f"Could not update relay setting for guild {ctx.guild.id}: {exc}")
+        await ctx.reply("設定儲存失敗，請稍後再試。", mention_author=False)
+        return
+
     await ctx.reply(
-        "已開啟透明訊息轉發；原訊息會保留，轉發訊息會標示來源。"
+        "已開啟透明訊息轉發。原訊息會保留，轉發內容會標示來源；Bot 需要各頻道的管理 Webhook 權限。"
         if enabled else "已關閉透明訊息轉發。",
         mention_author=False,
     )
@@ -720,10 +738,16 @@ async def transparent_message_relay(message: discord.Message):
         return
     if message.content.strip().casefold().startswith("!bot"):
         return
-    if not await asyncio.to_thread(
-        storage.get_setting, message.guild.id, "owner_message_relay_enabled", False
-    ):
+    try:
+        enabled = await asyncio.to_thread(
+            storage.get_setting, message.guild.id, "owner_message_relay_enabled", False
+        )
+    except Exception:
+        traceback.print_exc()
         return
+    if not enabled:
+        return
+
     channel = message.channel
     if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
         return
@@ -742,11 +766,15 @@ async def transparent_message_relay(message: discord.Message):
 
         parts = [message.content] if message.content else []
         if message.attachments:
-            parts.extend(attachment.url for attachment in message.attachments)
-        parts.append(f"↪ 轉發自 {message.author.mention}（由機器人轉發）")
+            parts.extend(f"附件：{attachment.url}" for attachment in message.attachments)
+        if message.stickers:
+            parts.extend(f"貼圖：{sticker.url}" for sticker in message.stickers)
+        if not parts:
+            parts.append("（此訊息沒有可轉發的文字或附件內容）")
+        parts.append(f"↪ 來源：{message.author.mention}（由 LogRelay 機器人轉發，原訊息保留）")
         payload = "\n\n".join(parts)
         if len(payload) > 2000:
-            payload = payload[:1950] + "\n…（內容過長，部分內容省略）"
+            payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
         await webhook.send(
             content=payload,
             username=(message.author.display_name[:65] + " · 轉發"),
