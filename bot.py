@@ -456,7 +456,7 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
 @tasks.loop(seconds=15)
 async def reminder_worker():
     try:
-        for row in storage.due_reminders():
+        for row in await asyncio.to_thread(storage.due_reminders):
             reminder_text = f"<@{row['user_id']}> ⏰ 你之前叫我提醒你的：{row['message']}"
             try:
                 channel = bot.get_channel(row['channel_id'])
@@ -466,7 +466,7 @@ async def reminder_worker():
                     reminder_text,
                     allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=int(row['user_id']))]),
                 )
-                storage.complete_reminder(row['id'])
+                await asyncio.to_thread(storage.complete_reminder, row['id'])
             except (discord.NotFound, discord.Forbidden):
                 # The original channel may have been deleted or become inaccessible.
                 # Try a DM once, then retire the reminder to avoid retrying forever.
@@ -475,7 +475,7 @@ async def reminder_worker():
                     await user.send(f"⏰ 你之前叫我提醒你的：{row['message']}\n（原本的提醒頻道目前無法使用。）")
                 except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                     pass
-                storage.complete_reminder(row['id'])
+                await asyncio.to_thread(storage.complete_reminder, row['id'])
             except discord.HTTPException as exc:
                 print(f"Reminder delivery failed for {row['id']}: {exc}")
                 continue
@@ -483,21 +483,21 @@ async def reminder_worker():
                 traceback.print_exc()
                 continue
         now = __import__("time").time()
-        for row in storage.list_active_polls():
+        for row in await asyncio.to_thread(storage.list_active_polls):
             if row["ends_at"] and row["ends_at"] <= now:
-                storage.close_poll(row["id"])
+                await asyncio.to_thread(storage.close_poll, row["id"])
                 channel = bot.get_channel(row["channel_id"])
                 if channel and row["message_id"]:
                     try:
                         msg = await channel.fetch_message(row["message_id"])
-                        counts = storage.get_poll_counts(row["id"])
+                        counts = await asyncio.to_thread(storage.get_poll_counts, row["id"])
                         embed = social.PollCog.build_embed(row, counts)
                         embed.set_footer(text="投票結束")
                         await msg.edit(embed=embed, view=None)
                     except Exception:
                         pass
 
-        for row in storage.list_active_giveaways():
+        for row in await asyncio.to_thread(storage.list_active_giveaways):
             if row["ends_at"] <= now:
                 guild = bot.get_guild(row["guild_id"])
                 if guild:
