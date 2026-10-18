@@ -1151,9 +1151,9 @@ class SearchCog(commands.Cog):
     async def ask(self, interaction, prompt: str):
         prompt = prompt.strip()
 
-        if not self.gemini_client and not self.groq_client:
+        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
+                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
                 ephemeral=True,
             )
             return
@@ -1217,9 +1217,9 @@ class SearchCog(commands.Cog):
         text = text.strip()
         target = target.strip() or "繁體中文"
 
-        if not self.gemini_client and not self.groq_client:
+        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
+                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
                 ephemeral=True,
             )
             return
@@ -1260,9 +1260,9 @@ class SearchCog(commands.Cog):
     async def summarize(self, interaction, text: str):
         text = text.strip()
 
-        if not self.gemini_client and not self.groq_client:
+        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
             await interaction.response.send_message(
-                "Gemini 和 Groq 都還沒設定 API Key。請在專案根目錄的 .env 設定 GEMINI_API_KEY 或 GROQ_API_KEY，再重新啟動 Bot。",
+                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
                 ephemeral=True,
             )
             return
