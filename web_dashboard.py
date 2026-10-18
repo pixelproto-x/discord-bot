@@ -11,7 +11,11 @@ from aiohttp import ClientSession, web
 import discord
 
 # Discord IDs explicitly approved to use the remote dashboard.
-DASHBOARD_WHITELIST_IDS = {1338493569781989407}
+DASHBOARD_WHITELIST_IDS = {
+    int(value.strip())
+    for value in os.getenv("DASHBOARD_WHITELIST_IDS", "1338493569781989407").split(",")
+    if value.strip().isdecimal() and int(value.strip()) > 0
+}
 DASHBOARD_OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 
 PAGE = r"""<!doctype html>
