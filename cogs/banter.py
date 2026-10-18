@@ -136,7 +136,7 @@ class LocalBanterCog(commands.Cog):
             try:
                 async with message.channel.typing():
                     context = await collect_server_chat_context(
-                        message.channel, self.bot, before=message
+                        message.channel, self.bot, before=message, requester=message.author
                     )
                     answer = await self._generate(
                         message.channel.id,
@@ -177,7 +177,9 @@ class LocalBanterCog(commands.Cog):
     async def localai(self, interaction: discord.Interaction, message: str = "講一句有梗的幹話"):
         await interaction.response.defer(thinking=True)
         try:
-            context = await collect_server_chat_context(interaction.channel, self.bot)
+            context = await collect_server_chat_context(
+                interaction.channel, self.bot, requester=interaction.user
+            )
             answer = await self._generate(
                 interaction.channel_id or interaction.user.id,
                 interaction.user.display_name,
