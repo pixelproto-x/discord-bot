@@ -38,8 +38,8 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 </style>
 </head>
 <body><main>
-<div class="top"><div><h1>LogRelay <span style="color:var(--accent)">Control</span></h1><div class="sub">本機網頁控制台 · 連接目前執行中的 Discord Bot</div></div><div class="pill" id="connection">等待連線</div></div>
-<section class="card" id="authCard"><h2>登入控制台</h2><p>使用 Discord 帳號登入。只有服主與白名單中的 Discord 使用者可以操作。</p><a href="/login" style="display:block;text-decoration:none"><button type="button">使用 Discord 登入</button></a><details style="margin-top:14px"><summary>本機管理員連線</summary><label for="token">終端機顯示的本機控制 Token</label><input id="token" type="password" autocomplete="off" placeholder="只限本機管理員"><button id="connect" style="margin-top:10px">本機連線</button></details><div class="note">不要分享本機控制 Token 或 Discord Bot Token。</div><div class="message" id="authMsg"></div></section>
+<div class="top"><div><h1>LogRelay <span style="color:var(--accent)">Control</span></h1><div class="sub">Discord Bot 網頁控制台</div></div><div class="toolbar"><div class="pill" id="connection">等待連線</div><button class="secondary hidden" id="logout" style="width:auto">登出</button></div></div>
+<section class="card" id="authCard"><h2>控制面板存取</h2><p>任何人都可以開啟此頁面；只有輸入管理員提供的 Key，或使用已授權的 Discord 帳號登入，才能操作 Bot。</p><label for="token">管理員提供的控制 Key</label><input id="token" type="password" autocomplete="off" placeholder="輸入控制 Key"><button id="connect" style="margin-top:10px">解鎖控制面板</button><a href="/login" style="display:block;text-decoration:none;margin-top:10px"><button type="button" class="secondary">使用 Discord 登入</button></a><div class="note">請勿公開分享控制 Key 或 Discord Bot Token。</div><div class="message" id="authMsg"></div></section>
 <div id="app" class="hidden">
 <div class="grid" style="margin-top:16px">
 <section class="card wide"><div class="toolbar" style="justify-content:space-between"><h2>Bot 狀態</h2><button class="secondary" id="refresh" style="width:auto">重新整理</button></div><div class="stats"><div class="stat"><b id="botName">—</b><span>登入帳號</span></div><div class="stat"><b id="guildCount">—</b><span>已加入伺服器</span></div><div class="stat"><b id="latency">—</b><span>Gateway 延遲</span></div></div><div class="message" id="statusMsg"></div></section>
@@ -89,7 +89,9 @@ async function connect(){
  try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="已連線";message("statusMsg","控制台已連接。")}
  catch(e){token="";message("authMsg",e.message,true)}
 }
-$("connect").onclick=connect;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){/* not logged in yet; keep login card visible */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
+function showLocked(){token="";$("authCard").classList.remove("hidden");$("app").classList.add("hidden");$("logout").classList.add("hidden");$("connection").textContent="尚未解鎖";$("token").value="";}
+async function logout(){try{await fetch("/logout",{credentials:"same-origin"})}catch{}showLocked();message("authMsg","已登出控制面板。")}
+$("connect").onclick=connect;$("logout").onclick=logout;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("logout").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){/* unauthenticated visitors can view the public entry page */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
 $("guild").onchange=async()=>{selectedChannel="";try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
 $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
@@ -163,9 +165,7 @@ async def start_dashboard(bot):
             request["dashboard_user_id"] = session_uid
             return await handler(request)
         supplied = request.headers.get("X-Control-Token", "")
-        peer = request.remote or ""
-        local_peer = peer in ("127.0.0.1", "::1", "localhost")
-        if local_peer and hmac.compare_digest(supplied, token):
+        if hmac.compare_digest(supplied, token):
             request["dashboard_user_id"] = DASHBOARD_OWNER_ID
             return await handler(request)
         return _json_error("請先使用已加入白名單的 Discord 帳號登入。", 401)
