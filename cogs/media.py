@@ -350,7 +350,8 @@ class SearchCog(commands.Cog):
 
     async def _generate_freemind_text(self, prompt: str, system_instruction: str = "") -> str:
         """Use the local FreeMind AI server first; return an empty string to allow existing fallbacks."""
-        if not self.freemind_base_url:
+        base_url = str(getattr(self, "freemind_base_url", "") or "").strip().rstrip("/")
+        if not base_url:
             return ""
 
         message = ((system_instruction.strip() + "\n\n") if system_instruction.strip() else "") + prompt.strip()
@@ -358,15 +359,16 @@ class SearchCog(commands.Cog):
             return ""
 
         headers = {"Content-Type": "application/json"}
-        if self.freemind_password:
-            headers["Authorization"] = f"Bearer {self.freemind_password}"
+        password = str(getattr(self, "freemind_password", "") or "").strip()
+        if password:
+            headers["Authorization"] = f"Bearer {password}"
 
-        timeout = aiohttp.ClientTimeout(total=self.freemind_timeout)
+        timeout = aiohttp.ClientTimeout(total=max(5, min(90, int(getattr(self, "freemind_timeout", 45)))))
         conversation_id = None
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 async with session.post(
-                    f"{self.freemind_base_url}/api/conversations",
+                    f"{base_url}/api/conversations",
                     json={"title": "Discord Bot"},
                 ) as response:
                     if response.status != 200:
@@ -380,7 +382,7 @@ class SearchCog(commands.Cog):
 
                 try:
                     async with session.post(
-                        f"{self.freemind_base_url}/api/chat",
+                        f"{base_url}/api/chat",
                         json={"conversation_id": conversation_id, "message": message[:12000]},
                     ) as response:
                         if response.status != 200:
@@ -400,7 +402,7 @@ class SearchCog(commands.Cog):
                     # in a shared FreeMind conversation or exposed to another channel.
                     try:
                         async with session.delete(
-                            f"{self.freemind_base_url}/api/conversations/{conversation_id}"
+                            f"{base_url}/api/conversations/{conversation_id}"
                         ) as delete_response:
                             if delete_response.status not in (200, 204, 404):
                                 print(f"[FreeMind AI] temporary conversation cleanup: HTTP {delete_response.status}")
