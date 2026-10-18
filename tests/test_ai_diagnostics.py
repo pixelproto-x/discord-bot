@@ -80,7 +80,8 @@ class AiDiagnosticsTests(unittest.TestCase):
         config = generate_content.await_args.kwargs["config"]
         self.assertEqual(config["thinking_config"]["thinking_level"], "low")
         self.assertEqual(config["max_output_tokens"], 1536)
-        self.assertNotIn("temperature", config)
+        self.assertEqual(config["temperature"], 0.75)
+        self.assertEqual(config["top_p"], 0.9)
 
 
     def test_gemini_short_chat_reply_is_retried_before_accepting(self):
