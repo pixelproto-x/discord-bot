@@ -15,11 +15,90 @@ OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 DEFAULT_VOICE = os.getenv("TTS_VOICE", "zh-TW-HsiaoChenNeural").strip() or "zh-TW-HsiaoChenNeural"
 
 
+class MicrophoneAudioSource(discord.AudioSource):
+    """Stream the computer's live microphone to a Discord voice client."""
+
+    FRAME_SAMPLES = 960  # 20 ms at 48 kHz
+    FRAME_BYTES = FRAME_SAMPLES * 2 * 2  # int16 * stereo
+    SILENCE = bytes(FRAME_BYTES)
+
+    def __init__(self):
+        import queue
+        import sounddevice as sd
+        import numpy as np
+
+        self._queue = queue.Queue(maxsize=30)
+        self._queue_module = queue
+        self._np = np
+        self._closed = False
+        device_setting = os.getenv("MIC_DEVICE", "").strip()
+        device = int(device_setting) if device_setting.isdecimal() else (device_setting or None)
+        self._stream = sd.InputStream(
+            device=device,
+            samplerate=48000,
+            channels=1,
+            dtype="int16",
+            blocksize=self.FRAME_SAMPLES,
+            callback=self._audio_callback,
+        )
+        self._stream.start()
+
+    def _audio_callback(self, indata, frames, time_info, status):
+        if self._closed:
+            return
+        try:
+            # Duplicate mono input into left/right channels for Discord PCM output.
+            stereo = self._np.repeat(indata, 2, axis=1)
+            chunk = self._np.ascontiguousarray(stereo).tobytes()
+            if len(chunk) != self.FRAME_BYTES:
+                return
+            try:
+                self._queue.put_nowait(chunk)
+            except self._queue_module.Full:
+                # Keep audio close to live instead of building up delay.
+                try:
+                    self._queue.get_nowait()
+                except self._queue_module.Empty:
+                    pass
+                try:
+                    self._queue.put_nowait(chunk)
+                except self._queue_module.Full:
+                    pass
+        except Exception:
+            # Never let an audio callback exception crash the microphone stream.
+            return
+
+    def read(self):
+        if self._closed:
+            return b""
+        try:
+            return self._queue.get(timeout=0.1)
+        except self._queue_module.Empty:
+            return self.SILENCE
+
+    def is_opus(self):
+        return False
+
+    def cleanup(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._stream.stop()
+        except Exception:
+            pass
+        try:
+            self._stream.close()
+        except Exception:
+            pass
+
+
 class SpeechControlCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.active_guilds: set[int] = set()
         self.temp_files: dict[int, str] = {}
+        self.active_mics: dict[int, MicrophoneAudioSource] = {}
 
     def ffmpeg_executable(self):
         configured = os.getenv("FFMPEG_PATH", "").strip()
@@ -159,11 +238,17 @@ class SpeechControlCog(commands.Cog):
         stopped = False
         for guild in self.bot.guilds:
             voice_client = guild.voice_client
+            mic_source = self.active_mics.get(guild.id)
+            if mic_source:
+                if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+                    voice_client.stop()
+                await self._finish_mic(guild.id, mic_source)
+                stopped = True
             if guild.id in self.active_guilds and voice_client and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
                 await self._cleanup(guild.id, self.temp_files.get(guild.id))
                 stopped = True
-        return "已停止 LogRelay 語音。" if stopped else "目前沒有正在播放的 LogRelay 語音。"
+        return "已停止 LogRelay 的語音／麥克風傳送。" if stopped else "目前沒有正在播放的 LogRelay 語音或麥克風。"
 
     async def leave_from_terminal(self):
         left = False
@@ -176,12 +261,80 @@ class SpeechControlCog(commands.Cog):
             if player and (player.current or player.queue):
                 print(f"[終端語音] {guild.name} 正在播放音樂，為保護音樂播放而不離開。")
                 continue
-            if guild.id in self.active_guilds and (voice_client.is_playing() or voice_client.is_paused()):
+            mic_source = self.active_mics.get(guild.id)
+            if (guild.id in self.active_guilds or mic_source) and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
+            if mic_source:
+                await self._finish_mic(guild.id, mic_source)
             await voice_client.disconnect(force=True)
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
             left = True
         return "LogRelay 已離開語音頻道。" if left else "目前沒有可安全離開的語音頻道（若正在播放音樂，我不會中斷音樂）。"
+
+    async def start_mic_from_terminal(self):
+        guild, member, channel = await self._find_owner_voice()
+        if not guild or not channel:
+            return "請先用你的 Discord 帳號加入語音頻道，再輸入 /mic。"
+        if guild.id in self.active_mics:
+            return "麥克風已經在傳送了。輸入 /stop 可停止。"
+        voice_client = guild.voice_client
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            return "我正在播放其他音訊；請先輸入 /stop，確認沒有音樂播放後再啟動麥克風。"
+        music_cog = self.bot.get_cog("MusicCog")
+        player = getattr(music_cog, "players", {}).get(guild.id) if music_cog else None
+        if player and (getattr(player, "current", None) or bool(getattr(player, "queue", None))):
+            return "這個伺服器的音樂播放器仍有歌曲，為避免打斷音樂，我不會接管語音。"
+        source = None
+        try:
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await channel.connect()
+            elif voice_client.channel != channel:
+                await voice_client.move_to(channel)
+            source = MicrophoneAudioSource()
+            self.active_mics[guild.id] = source
+            loop = asyncio.get_running_loop()
+
+            def after_microphone(error):
+                if error:
+                    print(f"[Mic] stream stopped: {type(error).__name__}: {error}")
+                if not loop.is_closed():
+                    asyncio.run_coroutine_threadsafe(self._finish_mic(guild.id, source), loop)
+
+            voice_client.play(source, after=after_microphone)
+            return (
+                f"麥克風已開始即時傳送到 {guild.name} / {channel.name}。"
+                "請在 Discord 將自己帳號的麥克風靜音，避免同一句話重複傳送；輸入 /stop 可停止。"
+            )
+        except Exception as exc:
+            print(f"[Mic] failed: {type(exc).__name__}: {exc}")
+            if source:
+                await self._finish_mic(guild.id, source)
+            if voice_client and source and (voice_client.is_playing() or voice_client.is_paused()):
+                voice_client.stop()
+            detail = str(exc).strip()
+            if "sounddevice" in detail.lower() or "No module named" in detail:
+                return "找不到麥克風套件。請在專案終端執行：python -m pip install -r requirements.txt"
+            return "啟動麥克風失敗。請確認 Windows 麥克風權限、輸入裝置與 Discord 語音權限。"
+
+    async def _finish_mic(self, guild_id: int, source: MicrophoneAudioSource | None = None):
+        current = self.active_mics.get(guild_id)
+        if source is None:
+            source = current
+        if source is not None:
+            source.cleanup()
+        if current is source:
+            self.active_mics.pop(guild_id, None)
+
+    async def stop_mic_from_terminal(self):
+        stopped = False
+        for guild_id, source in list(self.active_mics.items()):
+            guild = self.bot.get_guild(guild_id)
+            voice_client = guild.voice_client if guild else None
+            if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+                voice_client.stop()
+            await self._finish_mic(guild_id, source)
+            stopped = True
+        return "已停止即時麥克風傳送。" if stopped else "目前沒有正在傳送的麥克風。"
 
     async def _cleanup(self, guild_id: int, filename: str | None):
         self.active_guilds.discard(guild_id)
@@ -204,12 +357,16 @@ class SpeechControlCog(commands.Cog):
             return
         guild = interaction.guild
         voice_client = guild.voice_client
-        if guild.id not in self.active_guilds or not voice_client or not voice_client.is_playing():
-            await interaction.response.send_message("我現在沒有正在唸的內容。", ephemeral=True)
+        mic_source = self.active_mics.get(guild.id)
+        if not voice_client or not (voice_client.is_playing() or voice_client.is_paused()) or (guild.id not in self.active_guilds and not mic_source):
+            await interaction.response.send_message("我現在沒有正在唸話或傳送麥克風。", ephemeral=True)
             return
         voice_client.stop()
-        await self._cleanup(guild.id, self.temp_files.get(guild.id))
-        await interaction.response.send_message("好，停止唸了。", ephemeral=True)
+        if mic_source:
+            await self._finish_mic(guild.id, mic_source)
+        if guild.id in self.active_guilds:
+            await self._cleanup(guild.id, self.temp_files.get(guild.id))
+        await interaction.response.send_message("好，停止了。", ephemeral=True)
 
     @app_commands.command(name="speech-leave", description="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）")
     async def speech_leave(self, interaction: discord.Interaction):
