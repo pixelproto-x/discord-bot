@@ -227,7 +227,7 @@ transform:translateY(12px);opacity:0;transition:.22s var(--ease);max-width:min(3
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
 
-/* Stable scrolling backdrop: prevents compositor flashes during very fast scrolling */
+
 html,body{min-height:100%;background-color:var(--bg)!important}
 body{position:relative}
 body::after{
