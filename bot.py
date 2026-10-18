@@ -686,6 +686,80 @@ class Bot(commands.Bot):
 
 bot = Bot()
 
+# Owner-only, hidden text command: !bot on / !bot off.
+# This mode transparently mirrors messages; it does not delete originals or conceal authorship.
+_relay_webhooks: dict[int, discord.Webhook] = {}
+
+@bot.command(name="bot", hidden=True)
+async def owner_message_relay(ctx: commands.Context, action: str = ""):
+    if ctx.author.id != OWNER_ID:
+        return
+    if ctx.guild is None:
+        await ctx.reply("請在伺服器文字頻道使用。", mention_author=False)
+        return
+
+    action = action.casefold().strip()
+    if action not in {"on", "off"}:
+        await ctx.reply("用法：`!bot on` 或 `!bot off`", mention_author=False)
+        return
+
+    enabled = action == "on"
+    await asyncio.to_thread(
+        storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
+    )
+    await ctx.reply(
+        "已開啟透明訊息轉發；原訊息會保留，轉發訊息會標示來源。"
+        if enabled else "已關閉透明訊息轉發。",
+        mention_author=False,
+    )
+
+
+@bot.listen("on_message")
+async def transparent_message_relay(message: discord.Message):
+    if message.guild is None or message.author.bot or message.webhook_id:
+        return
+    if message.content.strip().casefold().startswith("!bot"):
+        return
+    if not await asyncio.to_thread(
+        storage.get_setting, message.guild.id, "owner_message_relay_enabled", False
+    ):
+        return
+    channel = message.channel
+    if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
+        return
+
+    try:
+        webhook = _relay_webhooks.get(channel.id)
+        if webhook is None:
+            hooks = await channel.webhooks()
+            webhook = next(
+                (hook for hook in hooks if hook.name == "Transparent Message Relay"),
+                None,
+            )
+            if webhook is None:
+                webhook = await channel.create_webhook(name="Transparent Message Relay")
+            _relay_webhooks[channel.id] = webhook
+
+        parts = [message.content] if message.content else []
+        if message.attachments:
+            parts.extend(attachment.url for attachment in message.attachments)
+        parts.append(f"↪ 轉發自 {message.author.mention}（由機器人轉發）")
+        payload = "\\n\\n".join(parts)
+        if len(payload) > 2000:
+            payload = payload[:1950] + "\\n…（內容過長，部分內容省略）"
+        await webhook.send(
+            content=payload,
+            username=(message.author.display_name[:65] + " · 轉發"),
+            avatar_url=message.author.display_avatar.url,
+            allowed_mentions=discord.AllowedMentions.none(),
+            wait=False,
+        )
+    except (discord.Forbidden, discord.NotFound) as exc:
+        _relay_webhooks.pop(channel.id, None)
+        print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
+    except discord.HTTPException as exc:
+        print(f"Transparent relay failed in channel {channel.id}: {exc}")
+
 
 async def run_spam(job_key: tuple[int, int], notify_channel, target_channels: list, content: str, count: int):
     user_id = job_key[1]
