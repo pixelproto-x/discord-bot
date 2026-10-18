@@ -744,9 +744,9 @@ async def transparent_message_relay(message: discord.Message):
         if message.attachments:
             parts.extend(attachment.url for attachment in message.attachments)
         parts.append(f"↪ 轉發自 {message.author.mention}（由機器人轉發）")
-        payload = "\\n\\n".join(parts)
+        payload = "\n\n".join(parts)
         if len(payload) > 2000:
-            payload = payload[:1950] + "\\n…（內容過長，部分內容省略）"
+            payload = payload[:1950] + "\n…（內容過長，部分內容省略）"
         await webhook.send(
             content=payload,
             username=(message.author.display_name[:65] + " · 轉發"),
