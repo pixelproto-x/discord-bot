@@ -546,7 +546,7 @@ async def run_spam(job_key: tuple[int, int], notify_channel, target_channels: li
                     try:
                         await ch.send(content, allowed_mentions=discord.AllowedMentions.none())
                         sent_count += 1
-                        # Limit message throughput to reduce accidental or abusive channel flooding.
+                        
                         await asyncio.sleep(0.2)
                         break
                     except discord.HTTPException as exc:
@@ -801,8 +801,8 @@ async def reminder_worker():
                 )
                 await asyncio.to_thread(storage.complete_reminder, row['id'])
             except (discord.NotFound, discord.Forbidden):
-                # The original channel may have been deleted or become inaccessible.
-                # Try a DM once, then retire the reminder to avoid retrying forever.
+                
+                
                 try:
                     user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
                     await user.send(f"⏰ 你之前叫我提醒你的：{row['message']}\n（原本的提醒頻道目前無法使用。）")

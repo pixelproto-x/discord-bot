@@ -31,8 +31,8 @@ def _can_read(channel, bot_member: discord.Member, viewer_member: Optional[disco
 
 
 def _message_line(message: discord.Message, bot_id: Optional[int]) -> Optional[str]:
-    # Ignore other bots, empty messages, and prefix commands. Keep this bot's own
-    # replies so the model can understand the immediate conversational flow.
+    
+    
     if message.author.bot and message.author.id != bot_id:
         return None
 
@@ -96,13 +96,13 @@ async def collect_server_chat_context(
             viewer_member = requester
         else:
             viewer_member = guild.get_member(getattr(requester, "id", 0))
-    # Without a resolved requester, do not sample other channels: that avoids
-    # accidentally leaking private-channel text to someone whose visibility is unknown.
+    
+    
 
     sections = []
     semaphore = asyncio.Semaphore(3)
 
-    # Current channel is the most relevant context.
+    
     if _can_read(channel, bot_member, viewer_member):
         try:
             recent = await _read_history(
@@ -118,7 +118,7 @@ async def collect_server_chat_context(
         except (asyncio.TimeoutError, discord.Forbidden, discord.HTTPException, AttributeError):
             pass
 
-    # Sample a bounded number of recently active, readable guild text channels.
+    
     candidates = []
     current_id = getattr(channel, "id", None)
     for candidate in getattr(guild, "text_channels", []):

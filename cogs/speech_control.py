@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,13 +14,18 @@ from discord.ext import commands
 
 OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 DEFAULT_VOICE = os.getenv("TTS_VOICE", "zh-TW-HsiaoChenNeural").strip() or "zh-TW-HsiaoChenNeural"
+DIGIT_NAMES = str.maketrans("0123456789", "零一二三四五六七八九")
+
+
+def normalize_spoken_digits(value: str) -> str:
+    return re.sub(r"[0-9]+", lambda match: match.group(0).translate(DIGIT_NAMES), value)
 
 
 class MicrophoneAudioSource(discord.AudioSource):
     """Stream the computer's live microphone to a Discord voice client."""
 
-    FRAME_SAMPLES = 960  # 20 ms at 48 kHz
-    FRAME_BYTES = FRAME_SAMPLES * 2 * 2  # int16 * stereo
+    FRAME_SAMPLES = 960  
+    FRAME_BYTES = FRAME_SAMPLES * 2 * 2  
     SILENCE = bytes(FRAME_BYTES)
 
     def __init__(self):
@@ -47,7 +53,7 @@ class MicrophoneAudioSource(discord.AudioSource):
         if self._closed:
             return
         try:
-            # Duplicate mono input into left/right channels for Discord PCM output.
+            
             stereo = self._np.repeat(indata, 2, axis=1)
             chunk = self._np.ascontiguousarray(stereo).tobytes()
             if len(chunk) != self.FRAME_BYTES:
@@ -55,7 +61,7 @@ class MicrophoneAudioSource(discord.AudioSource):
             try:
                 self._queue.put_nowait(chunk)
             except self._queue_module.Full:
-                # Keep audio close to live instead of building up delay.
+                
                 try:
                     self._queue.get_nowait()
                 except self._queue_module.Empty:
@@ -65,7 +71,7 @@ class MicrophoneAudioSource(discord.AudioSource):
                 except self._queue_module.Full:
                     pass
         except Exception:
-            # Never let an audio callback exception crash the microphone stream.
+            
             return
 
     def read(self):
@@ -130,7 +136,7 @@ class SpeechControlCog(commands.Cog):
         if not isinstance(member, discord.Member) or not member.voice or not member.voice.channel:
             await interaction.response.send_message("你先加入一個語音頻道，我才知道要去哪裡講話。", ephemeral=True)
             return
-        text = text.strip()
+        text = normalize_spoken_digits(text.strip())
         if len(text) > 500:
             await interaction.response.send_message("一次最多唸 500 個字。", ephemeral=True)
             return
@@ -191,7 +197,7 @@ class SpeechControlCog(commands.Cog):
         return None, None, None
 
     async def speak_from_terminal(self, text: str):
-        text = text.strip()
+        text = normalize_spoken_digits(text.strip())
         if not text:
             return "請先輸入要說的文字。"
         if len(text) > 500:
@@ -378,15 +384,17 @@ class SpeechControlCog(commands.Cog):
             await interaction.response.send_message("我目前沒有在語音頻道裡。", ephemeral=True)
             return
         music_cog = self.bot.get_cog("MusicCog")
-        player = getattr(music_cog, "players", {}).get(guild.id) if music_cog else None
-        if player and (player.current or player.queue):
-            await interaction.response.send_message("這個伺服器正在使用音樂播放。為避免把音樂一起中斷，請先停止音樂再讓我離開。", ephemeral=True)
-            return
-        if voice_client.is_playing() or voice_client.is_paused():
-            voice_client.stop()
-        await voice_client.disconnect(force=True)
-        await self._cleanup(guild.id, self.temp_files.get(guild.id))
-        await interaction.response.send_message("好，我離開語音頻道了。", ephemeral=True)
+        if music_cog:
+            await music_cog.stop_player(guild.id)
+        else:
+            if voice_client.is_playing() or voice_client.is_paused():
+                voice_client.stop()
+            await voice_client.disconnect(force=True)
+            mic_source = self.active_mics.get(guild.id)
+            if mic_source:
+                await self._finish_mic(guild.id, mic_source)
+            await self._cleanup(guild.id, self.temp_files.get(guild.id))
+        await interaction.response.send_message("已處理。", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

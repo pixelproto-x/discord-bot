@@ -413,15 +413,35 @@ class MusicCog(commands.Cog):
     async def stop_player(self, guild_id: int):
         async with self.lock_for(guild_id):
             player = self.players.pop(guild_id, None)
-            if not player:
-                return
-            player.skip_current = True
-            if player.voice:
+            if player:
+                player.skip_current = True
+            guild = self.bot.get_guild(guild_id)
+            voice_client = guild.voice_client if guild else None
+            if not voice_client and player:
+                voice_client = player.voice
+            speech_cog = self.bot.get_cog("SpeechControlCog")
+            if speech_cog:
+                mic_source = getattr(speech_cog, "active_mics", {}).get(guild_id)
+                if mic_source:
+                    await speech_cog._finish_mic(guild_id, mic_source)
+                if guild_id in getattr(speech_cog, "active_guilds", set()):
+                    await speech_cog._cleanup(guild_id, getattr(speech_cog, "temp_files", {}).get(guild_id))
+            if voice_client:
                 try:
-                    player.voice.stop()
-                    await player.voice.disconnect(force=True)
+                    if voice_client.is_playing() or voice_client.is_paused():
+                        voice_client.stop()
                 except Exception:
                     pass
+                try:
+                    if voice_client.is_connected():
+                        await voice_client.disconnect(force=True)
+                except Exception as exc:
+                    print(f"[Voice] Disconnect failed: {type(exc).__name__}: {exc!r}")
+            if player:
+                player.voice = None
+                player.current = None
+                player.queue.clear()
+                player.skip_current = False
 
     @music.command(name="search", description="直接搜尋 YouTube 歌曲並選一首")
     @app_commands.describe(query="歌名、歌手或關鍵字")
@@ -467,7 +487,7 @@ class MusicCog(commands.Cog):
                 await interaction.response.send_message("我正在播放或排隊播放音樂，不能切換頻道中斷大家。", ephemeral=True)
                 return
             if voice_client.channel == channel:
-                await interaction.response.send_message(f"我已經在 {channel.mention} 了。", ephemeral=True)
+                await interaction.response.send_message("已連線。", ephemeral=True)
                 return
             try:
                 await voice_client.move_to(channel)
@@ -476,10 +496,10 @@ class MusicCog(commands.Cog):
                 return
         else:
             try:
-                # discord.py voice requires both PyNaCl and the DAVE voice dependency.
+                
                 try:
-                    import nacl  # noqa: F401
-                    import davey  # noqa: F401
+                    import nacl  
+                    import davey  
                 except ImportError as dependency_error:
                     print(f"[Voice] Missing voice dependency: {type(dependency_error).__name__}: {dependency_error}")
                     await interaction.response.send_message(
@@ -487,9 +507,10 @@ class MusicCog(commands.Cog):
                         ephemeral=True,
                     )
                     return
-                await channel.connect()
+                player = self.player(interaction.guild.id)
+                player.voice = await channel.connect()
             except Exception as exc:
-                # Keep the actionable root cause in the console instead of hiding it as RuntimeError.
+                
                 print(f"[Voice] Join failed: {type(exc).__name__}: {exc!r}")
                 if isinstance(exc, discord.Forbidden):
                     message = "加入語音失敗：Bot 沒有此頻道的「查看頻道、連接、說話」權限。"
@@ -658,7 +679,7 @@ class MusicCog(commands.Cog):
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
         await self.stop_player(interaction.guild.id)
-        await interaction.response.send_message("好，我先離開語音。")
+        await interaction.response.send_message("已處理。", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

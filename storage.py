@@ -235,7 +235,7 @@ def find_autoreplies(guild_id: int, content: str, channel_id: int):
 def add_reminder(guild_id, user_id, channel_id, message, due_at):
     """Create a reminder unless this member already has the maximum active count."""
     with connect() as con:
-        # Lock before counting so concurrent slash commands cannot race past the cap.
+        
         con.execute("BEGIN IMMEDIATE")
         active_count = con.execute(
             "SELECT COUNT(*) FROM reminders WHERE guild_id=? AND user_id=? AND done=0",
