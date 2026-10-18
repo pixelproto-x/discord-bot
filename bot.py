@@ -182,7 +182,9 @@ class Bot(commands.Bot):
     async def _terminal_speech_console(self):
         print("\\n========== LogRelay 終端控制 ==========")
         print("在 Discord 加入語音頻道後，直接在這裡打字，LogRelay 就會用中文語音唸出。")
-        print("指令：直接輸入文字=LogRelay 唸出、/join=連接語音、/mic=把電腦麥克風即時傳給 Bot、/stop=停止語音或麥克風、/leave=離開語音、/help=說明、/exit=關閉此介面")
+        print("一般文字=LogRelay 說話；/say 頻道ID 文字=傳送 Discord 訊息；/servers、/channels 伺服器ID、/members 伺服器ID、/roles 伺服器ID 可查詢")
+        print("管理：/dm 使用者ID 文字、/nick 伺服器ID 成員ID 暱稱、/role add|remove 伺服器ID 成員ID 身分組ID、/timeout 伺服器ID 成員ID 分鐘 [原因]、/kick、/ban、/unban、/purge 頻道ID 數量")
+        print("語音：/join、/mic、/stop、/leave；/help 查看用法；/exit 關閉終端控制。操作仍受 Bot 權限及身分組階級限制。")
         print("======================================")
         while not self.is_closed():
             try:
@@ -196,7 +198,9 @@ class Bot(commands.Bot):
             command = text.casefold()
             speech = self.get_cog("SpeechControlCog")
             if command == "/help":
-                print("直接輸入文字 = 讓 LogRelay 用合成語音說話；/join = 連接你目前所在的語音；/mic = 把電腦麥克風即時傳給 LogRelay；/stop = 停止語音或麥克風；/leave = 離開語音；/exit = 關閉此介面。")
+                print("一般文字=合成語音；/servers=伺服器列表；/channels 伺服器ID=頻道列表；/say 頻道ID 文字=發送訊息；/members 伺服器ID=成員快取；/roles 伺服器ID=身分組列表。")
+                print("/dm 使用者ID 文字；/nick 伺服器ID 成員ID 暱稱；/role add|remove 伺服器ID 成員ID 身分組ID；/timeout 伺服器ID 成員ID 分鐘 [原因]；/kick、/ban、/unban、/purge。")
+                print("/join、/mic、/stop、/leave 控制語音；/exit 關閉控制介面。實際操作受 Bot 權限限制。")
             elif command == "/exit":
                 print("終端控制介面已關閉，Bot 會繼續運作。要關閉整個 Bot 請按 Ctrl+C。")
                 return
@@ -220,8 +224,288 @@ class Bot(commands.Bot):
                 print(await speech.stop_from_terminal() if speech else "語音模組尚未載入。")
             elif command == "/leave":
                 print(await speech.leave_from_terminal() if speech else "語音模組尚未載入。")
+            elif command == "/servers" or text.startswith(("/say ", "/dm ", "/channels ", "/members ", "/roles ", "/nick ", "/role ", "/timeout ", "/kick ", "/ban ", "/unban ", "/purge ")):
+                print(await self._terminal_discord_command(text))
+            elif text.startswith("/"):
+                print("未知的終端指令。輸入 /help 查看；不以 / 開頭的文字會轉成 LogRelay 語音。")
             else:
                 print(await speech.speak_from_terminal(text) if speech else "語音模組尚未載入。")
+
+
+    async def _terminal_discord_command(self, raw: str) -> str:
+        command_parts = raw.strip().split(maxsplit=1)
+        if not command_parts:
+            return "請輸入指令。"
+        cmd = command_parts[0].casefold()
+
+        async def get_guild(raw_id):
+            try:
+                guild_id = int(raw_id)
+            except ValueError:
+                return None, "伺服器 ID 必須是數字。"
+            guild = self.get_guild(guild_id)
+            return (guild, None) if guild else (None, "找不到伺服器，或 Bot 尚未加入。")
+
+        async def get_member(guild, raw_id):
+            try:
+                member_id = int(raw_id)
+            except ValueError:
+                return None, "成員 ID 必須是數字。"
+            member = guild.get_member(member_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(member_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    member = None
+            return (member, None) if member else (None, "找不到這位成員，或 Bot 無法讀取其資料。")
+
+        def bot_member(guild):
+            return guild.me or (guild.get_member(self.user.id) if self.user else None)
+
+        def hierarchy_ok(guild, target):
+            me = bot_member(guild)
+            return bool(me and target.id != guild.owner_id and me.top_role > target.top_role)
+
+        def no_perm(action):
+            return f"操作失敗：Bot 缺少「{action}」權限，或目標的身分組階級不低於 Bot。"
+
+        if cmd == "/servers":
+            return "Bot 已加入的伺服器：\n" + "\n".join(
+                f"{g.name} | ID: {g.id}" for g in self.guilds
+            ) if self.guilds else "Bot 目前不在任何伺服器。"
+
+        if cmd == "/channels":
+            args = raw.strip().split(maxsplit=1)
+            if len(args) < 2:
+                return "用法：/channels 伺服器ID"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            rows = [
+                f"{channel.name} | {type(channel).__name__} | ID: {channel.id}"
+                for channel in guild.channels
+                if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel))
+            ]
+            return "頻道列表：\n" + "\n".join(rows[:100]) if rows else "沒有可列出的頻道。"
+
+        if cmd == "/roles":
+            args = raw.strip().split(maxsplit=1)
+            if len(args) < 2:
+                return "用法：/roles 伺服器ID"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            rows = [
+                f"{role.name} | ID: {role.id} | 階級: {role.position}"
+                for role in sorted(guild.roles, key=lambda r: r.position, reverse=True)[:100]
+            ]
+            return "身分組列表：\n" + "\n".join(rows)
+
+        if cmd == "/members":
+            args = raw.strip().split(maxsplit=2)
+            if len(args) < 2:
+                return "用法：/members 伺服器ID [搜尋文字]"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            query = args[2].casefold() if len(args) > 2 else ""
+            members = [
+                member for member in guild.members
+                if not query or query in member.display_name.casefold() or query in str(member.id)
+            ]
+            rows = [f"{m.display_name} (@{m.name}) | ID: {m.id}" for m in members[:80]]
+            suffix = "\n（只列出 Bot 目前快取到的成員；若要完整名單，需在 Developer Portal 啟用 Server Members Intent。）"
+            return ("成員列表：\n" + "\n".join(rows) if rows else "沒有符合的快取成員。") + suffix
+
+        if cmd == "/say":
+            args = raw.strip().split(maxsplit=2)
+            if len(args) < 3:
+                return "用法：/say 頻道ID 要發送的文字"
+            try:
+                channel_id = int(args[1])
+            except ValueError:
+                return "頻道 ID 必須是數字。"
+            message = args[2].strip()
+            if not message or len(message) > 2000:
+                return "訊息不能空白，且一次最多 2000 個字。"
+            channel = self.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await self.fetch_channel(channel_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    return "找不到頻道，或 Bot 無權讀取。"
+            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                return "目前只支援文字頻道或討論串。"
+            me = bot_member(channel.guild)
+            perms = channel.permissions_for(me) if me else None
+            if not perms or not perms.view_channel or not (perms.send_messages or getattr(perms, "send_messages_in_threads", False)):
+                return no_perm("查看頻道／傳送訊息")
+            try:
+                await channel.send(message, allowed_mentions=discord.AllowedMentions.none())
+                return f"已用 LogRelay 帳號傳送到 #{channel.name}。"
+            except discord.HTTPException as exc:
+                return f"傳送失敗：{exc}"
+
+        if cmd == "/dm":
+            args = raw.strip().split(maxsplit=2)
+            if len(args) < 3:
+                return "用法：/dm 使用者ID 要傳送的私訊"
+            try:
+                user_id = int(args[1])
+            except ValueError:
+                return "使用者 ID 必須是數字。"
+            message = args[2].strip()
+            if not message or len(message) > 2000:
+                return "私訊不能空白，且一次最多 2000 個字。"
+            try:
+                user = self.get_user(user_id) or await self.fetch_user(user_id)
+                await user.send(message, allowed_mentions=discord.AllowedMentions.none())
+                return f"已送出私訊給 {user}；若對方封鎖 Bot 私訊，則會失敗。"
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                return f"私訊沒有送出：{exc}"
+
+        if cmd == "/nick":
+            args = raw.strip().split(maxsplit=3)
+            if len(args) < 4:
+                return "用法：/nick 伺服器ID 成員ID 新暱稱（要清空暱稱請用 -）"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            member, err = await get_member(guild, args[2])
+            if err:
+                return err
+            me = bot_member(guild)
+            if not me or not me.guild_permissions.manage_nicknames or not hierarchy_ok(guild, member):
+                return no_perm("管理暱稱")
+            try:
+                await member.edit(nick=None if args[3] == "-" else args[3], reason="由本機終端控制")
+                return f"已更新 {member} 的伺服器暱稱。"
+            except discord.HTTPException as exc:
+                return f"更改暱稱失敗：{exc}"
+
+        if cmd == "/role":
+            args = raw.strip().split()
+            if len(args) != 5 or args[1].casefold() not in ("add", "remove"):
+                return "用法：/role add|remove 伺服器ID 成員ID 身分組ID"
+            action, guild_id, member_id, role_id = args[1:]
+            guild, err = await get_guild(guild_id)
+            if err:
+                return err
+            member, err = await get_member(guild, member_id)
+            if err:
+                return err
+            try:
+                role = guild.get_role(int(role_id))
+            except ValueError:
+                role = None
+            me = bot_member(guild)
+            if not role:
+                return "找不到這個身分組。"
+            if not me or not me.guild_permissions.manage_roles or not hierarchy_ok(guild, member) or me.top_role <= role:
+                return no_perm("管理身分組")
+            try:
+                if action.casefold() == "add":
+                    await member.add_roles(role, reason="由本機終端控制")
+                    return f"已把身分組「{role.name}」加給 {member}。"
+                await member.remove_roles(role, reason="由本機終端控制")
+                return f"已移除 {member} 的身分組「{role.name}」。"
+            except discord.HTTPException as exc:
+                return f"身分組操作失敗：{exc}"
+
+        if cmd in ("/timeout", "/kick", "/ban"):
+            args = raw.strip().split(maxsplit=4)
+            if cmd == "/timeout":
+                if len(args) < 4:
+                    return "用法：/timeout 伺服器ID 成員ID 分鐘 [原因]"
+                guild, err = await get_guild(args[1])
+                if err:
+                    return err
+                member, err = await get_member(guild, args[2])
+                if err:
+                    return err
+                try:
+                    minutes = int(args[3])
+                except ValueError:
+                    return "分鐘必須是數字。"
+                if not 1 <= minutes <= 40320:
+                    return "分鐘必須介於 1 至 40320（最多 28 天）。"
+                me = bot_member(guild)
+                if not me or not me.guild_permissions.moderate_members or not hierarchy_ok(guild, member):
+                    return no_perm("暫停成員")
+                reason = args[4] if len(args) > 4 else "由本機終端控制"
+                try:
+                    from datetime import timedelta
+                    await member.timeout(timedelta(minutes=minutes), reason=reason[:512])
+                    return f"已暫停 {member} {minutes} 分鐘。"
+                except discord.HTTPException as exc:
+                    return f"暫停成員失敗：{exc}"
+            if len(args) < 3:
+                return f"用法：{cmd} 伺服器ID 成員ID [原因]"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            member, err = await get_member(guild, args[2])
+            if err:
+                return err
+            me = bot_member(guild)
+            if not me or not hierarchy_ok(guild, member):
+                return "Bot 無法操作伺服器擁有者或身分組階級高於／等於 Bot 的成員。"
+            reason = args[3] if len(args) > 3 else "由本機終端控制"
+            try:
+                if cmd == "/kick":
+                    if not me.guild_permissions.kick_members:
+                        return no_perm("踢出成員")
+                    await member.kick(reason=reason[:512])
+                    return f"已踢出成員 {member}。"
+                if not me.guild_permissions.ban_members:
+                    return no_perm("封鎖成員")
+                await member.ban(reason=reason[:512])
+                return f"已封鎖成員 {member}。"
+            except discord.HTTPException as exc:
+                return f"{cmd} 操作失敗：{exc}"
+
+        if cmd == "/unban":
+            args = raw.strip().split(maxsplit=3)
+            if len(args) < 3:
+                return "用法：/unban 伺服器ID 使用者ID [原因]"
+            guild, err = await get_guild(args[1])
+            if err:
+                return err
+            me = bot_member(guild)
+            if not me or not me.guild_permissions.ban_members:
+                return no_perm("解除封鎖")
+            try:
+                await guild.unban(discord.Object(id=int(args[2])), reason=args[3] if len(args) > 3 else "由本機終端控制")
+                return f"已送出解除封鎖請求：{args[2]}。"
+            except (ValueError, discord.HTTPException) as exc:
+                return f"解除封鎖失敗：{exc}"
+
+        if cmd == "/purge":
+            args = raw.strip().split(maxsplit=2)
+            if len(args) < 3:
+                return "用法：/purge 頻道ID 數量（1 到 100）"
+            try:
+                channel_id, count = int(args[1]), int(args[2])
+            except ValueError:
+                return "頻道 ID 和數量都必須是數字。"
+            if not 1 <= count <= 100:
+                return "一次只能清理 1 到 100 則訊息。"
+            channel = self.get_channel(channel_id)
+            if channel is None:
+                return "找不到頻道；先用 /channels 查詢。"
+            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                return "目前只支援文字頻道或討論串。"
+            me = bot_member(channel.guild)
+            perms = channel.permissions_for(me) if me else None
+            if not perms or not perms.manage_messages or not perms.read_message_history:
+                return no_perm("管理訊息／讀取歷史訊息")
+            try:
+                deleted = await channel.purge(limit=count)
+                return f"已清理 #{channel.name} 的 {len(deleted)} 則訊息。"
+            except discord.HTTPException as exc:
+                return f"清理訊息失敗：{exc}"
+
+        return "未知的 Discord 操作指令。輸入 /help 查看用法。"
 
 
     async def close(self):
