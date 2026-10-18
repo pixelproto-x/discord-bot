@@ -148,7 +148,10 @@ async def start_dashboard(bot):
     oauth_client_id = os.getenv("DISCORD_OAUTH_CLIENT_ID", "")
     oauth_client_secret = os.getenv("DISCORD_OAUTH_CLIENT_SECRET", "")
     session_secret = _session_secret()
-    oauth_enabled = bool(public_url.startswith("https://") and oauth_client_id and oauth_client_secret and len(session_secret) >= 32)
+    # OAuth can run on HTTPS for a deployed dashboard, or on loopback HTTP for a local-only dashboard.
+    local_public_url = public_url.startswith(("http://127.0.0.1:", "http://localhost:"))
+    valid_oauth_url = public_url.startswith("https://") or local_public_url
+    oauth_enabled = bool(valid_oauth_url and oauth_client_id and oauth_client_secret and len(session_secret) >= 32)
     app = web.Application(client_max_size=1024 * 32)
 
     @web.middleware
@@ -179,7 +182,7 @@ async def start_dashboard(bot):
         redirect_uri = public_url + "/oauth/callback"
         params = {"client_id": oauth_client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": "identify", "state": state, "prompt": "consent"}
         response = web.HTTPFound("https://discord.com/oauth2/authorize?" + urlencode(params))
-        response.set_cookie("dashboard_oauth_state", state, max_age=600, httponly=True, secure=True, samesite="Lax", path="/")
+        response.set_cookie("dashboard_oauth_state", state, max_age=600, httponly=True, secure=not local_public_url, samesite="Lax", path="/")
         raise response
 
     async def oauth_callback(request):
@@ -212,7 +215,7 @@ async def start_dashboard(bot):
             response.del_cookie("dashboard_oauth_state", path="/")
             return response
         response = web.HTTPFound("/")
-        response.set_cookie("dashboard_session", _sign_session(user_id), max_age=12 * 3600, httponly=True, secure=True, samesite="Lax", path="/")
+        response.set_cookie("dashboard_session", _sign_session(user_id), max_age=12 * 3600, httponly=True, secure=not local_public_url, samesite="Lax", path="/")
         response.del_cookie("dashboard_oauth_state", path="/")
         raise response
 
@@ -379,7 +382,7 @@ async def start_dashboard(bot):
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     configured_port = int(os.getenv("PORT", "8765"))
-    bind_host = "0.0.0.0" if public_url else "127.0.0.1"
+    bind_host = "0.0.0.0" if public_url and not local_public_url else "127.0.0.1"
     site = None
     port = configured_port
 
