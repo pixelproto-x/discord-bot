@@ -80,6 +80,7 @@ class SearchCog(commands.Cog):
         self.chat_history_limit = 8
         self.gemini_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip())
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+        self.gemini_cooldown_until = 0.0
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
         self.groq_key = os.getenv("GROQ_API_KEY", "").strip()
         self.groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
@@ -377,7 +378,9 @@ class SearchCog(commands.Cog):
             "群聊紀錄只用來理解背景和接梗，真正要回覆的只有明確標示的本次訊息。"
         )
 
-        if not self.gemini_client:
+        if not self.gemini_client or time.monotonic() < self.gemini_cooldown_until:
+            if self.gemini_client and time.monotonic() < self.gemini_cooldown_until:
+                print("[Gemini chat] provider cooldown active; using Groq fallback")
             if visual_parts:
                 prompt += "\\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
             return _sanitize_chat_reply(await self._generate_groq_text(
@@ -424,6 +427,9 @@ class SearchCog(commands.Cog):
                     marker in error_type for marker in ("authentication", "permissiondenied", "notfound")
                 )
                 rate_limited = status == 429 or "resource_exhausted" in str(exc).lower()
+                if rate_limited:
+                    self.gemini_cooldown_until = time.monotonic() + 300
+                    print("[Gemini chat] rate limit detected; bypassing Gemini for 5 minutes")
                 timed_out = isinstance(exc, asyncio.TimeoutError) or "timeout" in error_type
                 if attempt == 0 and not fatal and not rate_limited and not timed_out:
                     await asyncio.sleep(0.8)
@@ -481,10 +487,9 @@ class SearchCog(commands.Cog):
             f"{prompt}"
         )
 
-        if not self.gemini_client:
-            return await self._generate_groq_text(
-                prompt, system_instruction, label="Groq fallback (Gemini unavailable)"
-            )
+        if not self.gemini_client or time.monotonic() < self.gemini_cooldown_until:
+            label = "Groq fallback (Gemini cooldown)" if self.gemini_client else "Groq fallback (Gemini unavailable)"
+            return await self._generate_groq_text(prompt, system_instruction, label=label)
 
         last_failure = "gemini_failed"
         for attempt in range(3):
@@ -524,6 +529,11 @@ class SearchCog(commands.Cog):
                     marker in error_type
                     for marker in ("authentication", "permissiondenied", "notfound", "badrequest")
                 )
+                rate_limited = status == 429 or "resource_exhausted" in str(exc).lower()
+                if rate_limited:
+                    self.gemini_cooldown_until = time.monotonic() + 300
+                    print("[Gemini API] rate limit detected; bypassing Gemini for 5 minutes")
+                    break
                 if fatal:
                     print("[Gemini API] non-retryable request/authentication error; switching to fallback")
                     break
