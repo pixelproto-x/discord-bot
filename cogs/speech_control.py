@@ -44,7 +44,7 @@ class SpeechControlCog(commands.Cog):
 
     @app_commands.command(name="speak", description="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）")
     @app_commands.describe(text="要讓機器人唸出的內容")
-    async def speak(self, interaction: discord.Interaction, text: app_commands.Range[str, 1, 500]):
+    async def speak(self, interaction: discord.Interaction, text: str):
         if not await self.owner_check(interaction):
             return
         member = interaction.user
@@ -52,6 +52,9 @@ class SpeechControlCog(commands.Cog):
             await interaction.response.send_message("你先加入一個語音頻道，我才知道要去哪裡講話。", ephemeral=True)
             return
         text = text.strip()
+        if len(text) > 500:
+            await interaction.response.send_message("一次最多唸 500 個字。", ephemeral=True)
+            return
         if not text:
             await interaction.response.send_message("你還沒輸入要唸的內容。", ephemeral=True)
             return
