@@ -16,8 +16,8 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import dotenv_values, load_dotenv
 
-# Load the project-root .env here as well, so this cog works even when imported
-# by an entry point that did not load dotenv first.
+
+
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=ENV_FILE, override=False)
 
@@ -398,8 +398,8 @@ class SearchCog(commands.Cog):
                         print("[FreeMind AI] chat returned an empty answer")
                         return ""
                 finally:
-                    # Isolate each Discord request so one user's prompt is not kept
-                    # in a shared FreeMind conversation or exposed to another channel.
+                    
+                    
                     try:
                         async with session.delete(
                             f"{base_url}/api/conversations/{conversation_id}"
@@ -495,7 +495,7 @@ class SearchCog(commands.Cog):
                 self._log_ai_error(f"Gemini chat attempt {attempt + 1}/2", exc)
                 status = self._api_status_code(exc)
                 error_type = type(exc).__name__.lower()
-                # Don't spend another full timeout on chat: fail over quickly when Gemini is slow.
+                
                 fatal = status in (400, 401, 403, 404) or any(
                     marker in error_type for marker in ("authentication", "permissiondenied", "notfound")
                 )
@@ -520,7 +520,7 @@ class SearchCog(commands.Cog):
                 f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens} thinking_tokens={thinking_tokens}"
             )
 
-            # Don't try to route around a safety block; report it as an empty result instead.
+            
             if any(marker in finish_reason for marker in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "PROMPT_BLOCK")):
                 return ""
 
@@ -657,7 +657,7 @@ class SearchCog(commands.Cog):
             return
         self.chat_cooldowns[cooldown_key] = now
 
-        # Keep cooldown/history caches bounded over long-running bot sessions.
+        
         if len(self.chat_cooldowns) > 2000:
             cutoff = now - self.chat_cooldown_seconds
             self.chat_cooldowns = {
@@ -675,8 +675,8 @@ class SearchCog(commands.Cog):
         if len(user_prompt) > 3000:
             user_prompt = user_prompt[:3000]
 
-        # Download a small, bounded set of visuals for Gemini vision. GIFs are sampled
-        # into a few frames so the model can understand the action instead of one frame only.
+        
+        
         visual_parts = []
         visual_count = 0
         visual_sources = []
@@ -690,8 +690,8 @@ class SearchCog(commands.Cog):
                 visual_sources.append(("attachment", attachment.url, attachment.size, content_type))
         for sticker in message.stickers:
             sticker_format = getattr(sticker, "format", None)
-            # Discord stickers may be PNG, APNG, or Lottie. PNG/APNG URLs are viewable;
-            # Lottie stickers are JSON animations and are skipped safely.
+            
+            
             if str(getattr(sticker_format, "name", sticker_format)).upper() in ("PNG", "APNG", "1", "2"):
                 visual_sources.append(("sticker", sticker.url, 0, "image/png"))
         for embed in message.embeds:
@@ -720,7 +720,7 @@ class SearchCog(commands.Cog):
                                 continue
                             frame_count = getattr(source_image, "n_frames", 1)
                             if frame_count > 1:
-                                # GIF/APNG: sample start, middle and end, capped to 3 frames.
+                                
                                 indexes = sorted(set((0, frame_count // 2, frame_count - 1)))
                                 for frame_index in indexes:
                                     if visual_count >= 4:
@@ -747,8 +747,8 @@ class SearchCog(commands.Cog):
                         print(f"[Gemini vision] skipped unsupported visual: {type(visual_exc).__name__}")
         except Exception as visual_exc:
             print(f"[Gemini vision] download failed: {type(visual_exc).__name__}")
-        # Extract a few frames from short video attachments with bundled FFmpeg.
-        # Videos are size-limited, and only a few frames from the first 30 seconds are sent.
+        
+        
         for video_url, video_size, video_name in video_sources:
             if visual_count >= 4:
                 break
@@ -812,7 +812,7 @@ class SearchCog(commands.Cog):
         elif message.attachments or message.stickers or message.embeds:
             user_prompt += "\\n[訊息可能含有無法讀取的圖片、貼圖或動畫格式；若看不到內容，不要假裝看懂。]"
 
-        # Include a trusted identity marker derived from Discord's author ID, not message text.
+        
         creator_marker = (
             "[系統身分資訊：這則訊息的作者是創作者，Discord ID=1140900506198351924。]"
             if message.author.id == 1140900506198351924
@@ -864,7 +864,7 @@ class SearchCog(commands.Cog):
 
             answer = answer.strip()
 
-            # Record only successful, non-empty turns so the next reply can follow the thread.
+            
             history = self.chat_history.setdefault(history_key, [])
             history.extend([
                 ("user", user_prompt[-3000:]),

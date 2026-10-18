@@ -246,7 +246,7 @@ class AutoReplyCog(commands.Cog):
         rules = storage.find_autoreplies(message.guild.id, message.content, message.channel.id)
         if not rules:
             return
-        # 一則訊息最多觸發一組，避免洗屏。
+        
         response = rules[0]["response"]
         response = (
             response

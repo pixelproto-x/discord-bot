@@ -574,7 +574,7 @@ class MemberEventsCog(commands.Cog):
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     print(f"Autorole assignment failed in guild {member.guild.id}: {exc!r}")
             else:
-                # A saved role may have become privileged or moved above the bot since setup.
+                
                 storage.set_setting(member.guild.id, "autorole_id", 0)
         channel_id = storage.get_setting(member.guild.id, "welcome_channel_id", 0)
         channel = member.guild.get_channel(int(channel_id)) if channel_id else None

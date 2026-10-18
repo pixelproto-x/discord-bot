@@ -338,7 +338,7 @@ class ModerationCog(commands.Cog):
         elif isinstance(saved, bool):
             overwrite.send_messages = saved
         else:
-            # Existing lock created before state tracking: preserve the previous legacy behavior.
+            
             overwrite.send_messages = None
         try:
             await channel.set_permissions(guild.default_role, overwrite=overwrite, reason=f"解鎖頻道 by {interaction.user}")
