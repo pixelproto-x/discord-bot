@@ -53,6 +53,7 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 let token="",selectedGuild="",selectedChannel="";
 const $=id=>document.getElementById(id);
 function message(id,text,error=false){$(id).textContent=text;$(id).classList.toggle("error",error)}
+function setLockedControls(locked){document.querySelectorAll("#app button,#app input,#app select,#app textarea").forEach(el=>{el.disabled=locked})}
 async function api(path,body){
  const options={headers:{"X-Control-Token":token}};
  if(body!==undefined){options.method="POST";options.headers["Content-Type"]="application/json";options.body=JSON.stringify(body)}
@@ -86,12 +87,12 @@ async function loadVoiceChannels(){
 }
 async function connect(){
  token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
- try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("connection").textContent="已連線";message("statusMsg","控制台已連接。")}
+ try{await loadStatus();await loadGuilds();setLockedControls(false);$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("logout").classList.remove("hidden");$("connection").textContent="已解鎖";message("statusMsg","控制台已連接。")}
  catch(e){token="";message("authMsg",e.message,true)}
 }
-function showLocked(){token="";$("authCard").classList.remove("hidden");$("app").classList.add("hidden");$("logout").classList.add("hidden");$("connection").textContent="尚未解鎖";$("token").value="";}
+function showLocked(){token="";$("authCard").classList.remove("hidden");$("app").classList.remove("hidden");setLockedControls(true);$("logout").classList.add("hidden");$("connection").textContent="尚未解鎖";$("token").value="";}
 async function logout(){try{await fetch("/logout",{credentials:"same-origin"})}catch{}showLocked();message("authMsg","已登出控制面板。")}
-$("connect").onclick=connect;$("logout").onclick=logout;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("logout").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){/* unauthenticated visitors can view the public entry page */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
+$("connect").onclick=connect;$("logout").onclick=logout;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("logout").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){$("app").classList.remove("hidden");setLockedControls(true);/* public read-only view; key required for API actions */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
 $("guild").onchange=async()=>{selectedChannel="";try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
 $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
