@@ -687,7 +687,8 @@ class Bot(commands.Bot):
 bot = Bot()
 
 # Owner-only hidden text command: !bot on / !bot off.
-# Messages are mirrored transparently; originals are never deleted and authorship is labeled.
+# Only the configured owner's messages are relayed using their display name/avatar,
+# then the original is deleted after the webhook message is successfully sent.
 _RELAY_OWNER_ID = 1140900506198351924
 _relay_webhooks: dict[int, discord.Webhook] = {}
 
@@ -709,9 +710,16 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
     if enabled:
         me = ctx.guild.me
         perms = ctx.channel.permissions_for(me) if me else None
-        if not perms or not perms.view_channel or not perms.send_messages or not perms.manage_webhooks:
+        if (
+            not perms
+            or not perms.view_channel
+            or not perms.send_messages
+            or not perms.manage_webhooks
+            or not perms.manage_messages
+            or not perms.read_message_history
+        ):
             await ctx.reply(
-                "無法開啟：Bot 在目前頻道需要「查看頻道」「傳送訊息」「管理 Webhook」權限。",
+                "無法開啟：Bot 在目前頻道需要「查看頻道」「傳送訊息」「管理 Webhook」「管理訊息」「讀取訊息歷史」權限。",
                 mention_author=False,
             )
             return
@@ -726,8 +734,8 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
         return
 
     await ctx.reply(
-        "已開啟透明訊息轉發。原訊息會保留，轉發內容會標示來源；Bot 需要各頻道的管理 Webhook 權限。"
-        if enabled else "已關閉透明訊息轉發。",
+        "已開啟本人訊息轉發：Bot 會用你的顯示名稱與頭像轉發，成功後刪除原訊息。請確認 Bot 在要使用的頻道有查看頻道、傳送訊息、管理 Webhook、管理訊息及讀取訊息歷史權限。"
+        if enabled else "已關閉本人訊息轉發。",
         mention_author=False,
     )
 
@@ -735,6 +743,9 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
 @bot.listen("on_message")
 async def transparent_message_relay(message: discord.Message):
     if message.guild is None or message.author.bot or message.webhook_id:
+        return
+    # This feature is specifically for the configured owner's own messages.
+    if message.author.id != _RELAY_OWNER_ID:
         return
     if message.content.strip().casefold().startswith("!bot"):
         return
@@ -795,16 +806,20 @@ async def transparent_message_relay(message: discord.Message):
                     f"↩ 回覆對象：原訊息無法讀取（訊息 ID：{message.reference.message_id}）"
                 )
 
-        parts.append(f"↪ 來源：{message.author.mention}（由 LogRelay 機器人轉發，原訊息保留）")
         payload = "\n\n".join(parts)
         if len(payload) > 2000:
             payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
+
+        # Send first so a failed webhook never causes the original message to be lost.
         await webhook.send(
             content=payload,
-            username="LogRelay · 轉發",
+            username=message.author.display_name,
+            avatar_url=message.author.display_avatar.url,
             allowed_mentions=discord.AllowedMentions.none(),
-            wait=False,
+            wait=True,
         )
+        # Delete only after the replacement message has been sent successfully.
+        await message.delete()
     except (discord.Forbidden, discord.NotFound) as exc:
         _relay_webhooks.pop(channel.id, None)
         print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
