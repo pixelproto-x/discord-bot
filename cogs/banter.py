@@ -97,7 +97,7 @@ class LocalBanterCog(commands.Cog):
     async def _generate(self, channel_id: int, username: str, prompt: str, context: str = "") -> str:
         messages = [{"role": "system", "content": self.system_prompt}]
         if context:
-            messages.append({"role": "user", "content": "[只供理解群組話題的近期聊天背景，不要直接回覆這段背景：]\\n" + context})
+            messages.append({"role": "user", "content": "[只供理解群組話題的近期聊天背景，不要直接回覆這段背景：]\n" + context})
         for old_user, old_prompt, old_answer in self.history[channel_id]:
             messages.append({"role": "user", "content": f"{old_user}：{old_prompt}"})
             messages.append({"role": "assistant", "content": old_answer})
