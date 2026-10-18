@@ -446,6 +446,42 @@ class MusicCog(commands.Cog):
         view = MusicSearchView(self, interaction, results)
         await interaction.followup.send("🎵 找到這些：\n" + "\n".join(lines) + "\n點下面選你要的。", view=view)
 
+    @app_commands.command(name="join", description="讓 LogRelay 加入你目前所在的語音頻道")
+    async def join_voice(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not member.voice or not member.voice.channel:
+            await interaction.response.send_message("你先加入一個語音頻道，我才能跟過去。", ephemeral=True)
+            return
+        channel = member.voice.channel
+        permissions = channel.permissions_for(interaction.guild.me)
+        if not permissions.connect or not permissions.speak:
+            await interaction.response.send_message("我需要這個頻道的「連接」和「說話」權限。", ephemeral=True)
+            return
+        voice_client = interaction.guild.voice_client
+        if voice_client and voice_client.is_connected():
+            player = self.players.get(interaction.guild.id)
+            if player and (player.current or player.queue) and voice_client.channel != channel:
+                await interaction.response.send_message("我正在播放或排隊播放音樂，不能切換頻道中斷大家。", ephemeral=True)
+                return
+            if voice_client.channel == channel:
+                await interaction.response.send_message(f"我已經在 {channel.mention} 了。", ephemeral=True)
+                return
+            try:
+                await voice_client.move_to(channel)
+            except (discord.Forbidden, discord.HTTPException):
+                await interaction.response.send_message("切換語音頻道失敗，請檢查我的權限。", ephemeral=True)
+                return
+        else:
+            try:
+                await channel.connect()
+            except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
+                await interaction.response.send_message(f"加入語音失敗：{type(exc).__name__}。請確認語音依賴已安裝及頻道權限。", ephemeral=True)
+                return
+        await interaction.response.send_message(f"我加入了 {channel.mention}。")
+
     @music.command(name="play", description="搜尋歌曲，選一首後直接播放")
     @app_commands.describe(query="歌名、歌手或關鍵字")
     async def play(self, interaction: discord.Interaction, query: str):
