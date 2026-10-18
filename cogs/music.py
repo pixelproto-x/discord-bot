@@ -476,9 +476,33 @@ class MusicCog(commands.Cog):
                 return
         else:
             try:
+                # discord.py voice requires both PyNaCl and the DAVE voice dependency.
+                try:
+                    import nacl  # noqa: F401
+                    import davey  # noqa: F401
+                except ImportError as dependency_error:
+                    print(f"[Voice] Missing voice dependency: {type(dependency_error).__name__}: {dependency_error}")
+                    await interaction.response.send_message(
+                        "語音依賴未安裝完整。請在啟動 Bot 的同一個 Python 環境執行：python -m pip install -r requirements.txt，然後重新啟動 Bot。",
+                        ephemeral=True,
+                    )
+                    return
                 await channel.connect()
-            except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
-                await interaction.response.send_message(f"加入語音失敗：{type(exc).__name__}。請確認語音依賴已安裝及頻道權限。", ephemeral=True)
+            except Exception as exc:
+                # Keep the actionable root cause in the console instead of hiding it as RuntimeError.
+                print(f"[Voice] Join failed: {type(exc).__name__}: {exc!r}")
+                if isinstance(exc, discord.Forbidden):
+                    message = "加入語音失敗：Bot 沒有此頻道的「查看頻道、連接、說話」權限。"
+                elif isinstance(exc, discord.HTTPException):
+                    message = f"Discord 拒絕語音連線（HTTP {exc.status}）。請稍後重試，並查看 Bot 終端機錯誤紀錄。"
+                elif isinstance(exc, RuntimeError):
+                    message = (
+                        "語音連線初始化失敗。請在啟動 Bot 的同一個 Python 環境執行 "
+                        "python -m pip install -r requirements.txt，重啟後再試；若仍失敗，請查看 Bot 終端機的 [Voice] Join failed 詳細原因。"
+                    )
+                else:
+                    message = f"加入語音失敗（{type(exc).__name__}）。請查看 Bot 終端機的 [Voice] Join failed 詳細原因。"
+                await interaction.response.send_message(message, ephemeral=True)
                 return
         await interaction.response.send_message(f"我加入了 {channel.mention}。")
 
