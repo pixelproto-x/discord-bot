@@ -182,7 +182,7 @@ class Bot(commands.Bot):
     async def _terminal_speech_console(self):
         print("\\n========== LogRelay 終端控制 ==========")
         print("在 Discord 加入語音頻道後，直接在這裡打字，LogRelay 就會用中文語音唸出。")
-        print("指令：/join 連接語音、/stop 停止唸話、/leave 離開語音、/help 說明、/exit 關閉終端控制（Bot 繼續運作）")
+        print("指令：直接輸入文字=LogRelay 唸出、/join=連接語音、/mic=把電腦麥克風即時傳給 Bot、/stop=停止語音或麥克風、/leave=離開語音、/help=說明、/exit=關閉此介面")
         print("======================================")
         while not self.is_closed():
             try:
@@ -196,7 +196,7 @@ class Bot(commands.Bot):
             command = text.casefold()
             speech = self.get_cog("SpeechControlCog")
             if command == "/help":
-                print("直接輸入文字 = 讓 LogRelay 說話；/join = 連接你目前所在的語音；/stop = 停止 LogRelay 說話；/leave = 離開語音；/exit = 關閉此控制介面。")
+                print("直接輸入文字 = 讓 LogRelay 用合成語音說話；/join = 連接你目前所在的語音；/mic = 把電腦麥克風即時傳給 LogRelay；/stop = 停止語音或麥克風；/leave = 離開語音；/exit = 關閉此介面。")
             elif command == "/exit":
                 print("終端控制介面已關閉，Bot 會繼續運作。要關閉整個 Bot 請按 Ctrl+C。")
                 return
@@ -214,6 +214,8 @@ class Bot(commands.Bot):
                     print(f"LogRelay 已加入：{guild.name} / {channel.name}")
                 except Exception as exc:
                     print(f"連接語音失敗：{type(exc).__name__}: {exc}")
+            elif command == "/mic":
+                print(await speech.start_mic_from_terminal() if speech else "語音模組尚未載入。")
             elif command == "/stop":
                 print(await speech.stop_from_terminal() if speech else "語音模組尚未載入。")
             elif command == "/leave":
