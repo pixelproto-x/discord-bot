@@ -363,14 +363,42 @@ async def start_dashboard(bot):
             return _json_error("回覆不能空白，且最多 2000 字。")
         try:
             target = await channel.fetch_message(message_id)
-            await target.reply(content, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
         except discord.NotFound:
-            return _json_error("找不到該訊息，請確認訊息 ID 和頻道。", 404)
+            # A message ID is globally unique, but the dashboard's selected
+            # channel may not be the channel where the user copied the message.
+            # Search readable text channels in the selected guild as a fallback.
+            target = None
+            guild = channel.guild
+            candidates = list(guild.text_channels) + list(guild.threads)
+            for candidate in candidates:
+                if candidate.id == channel.id:
+                    continue
+                me = guild.me
+                perms = candidate.permissions_for(me) if me else None
+                if not perms or not perms.view_channel or not perms.read_message_history:
+                    continue
+                try:
+                    target = await candidate.fetch_message(message_id)
+                    channel = candidate
+                    break
+                except (discord.NotFound, discord.Forbidden):
+                    continue
+            if target is None:
+                return _json_error(
+                    "找不到該訊息。請確認訊息 ID 正確、訊息仍存在，而且 Bot 對該頻道有「查看頻道」及「讀取訊息歷史」權限。",
+                    404,
+                )
         except discord.Forbidden:
             return _json_error("Bot 沒有查看訊息歷史或傳送回覆的權限。", 403)
         except discord.HTTPException:
+            return _json_error("Discord 讀取訊息失敗，請稍後再試。", 502)
+        try:
+            await target.reply(content, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        except discord.Forbidden:
+            return _json_error("Bot 找到了訊息，但沒有在該頻道傳送回覆的權限。", 403)
+        except discord.HTTPException:
             return _json_error("Discord 引用回覆失敗，請稍後再試。", 502)
-        return web.json_response({"message": "已引用 " + str(target.author) + " 的訊息並回覆。"})
+        return web.json_response({"message": "已在 #" + channel.name + " 引用 " + str(target.author) + " 的訊息並回覆。"})
 
     app.router.add_get("/", index)
     app.router.add_get("/favicon.ico", favicon)
