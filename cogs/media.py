@@ -53,7 +53,7 @@ def _strip_emojis(text: str) -> str:
 def _sanitize_chat_reply(text: str) -> str:
     """Keep casual chat output to one direct reply, not a fabricated dialogue script."""
     answer = _strip_emojis((text or "").strip())
-    speaker_label = re.compile(r"(?:^|(?<=[。！？!?])\s*)[^\s：:\n]{1,12}\s*[：:]\s*")
+    speaker_label = re.compile(r"(?:^|(?<=[。！？!?])\s*)[^\s：:\n]{1,12}\s*[：:]\s*", re.MULTILINE)
     labels = list(speaker_label.finditer(answer))
     if len(labels) >= 2:
         answer = answer[:labels[1].start()].rstrip()
