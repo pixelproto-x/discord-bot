@@ -691,6 +691,7 @@ bot = Bot()
 # then the original is deleted after the webhook message is successfully sent.
 _RELAY_OWNER_ID = 1140900506198351924
 _relay_webhooks: dict[int, discord.Webhook] = {}
+_relay_enabled_cache: dict[int, bool] = {}
 
 
 @bot.command(name="bot", hidden=True)
@@ -728,6 +729,7 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
         await asyncio.to_thread(
             storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
         )
+        _relay_enabled_cache[ctx.guild.id] = enabled
     except Exception as exc:
         print(f"Could not update relay setting for guild {ctx.guild.id}: {exc}")
         await ctx.reply("設定儲存失敗，請稍後再試。", mention_author=False)
@@ -749,13 +751,17 @@ async def transparent_message_relay(message: discord.Message):
         return
     if message.content.strip().casefold().startswith("!bot"):
         return
-    try:
-        enabled = await asyncio.to_thread(
-            storage.get_setting, message.guild.id, "owner_message_relay_enabled", False
-        )
-    except Exception:
-        traceback.print_exc()
-        return
+    guild_id = message.guild.id
+    enabled = _relay_enabled_cache.get(guild_id)
+    if enabled is None:
+        try:
+            enabled = await asyncio.to_thread(
+                storage.get_setting, guild_id, "owner_message_relay_enabled", False
+            )
+            _relay_enabled_cache[guild_id] = bool(enabled)
+        except Exception:
+            traceback.print_exc()
+            return
     if not enabled:
         return
 
@@ -783,28 +789,7 @@ async def transparent_message_relay(message: discord.Message):
         if not parts:
             parts.append("（此訊息沒有可轉發的文字或附件內容）")
 
-        # Preserve reply context transparently by quoting and linking the original.
-        if message.reference and message.reference.message_id:
-            replied = message.reference.resolved
-            if not isinstance(replied, discord.Message):
-                try:
-                    replied = await message.channel.fetch_message(message.reference.message_id)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    replied = None
-            if isinstance(replied, discord.Message):
-                quoted = replied.content.strip() or "（原訊息沒有文字內容）"
-                if len(quoted) > 500:
-                    quoted = quoted[:497] + "..."
-                quoted = quoted.replace("\n", "\n> ")
-                parts.append(
-                    f"↩ 回覆對象：{replied.author.display_name}\n"
-                    f"> {quoted}\n"
-                    f"原訊息連結：{replied.jump_url}"
-                )
-            else:
-                parts.append(
-                    f"↩ 回覆對象：原訊息無法讀取（訊息 ID：{message.reference.message_id}）"
-                )
+        # Keep the relay path short: do not fetch reply messages before sending.
 
         payload = "\n\n".join(parts)
         if len(payload) > 2000:
