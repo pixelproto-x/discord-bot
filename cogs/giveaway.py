@@ -149,8 +149,8 @@ class GiveawayCog(commands.Cog):
             entries = storage.get_giveaway_entries(giveaway_id)
             winners = random.sample(entries, min(row["winners"], len(entries))) if entries else []
 
-            # Persist the result and close entries before awaiting Discord API calls.
-            # Late button clicks then cannot join after the winner list is selected.
+            
+            
             storage.record_giveaway_winners(giveaway_id, winners)
             storage.end_giveaway(giveaway_id)
 

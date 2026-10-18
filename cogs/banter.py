@@ -87,9 +87,9 @@ class LocalBanterCog(commands.Cog):
     def _is_triggered(self, message: discord.Message) -> bool:
         if not self.bot.user:
             return False
-        # In guilds, the cloud AI cog owns mention/reply triggers. Running local
-        # Ollama here as well causes duplicate replies and heavy CPU contention.
-        # Keep automatic local banter available in DMs only; use /localai in servers.
+        
+        
+        
         return isinstance(message.channel, discord.DMChannel)
 
     def _clean_message(self, message: discord.Message) -> str:
