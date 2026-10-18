@@ -451,8 +451,8 @@ class SearchCog(commands.Cog):
             if freemind_answer:
                 return _sanitize_chat_reply(freemind_answer)
 
-        if not self.gemini_client or time.monotonic() < self.gemini_cooldown_until:
-            if self.gemini_client and time.monotonic() < self.gemini_cooldown_until:
+        if not self.gemini_client or time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
+            if self.gemini_client and time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
                 print("[Gemini chat] provider cooldown active; using Groq fallback")
             if visual_parts:
                 prompt += "\\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
@@ -567,7 +567,7 @@ class SearchCog(commands.Cog):
             f"{prompt}"
         )
 
-        if not self.gemini_client or time.monotonic() < self.gemini_cooldown_until:
+        if not self.gemini_client or time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
             label = "Groq fallback (Gemini cooldown)" if self.gemini_client else "Groq fallback (Gemini unavailable)"
             return await self._generate_groq_text(prompt, system_instruction, label=label)
 
