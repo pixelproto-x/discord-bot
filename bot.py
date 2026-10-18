@@ -24,6 +24,7 @@ from cogs import (
     media,
     settings,
     banter,
+    speech_control,
     help as help_cog,
 )
 
@@ -119,6 +120,7 @@ class Bot(commands.Bot):
             media,
             settings,
             banter,
+            speech_control,
             help_cog,
         ]
         failed_modules = []
