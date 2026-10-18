@@ -10,3 +10,4 @@ google-genai>=1.0.0
 python-dotenv>=1.0.0
 openai>=1.0.0
 edge-tts>=7.0.0
+sounddevice>=0.5.0
