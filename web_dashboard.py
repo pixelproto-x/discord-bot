@@ -173,7 +173,13 @@ async def start_dashboard(bot):
     app.middlewares.append(auth_middleware)
 
     async def index(request):
-        return web.Response(text=PAGE, content_type="text/html", charset="utf-8")
+        response = web.Response(text=PAGE, content_type="text/html", charset="utf-8")
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+    async def favicon(request):
+        return web.Response(status=204)
 
     async def login(request):
         if not oauth_enabled:
@@ -367,6 +373,7 @@ async def start_dashboard(bot):
         return web.json_response({"message": "已引用 " + str(target.author) + " 的訊息並回覆。"})
 
     app.router.add_get("/", index)
+    app.router.add_get("/favicon.ico", favicon)
     app.router.add_get("/login", login)
     app.router.add_get("/oauth/callback", oauth_callback)
     app.router.add_get("/logout", logout)
