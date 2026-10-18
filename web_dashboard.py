@@ -378,18 +378,38 @@ async def start_dashboard(bot):
 
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
-    port = int(os.getenv("PORT", "8765"))
+    configured_port = int(os.getenv("PORT", "8765"))
     bind_host = "0.0.0.0" if public_url else "127.0.0.1"
-    try:
-        site = web.TCPSite(runner, bind_host, port)
-        await site.start()
-    except OSError:
+    site = None
+    port = configured_port
+
+    # A previous Bot process may still own 8765 and serve an older dashboard
+    # without newer routes such as /api/reply. In local mode, move to the next
+    # available loopback port instead of silently leaving the old panel active.
+    candidate_ports = [configured_port] if public_url else range(configured_port, configured_port + 11)
+    for port in candidate_ports:
+        try:
+            site = web.TCPSite(runner, bind_host, port)
+            await site.start()
+            break
+        except OSError as exc:
+            if public_url or port == configured_port + 10:
+                await runner.cleanup()
+                print(f"[Dashboard] Could not bind {bind_host}:{port}; web panel was not started: {exc}")
+                return
+            print(f"[Dashboard] Port {port} is already in use; trying {port + 1}.")
+            site = None
+
+    if site is None:
         await runner.cleanup()
-        print(f"[Dashboard] Could not bind {bind_host}:{port}; web panel was not started.")
+        print("[Dashboard] No available local dashboard port found.")
         return
+
     bot._dashboard_runner = runner
     bot._dashboard_token = token
     print(f"\n[Dashboard] LogRelay control panel: http://127.0.0.1:{port}")
+    if not public_url and port != configured_port:
+        print(f"[Dashboard] IMPORTANT: another process is using port {configured_port}; use this new URL, not the old browser tab.")
     if public_url:
         print(f"[Dashboard] Public URL configured: {public_url} (Discord OAuth {'enabled' if oauth_enabled else 'NOT configured'})")
     print("[Dashboard] Local control token (never share): " + token)
