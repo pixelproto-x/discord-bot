@@ -14,12 +14,18 @@ MAX_LINE_CHARS = 190
 HISTORY_TIMEOUT_SECONDS = 4.0
 
 
-def _can_read(channel, bot_member: discord.Member) -> bool:
+def _can_read(channel, bot_member: discord.Member, viewer_member: Optional[discord.Member] = None) -> bool:
     try:
         if getattr(channel, "nsfw", False):
             return False
         permissions = channel.permissions_for(bot_member)
-        return bool(permissions.view_channel and permissions.read_message_history)
+        if not (permissions.view_channel and permissions.read_message_history):
+            return False
+        if viewer_member is not None:
+            viewer_permissions = channel.permissions_for(viewer_member)
+            if not (viewer_permissions.view_channel and viewer_permissions.read_message_history):
+                return False
+        return True
     except (AttributeError, discord.DiscordException):
         return False
 
@@ -61,6 +67,7 @@ async def collect_server_chat_context(
     bot=None,
     *,
     before: Optional[discord.Message] = None,
+    requester=None,
 ) -> str:
     """
     Gather a small, transient sample of recent messages from the current channel
@@ -83,11 +90,20 @@ async def collect_server_chat_context(
     if bot_member is None:
         return ""
 
+    viewer_member = None
+    if requester is not None:
+        if isinstance(requester, discord.Member):
+            viewer_member = requester
+        else:
+            viewer_member = guild.get_member(getattr(requester, "id", 0))
+    # Without a resolved requester, do not sample other channels: that avoids
+    # accidentally leaking private-channel text to someone whose visibility is unknown.
+
     sections = []
     semaphore = asyncio.Semaphore(3)
 
     # Current channel is the most relevant context.
-    if _can_read(channel, bot_member):
+    if _can_read(channel, bot_member, viewer_member):
         try:
             recent = await _read_history(
                 channel,
@@ -108,7 +124,7 @@ async def collect_server_chat_context(
     for candidate in getattr(guild, "text_channels", []):
         if getattr(candidate, "id", None) == current_id:
             continue
-        if not _can_read(candidate, bot_member):
+        if viewer_member is None or not _can_read(candidate, bot_member, viewer_member):
             continue
         candidates.append(candidate)
 
