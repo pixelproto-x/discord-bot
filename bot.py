@@ -5,6 +5,7 @@ import traceback
 from pathlib import Path
 
 from dotenv import load_dotenv
+from web_dashboard import start_dashboard
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
 
@@ -174,6 +175,9 @@ class Bot(commands.Bot):
         print(f"Joined guild {guild.id} ({guild.name})")
 
     async def on_ready(self):
+        if not getattr(self, "_web_dashboard_started", False):
+            self._web_dashboard_started = True
+            await start_dashboard(self)
         print(f"Logged in as {self.user} ({self.user.id})")
         print(f"Connected guilds: {len(self.guilds)}")
         for guild in sorted(self.guilds, key=lambda item: item.name.casefold()):
