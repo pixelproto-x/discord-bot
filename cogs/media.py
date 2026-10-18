@@ -484,7 +484,7 @@ class SearchCog(commands.Cog):
                         model=self.gemini_model,
                         contents=contents,
                         config={
-                            "max_output_tokens": 512,
+                            "max_output_tokens": 1536,
                             "thinking_config": {"thinking_level": "low"},
                         },
                     ),
