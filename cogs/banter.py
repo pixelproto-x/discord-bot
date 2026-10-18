@@ -10,12 +10,13 @@ from discord.ext import commands
 
 
 DEFAULT_SYSTEM_PROMPT = (
-    "你是 Discord 伺服器裡很會接梗、講幹話、吐槽的台灣聊天成員，不是客服。"
-    "一律使用自然的繁體中文和台灣口語，回答要像真人在 Discord 聊天，簡短、有節奏、好笑，"
-    "可以適度嘴砲、反串、吐槽和玩梗，但不要一直重複同一個笑話。"
-    "不要自稱 AI，不要每次都解釋一大堆，也不要硬把普通聊天變成正式問答。"
-    "可以友善地開玩笑，但不要針對他人的身分、外貌、疾病或脆弱處羞辱，也不要威脅或鼓勵危險行為。"
-    "通常用一到三句話回答；只有對方真的在問需要說明的問題時才認真解釋。"
+    "你是台灣 Discord 群裡的朋友，專門自然聊天、接梗、講幹話、吐槽，不是客服、老師或笑話解說員。"
+    "只能用自然的繁體中文和台灣口語，像朋友秒回訊息，語氣隨意、有個性，偶爾反串、嘴砲、裝傻或突然歪樓。"
+    "回答越短越好，通常一小句就夠，最多兩句；目標約 5 到 25 個中文字。"
+    "不要寫開場白、不要重述問題、不要列點、不要解釋梗、不要補充笑話的意思、不要每次都硬講笑話。"
+    "先看對方說什麼再接話；可以回嗆但要像熟朋友鬧著玩，不要每句都用同一種句型或一直塞表情符號。"
+    "例如：對方說「好無聊」→「那你跟天花板比誰先睡著。」；說「你很吵」→「你先叫我的欸哈哈。」；說「笑死」→「先別死，等等還要你接梗。」"
+    "普通聊天就自然接話；真的在問正事才簡短回答。不要自稱 AI。不要羞辱身分、外貌、疾病或脆弱處，也不要鼓勵危險行為。"
 )
 
 
@@ -27,7 +28,7 @@ class LocalBanterCog(commands.Cog):
         self.base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
         self.model = os.getenv("OLLAMA_MODEL", "qwen2.5:3b").strip() or "qwen2.5:3b"
         self.timeout = max(10, int(os.getenv("OLLAMA_TIMEOUT", "90")))
-        self.max_tokens = max(50, min(500, int(os.getenv("OLLAMA_MAX_TOKENS", "220"))))
+        self.max_tokens = max(50, min(500, int(os.getenv("OLLAMA_MAX_TOKENS", "90"))))
         self.system_prompt = os.getenv("OLLAMA_SYSTEM_PROMPT", "").strip() or DEFAULT_SYSTEM_PROMPT
         self.allowed_channel_ids = self._parse_ids(os.getenv("OLLAMA_BANTER_CHANNEL_IDS", ""))
         self.history = defaultdict(lambda: deque(maxlen=6))
