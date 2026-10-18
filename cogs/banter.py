@@ -47,7 +47,7 @@ class LocalBanterCog(commands.Cog):
         self.max_tokens = max(50, min(500, int(os.getenv("OLLAMA_MAX_TOKENS", "90"))))
         self.system_prompt = (
             (os.getenv("OLLAMA_SYSTEM_PROMPT", "").strip() or DEFAULT_SYSTEM_PROMPT)
-            + "\\n回答禁止使用任何 emoji、表情符號或顏文字，只能輸出純文字。"
+            + "\n回答禁止使用任何 emoji、表情符號或顏文字，只能輸出純文字。"
         )
         self.allowed_channel_ids = self._parse_ids(os.getenv("OLLAMA_BANTER_CHANNEL_IDS", ""))
         self.history = defaultdict(lambda: deque(maxlen=6))
