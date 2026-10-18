@@ -103,6 +103,86 @@ class SpeechControlCog(commands.Cog):
                 ephemeral=True,
             )
 
+    async def _find_owner_voice(self):
+        """Find the owner's current voice channel across the bot's connected guilds."""
+        for guild in self.bot.guilds:
+            member = guild.get_member(OWNER_ID)
+            if member and member.voice and member.voice.channel:
+                return guild, member, member.voice.channel
+        return None, None, None
+
+    async def speak_from_terminal(self, text: str):
+        text = text.strip()
+        if not text:
+            return "請先輸入要說的文字。"
+        if len(text) > 500:
+            return "一次最多唸 500 個字。"
+        guild, member, channel = await self._find_owner_voice()
+        if not guild or not channel:
+            return "我找不到你所在的語音頻道。請先用你的 Discord 帳號加入語音頻道，再輸入文字。"
+        ffmpeg = self.ffmpeg_executable()
+        if not ffmpeg:
+            return "找不到 FFmpeg，請先安裝依賴或設定 FFMPEG_PATH。"
+        voice_client = guild.voice_client
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            return "我正在播放音訊；為避免打斷音樂或上一句，請先輸入 /stop。"
+        filename = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
+                filename = tmp.name
+            await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await channel.connect()
+            elif voice_client.channel != channel:
+                await voice_client.move_to(channel)
+            self.active_guilds.add(guild.id)
+            self.temp_files[guild.id] = filename
+            loop = asyncio.get_running_loop()
+
+            def after_playback(error):
+                if error:
+                    print(f"[Speech] playback error: {type(error).__name__}")
+                if not loop.is_closed():
+                    asyncio.run_coroutine_threadsafe(self._cleanup(guild.id, filename), loop)
+
+            voice_client.play(
+                discord.FFmpegPCMAudio(filename, executable=ffmpeg, options="-vn"),
+                after=after_playback,
+            )
+            return f"LogRelay 正在語音頻道唸出：{text}"
+        except Exception as exc:
+            print(f"[Speech] terminal playback failed: {type(exc).__name__}: {exc}")
+            await self._cleanup(guild.id, filename)
+            return "播放失敗。請確認網路、FFmpeg，以及 Bot 在語音頻道的連接和說話權限。"
+
+    async def stop_from_terminal(self):
+        stopped = False
+        for guild in self.bot.guilds:
+            voice_client = guild.voice_client
+            if guild.id in self.active_guilds and voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+                voice_client.stop()
+                await self._cleanup(guild.id, self.temp_files.get(guild.id))
+                stopped = True
+        return "已停止 LogRelay 語音。" if stopped else "目前沒有正在播放的 LogRelay 語音。"
+
+    async def leave_from_terminal(self):
+        left = False
+        for guild in self.bot.guilds:
+            voice_client = guild.voice_client
+            if not voice_client or not voice_client.is_connected():
+                continue
+            music_cog = self.bot.get_cog("MusicCog")
+            player = getattr(music_cog, "players", {}).get(guild.id) if music_cog else None
+            if player and (player.current or player.queue):
+                print(f"[終端語音] {guild.name} 正在播放音樂，為保護音樂播放而不離開。")
+                continue
+            if guild.id in self.active_guilds and (voice_client.is_playing() or voice_client.is_paused()):
+                voice_client.stop()
+            await voice_client.disconnect(force=True)
+            await self._cleanup(guild.id, self.temp_files.get(guild.id))
+            left = True
+        return "LogRelay 已離開語音頻道。" if left else "目前沒有可安全離開的語音頻道（若正在播放音樂，我不會中斷音樂）。"
+
     async def _cleanup(self, guild_id: int, filename: str | None):
         self.active_guilds.discard(guild_id)
         current = self.temp_files.get(guild_id)
