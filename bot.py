@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import traceback
 from pathlib import Path
 
@@ -105,6 +106,8 @@ class Bot(commands.Bot):
         if hasattr(intents, "auto_moderation_configuration"):
             intents.auto_moderation_configuration = True
         super().__init__(command_prefix="!", intents=intents, help_command=None, tree_cls=GuildRestrictedCommandTree)
+        self._terminal_guild_id: int | None = None
+        self._terminal_channel_id: int | None = None
 
     async def setup_hook(self):
         storage.init_db()
@@ -180,27 +183,36 @@ class Bot(commands.Bot):
             self._terminal_speech_task = asyncio.create_task(self._terminal_speech_console())
 
     async def _terminal_speech_console(self):
-        print("\\n========== LogRelay 終端控制 ==========")
-        print("在 Discord 加入語音頻道後，直接在這裡打字，LogRelay 就會用中文語音唸出。")
-        print("一般文字=LogRelay 說話；/say 頻道ID 文字=傳送 Discord 訊息；/servers、/channels 伺服器ID、/members 伺服器ID、/roles 伺服器ID 可查詢")
-        print("管理：/dm 使用者ID 文字、/nick 伺服器ID 成員ID 暱稱、/role add|remove 伺服器ID 成員ID 身分組ID、/timeout 伺服器ID 成員ID 分鐘 [原因]、/kick、/ban、/unban、/purge 頻道ID 數量")
-        print("語音：/join、/mic、/stop、/leave；/help 查看用法；/exit 關閉終端控制。操作仍受 Bot 權限及身分組階級限制。")
-        print("======================================")
+        green = "\033[92m"
+        cyan = "\033[96m"
+        purple = "\033[95m"
+        dim = "\033[90m"
+        reset = "\033[0m"
+        print(f"\n{purple}╔══════════════════════════════════════════════╗")
+        print("║             LOGRELAY // CORE                ║")
+        print(f"╚══════════════════════════════════════════════╝{reset}")
+        print(f"{green}● SYSTEM ONLINE{reset}  {cyan}● DISCORD GATEWAY CONNECTED{reset}")
+        print("直接輸入文字即可傳到已選頻道；/speak 文字則使用語音朗讀。")
+        print(f"{dim}快速操作：/servers  /use 伺服器名稱  /channels  /channel 頻道名稱")
+        print("/say 文字  /reply @成員 文字  /status  /help  /exit")
+        print(f"管理指令仍可使用，舊版帶 ID 的指令也保留。{reset}")
+        print("────────────────────────────────────────────────")
         while not self.is_closed():
             try:
-                raw = await asyncio.to_thread(input, "LogRelay> ")
+                raw = await asyncio.to_thread(input, f"{green}LOGRELAY {purple}» {reset}")
             except (EOFError, KeyboardInterrupt):
-                print("\\n終端輸入已結束；Bot 仍會繼續運作。")
+                print("\n終端輸入已結束；Bot 仍會繼續運作。")
                 return
             text = raw.strip()
             if not text:
                 continue
             command = text.casefold()
             speech = self.get_cog("SpeechControlCog")
-            if command == "/help":
-                print("一般文字=合成語音；/servers=伺服器列表；/channels 伺服器ID=頻道列表；/say 頻道ID 文字=發送訊息；/members 伺服器ID=成員快取；/roles 伺服器ID=身分組列表。")
-                print("/dm 使用者ID 文字；/nick 伺服器ID 成員ID 暱稱；/role add|remove 伺服器ID 成員ID 身分組ID；/timeout 伺服器ID 成員ID 分鐘 [原因]；/kick、/ban、/unban、/purge。")
-                print("/join、/mic、/stop、/leave 控制語音；/exit 關閉控制介面。實際操作受 Bot 權限限制。")
+            if command in ("/help", "help", "?"):
+                print("一般文字=傳送到目前頻道；/say 文字=傳送；/reply @成員 文字=提及並回覆；/speak 文字=語音朗讀。")
+                print("/servers；/use 伺服器名稱或 ID；/channels；/channel 頻道名稱；/status。")
+                print("/dm、/nick、/role、/timeout、/kick、/ban、/unban、/purge 等管理指令仍可用。")
+                print("/join、/mic、/stop、/leave 控制語音；/exit 關閉控制介面。")
             elif command == "/exit":
                 print("終端控制介面已關閉，Bot 會繼續運作。要關閉整個 Bot 請按 Ctrl+C。")
                 return
@@ -224,12 +236,18 @@ class Bot(commands.Bot):
                 print(await speech.stop_from_terminal() if speech else "語音模組尚未載入。")
             elif command == "/leave":
                 print(await speech.leave_from_terminal() if speech else "語音模組尚未載入。")
-            elif command == "/servers" or text.startswith(("/say ", "/dm ", "/channels ", "/members ", "/roles ", "/nick ", "/role ", "/timeout ", "/kick ", "/ban ", "/unban ", "/purge ")):
+            elif command == "/servers" or text.startswith((
+                "/use", "/status", "/channels", "/channel", "/say", "/reply", "/mention",
+                "/dm ", "/members ", "/roles ", "/nick ", "/role ", "/timeout ",
+                "/kick ", "/ban ", "/unban ", "/purge "
+            )):
                 print(await self._terminal_discord_command(text))
+            elif text.startswith("/speak "):
+                print(await speech.speak_from_terminal(text[7:].strip()) if speech else "語音模組尚未載入。")
             elif text.startswith("/"):
-                print("未知的終端指令。輸入 /help 查看；不以 / 開頭的文字會轉成 LogRelay 語音。")
+                print("未知指令。輸入 /help 查看。")
             else:
-                print(await speech.speak_from_terminal(text) if speech else "語音模組尚未載入。")
+                print(await self._terminal_discord_command("/say --current " + text))
 
 
     async def _terminal_discord_command(self, raw: str) -> str:
@@ -274,19 +292,90 @@ class Bot(commands.Bot):
                 f"{g.name} | ID: {g.id}" for g in self.guilds
             ) if self.guilds else "Bot 目前不在任何伺服器。"
 
+        if cmd == "/status":
+            guild = self.get_guild(self._terminal_guild_id) if self._terminal_guild_id else None
+            channel = self.get_channel(self._terminal_channel_id) if self._terminal_channel_id else None
+            guild_label = guild.name if guild else "未選擇"
+            channel_label = f"#{channel.name}" if isinstance(channel, (discord.TextChannel, discord.Thread)) else "未選擇"
+            return (
+                f"CORE STATUS: {'ONLINE' if self.is_ready() else 'CONNECTING'}\n"
+                f"Bot: {self.user}\n伺服器: {guild_label}\n頻道: {channel_label}\n"
+                f"已連線伺服器數: {len(self.guilds)}"
+            )
+
+        if cmd == "/use":
+            args = raw.strip().split(maxsplit=1)
+            if len(args) == 1:
+                return "可用伺服器：\n" + "\n".join(
+                    f"{g.name} | ID: {g.id}" for g in self.guilds
+                ) + "\n用法：/use 伺服器名稱或 ID"
+            query = args[1].strip().strip('"').casefold()
+            matches = [g for g in self.guilds if str(g.id) == query or g.name.casefold() == query]
+            if not matches:
+                matches = [g for g in self.guilds if query in g.name.casefold()]
+            if len(matches) != 1:
+                if not matches:
+                    return "找不到符合的伺服器。輸入 /servers 查看完整列表。"
+                return "名稱符合多個伺服器，請輸入完整名稱或 ID：\n" + "\n".join(
+                    f"{g.name} | ID: {g.id}" for g in matches[:20]
+                )
+            guild = matches[0]
+            self._terminal_guild_id = guild.id
+            self._terminal_channel_id = None
+            return f"已選擇伺服器：{guild.name}\n接著輸入 /channels，再用 /channel 頻道名稱選擇頻道。"
+
         if cmd == "/channels":
             args = raw.strip().split(maxsplit=1)
-            if len(args) < 2:
-                return "用法：/channels 伺服器ID"
-            guild, err = await get_guild(args[1])
-            if err:
-                return err
+            guild = self.get_guild(self._terminal_guild_id) if self._terminal_guild_id else None
+            if len(args) > 1:
+                query = args[1].strip().strip('"')
+                guild = self.get_guild(int(query)) if query.isdecimal() else next(
+                    (g for g in self.guilds if g.name.casefold() == query.casefold()), None
+                )
+                if guild is None and not query.isdecimal():
+                    candidates = [g for g in self.guilds if query.casefold() in g.name.casefold()]
+                    guild = candidates[0] if len(candidates) == 1 else None
+                if guild is None:
+                    return "找不到伺服器。輸入 /servers 查看列表。"
+                self._terminal_guild_id = guild.id
+            if guild is None:
+                return "先輸入 /use 伺服器名稱選擇伺服器，或輸入 /channels 伺服器名稱。"
             rows = [
-                f"{channel.name} | {type(channel).__name__} | ID: {channel.id}"
+                f"{'#' if isinstance(channel, (discord.TextChannel, discord.Thread)) else '🔊'} {channel.name}"
                 for channel in guild.channels
                 if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel))
             ]
-            return "頻道列表：\n" + "\n".join(rows[:100]) if rows else "沒有可列出的頻道。"
+            return f"{guild.name} 的頻道：\n" + "\n".join(rows[:100]) + "\n用 /channel 頻道名稱選擇文字頻道。"
+
+        if cmd == "/channel":
+            args = raw.strip().split(maxsplit=1)
+            if len(args) < 2:
+                channel = self.get_channel(self._terminal_channel_id) if self._terminal_channel_id else None
+                return f"目前頻道：#{channel.name}" if isinstance(channel, (discord.TextChannel, discord.Thread)) else "用法：/channel 頻道名稱"
+            guild = self.get_guild(self._terminal_guild_id) if self._terminal_guild_id else None
+            if guild is None:
+                return "請先輸入 /use 伺服器名稱選擇伺服器。"
+            query = args[1].strip().lstrip("#").strip('"').casefold()
+            candidates = [
+                c for c in guild.channels
+                if isinstance(c, (discord.TextChannel, discord.Thread)) and c.name.casefold() == query
+            ]
+            if not candidates:
+                candidates = [
+                    c for c in guild.channels
+                    if isinstance(c, (discord.TextChannel, discord.Thread)) and query in c.name.casefold()
+                ]
+            if len(candidates) != 1:
+                if not candidates:
+                    return "找不到文字頻道。輸入 /channels 查看可用頻道。"
+                return "頻道名稱符合多個結果，請輸入完整名稱：\n" + "\n".join(f"#{c.name}" for c in candidates[:20])
+            channel = candidates[0]
+            me = bot_member(guild)
+            perms = channel.permissions_for(me) if me else None
+            if not perms or not perms.view_channel or not perms.send_messages:
+                return "Bot 沒有查看或傳送訊息到這個頻道的權限。"
+            self._terminal_channel_id = channel.id
+            return f"已選擇頻道：{guild.name} / #{channel.name}\n現在直接輸入文字即可傳送。"
 
         if cmd == "/roles":
             args = raw.strip().split(maxsplit=1)
@@ -317,34 +406,91 @@ class Bot(commands.Bot):
             suffix = "\n（只列出 Bot 目前快取到的成員；若要完整名單，需在 Developer Portal 啟用 Server Members Intent。）"
             return ("成員列表：\n" + "\n".join(rows) if rows else "沒有符合的快取成員。") + suffix
 
-        if cmd == "/say":
-            args = raw.strip().split(maxsplit=2)
-            if len(args) < 3:
-                return "用法：/say 頻道ID 要發送的文字"
-            try:
-                channel_id = int(args[1])
-            except ValueError:
-                return "頻道 ID 必須是數字。"
-            message = args[2].strip()
+        async def send_terminal_message(channel, message, target_member=None):
+            message = message.strip()
             if not message or len(message) > 2000:
                 return "訊息不能空白，且一次最多 2000 個字。"
-            channel = self.get_channel(channel_id)
-            if channel is None:
-                try:
-                    channel = await self.fetch_channel(channel_id)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    return "找不到頻道，或 Bot 無權讀取。"
             if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                return "目前只支援文字頻道或討論串。"
+                return "請先選擇文字頻道：/use 伺服器名稱，再輸入 /channel 頻道名稱。"
             me = bot_member(channel.guild)
             perms = channel.permissions_for(me) if me else None
-            if not perms or not perms.view_channel or not (perms.send_messages or getattr(perms, "send_messages_in_threads", False)):
+            can_send = bool(perms and (
+                perms.send_messages or (isinstance(channel, discord.Thread) and perms.send_messages_in_threads)
+            ))
+            if not perms or not perms.view_channel or not can_send:
                 return no_perm("查看頻道／傳送訊息")
+            if target_member:
+                message = f"{target_member.mention} {message}"
             try:
-                await channel.send(message, allowed_mentions=discord.AllowedMentions.none())
-                return f"已用 LogRelay 帳號傳送到 #{channel.name}。"
+                explicit_mass_mention = ("@everyone" in message or "@here" in message) and bool(perms.mention_everyone)
+                await channel.send(
+                    message,
+                    allowed_mentions=discord.AllowedMentions(
+                        everyone=explicit_mass_mention,
+                        users=True,
+                        roles=False,
+                        replied_user=False,
+                    ),
+                )
+                return f"已由 LogRelay 傳送到 {channel.guild.name} / #{channel.name}。"
             except discord.HTTPException as exc:
                 return f"傳送失敗：{exc}"
+
+        if cmd in ("/say", "/reply", "/mention"):
+            args = raw.strip().split(maxsplit=2)
+            channel = self.get_channel(self._terminal_channel_id) if self._terminal_channel_id else None
+            target_member = None
+            if cmd in ("/reply", "/mention"):
+                match = re.match(r'^/(?:reply|mention)\s+(@(?:"[^"]+"|\S+))\s+(.+)$', raw.strip(), re.DOTALL)
+                if not match:
+                    return '用法：/reply @成員 文字（名稱含空格請用 @"顯示名稱" 文字）'
+                guild = self.get_guild(self._terminal_guild_id) if self._terminal_guild_id else None
+                if guild is None:
+                    return "請先用 /use 伺服器名稱選擇伺服器。"
+                target_query = match.group(1).strip()
+                if target_query.startswith("@"):
+                    target_query = target_query[1:]
+                target_query = target_query.strip('"').casefold()
+                matches = [
+                    m for m in guild.members
+                    if m.name.casefold() == target_query
+                    or m.display_name.casefold() == target_query
+                    or str(m.id) == target_query
+                ]
+                if not matches:
+                    matches = [
+                        m for m in guild.members
+                        if target_query in m.name.casefold() or target_query in m.display_name.casefold()
+                    ]
+                if len(matches) != 1:
+                    if not matches:
+                        return "找不到這位成員。請確認 Bot 已啟用 Server Members Intent，或改用成員 ID。"
+                    return "成員名稱符合多個結果，請使用完整名稱或 ID：\n" + "\n".join(
+                        f"{m.display_name} (@{m.name}) | ID: {m.id}" for m in matches[:20]
+                    )
+                target_member = matches[0]
+                message = match.group(2).strip()
+            elif len(args) >= 3 and args[1] == "--current":
+                message = args[2]
+            elif len(args) >= 3 and args[1].isdecimal():
+                try:
+                    legacy_channel = self.get_channel(int(args[1])) or await self.fetch_channel(int(args[1]))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    return "找不到頻道，或 Bot 無權讀取。"
+                if not isinstance(legacy_channel, (discord.TextChannel, discord.Thread)):
+                    return "目前只支援文字頻道或討論串。"
+                channel = legacy_channel
+                message = args[2]
+            else:
+                message = raw.strip()[len(args[0]):].strip()
+                if not message:
+                    return "用法：/say 文字（需先選擇頻道）。"
+            if channel is None and self._terminal_channel_id:
+                try:
+                    channel = await self.fetch_channel(self._terminal_channel_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    channel = None
+            return await send_terminal_message(channel, message, target_member)
 
         if cmd == "/dm":
             args = raw.strip().split(maxsplit=2)
