@@ -386,21 +386,20 @@ class SearchCog(commands.Cog):
                             "thinking_config": {"thinking_level": "low"},
                         },
                     ),
-                    timeout=22,
+                    timeout=10,
                 )
             except Exception as exc:
                 failure_reason = "gemini_error"
                 self._log_ai_error(f"Gemini chat attempt {attempt + 1}/2", exc)
                 status = self._api_status_code(exc)
                 error_type = type(exc).__name__.lower()
-                # Retry one transient failure, but do not waste time retrying bad auth/model requests.
+                # Don't spend another full timeout on chat: fail over quickly when Gemini is slow.
                 fatal = status in (400, 401, 403, 404) or any(
                     marker in error_type for marker in ("authentication", "permissiondenied", "notfound")
                 )
-                # A 429 quota/rate-limit response usually will not recover after a sub-second retry.
-                # Fall back immediately instead of sending a second request that is likely to fail too.
                 rate_limited = status == 429 or "resource_exhausted" in str(exc).lower()
-                if attempt == 0 and not fatal and not rate_limited:
+                timed_out = isinstance(exc, asyncio.TimeoutError) or "timeout" in error_type
+                if attempt == 0 and not fatal and not rate_limited and not timed_out:
                     await asyncio.sleep(0.8)
                     continue
                 break
