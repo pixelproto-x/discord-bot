@@ -78,6 +78,9 @@ class SearchCog(commands.Cog):
         self.chat_history = {}
         self.chat_cooldown_seconds = 4
         self.chat_history_limit = 8
+        self.freemind_base_url = os.getenv("FREEMIND_AI_BASE_URL", "http://127.0.0.1:8080").strip().rstrip("/")
+        self.freemind_password = os.getenv("FREEMIND_AI_PASSWORD", "").strip()
+        self.freemind_timeout = max(5, min(90, int(os.getenv("FREEMIND_AI_TIMEOUT", "45"))))
         self.gemini_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip())
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_cooldown_until = 0.0
@@ -345,6 +348,69 @@ class SearchCog(commands.Cog):
             self._log_ai_error(label, exc)
             return ""
 
+    async def _generate_freemind_text(self, prompt: str, system_instruction: str = "") -> str:
+        """Use the local FreeMind AI server first; return an empty string to allow existing fallbacks."""
+        if not self.freemind_base_url:
+            return ""
+
+        message = ((system_instruction.strip() + "\n\n") if system_instruction.strip() else "") + prompt.strip()
+        if not message:
+            return ""
+
+        headers = {"Content-Type": "application/json"}
+        if self.freemind_password:
+            headers["Authorization"] = f"Bearer {self.freemind_password}"
+
+        timeout = aiohttp.ClientTimeout(total=self.freemind_timeout)
+        conversation_id = None
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.post(
+                    f"{self.freemind_base_url}/api/conversations",
+                    json={"title": "Discord Bot"},
+                ) as response:
+                    if response.status != 200:
+                        print(f"[FreeMind AI] conversation create failed: HTTP {response.status}")
+                        return ""
+                    payload = await response.json()
+                    conversation_id = str((payload.get("conversation") or {}).get("id") or "")
+                    if not conversation_id:
+                        print("[FreeMind AI] conversation create returned no ID")
+                        return ""
+
+                try:
+                    async with session.post(
+                        f"{self.freemind_base_url}/api/chat",
+                        json={"conversation_id": conversation_id, "message": message[:12000]},
+                    ) as response:
+                        if response.status != 200:
+                            print(f"[FreeMind AI] chat failed: HTTP {response.status}")
+                            return ""
+                        payload = await response.json()
+                        answer = str(payload.get("content") or "").strip()
+                        if answer:
+                            provider = str(payload.get("provider") or "unknown")
+                            model = str(payload.get("model") or "unknown")
+                            print(f"[FreeMind AI] response received provider={provider} model={model}")
+                            return answer
+                        print("[FreeMind AI] chat returned an empty answer")
+                        return ""
+                finally:
+                    # Isolate each Discord request so one user's prompt is not kept
+                    # in a shared FreeMind conversation or exposed to another channel.
+                    try:
+                        async with session.delete(
+                            f"{self.freemind_base_url}/api/conversations/{conversation_id}"
+                        ) as delete_response:
+                            if delete_response.status not in (200, 204, 404):
+                                print(f"[FreeMind AI] temporary conversation cleanup: HTTP {delete_response.status}")
+                    except (aiohttp.ClientError, asyncio.TimeoutError):
+                        print("[FreeMind AI] temporary conversation cleanup failed")
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError) as exc:
+            print(f"[FreeMind AI] unavailable ({type(exc).__name__}); using existing provider fallback")
+            return ""
+        return ""
+
     async def _generate_gemini_chat(self, prompt: str, visual_parts=None) -> str:
         """Generate a casual Gemini reply, retry transient failures, then fail over to Groq."""
         creator_id = 1140900506198351924
@@ -377,6 +443,11 @@ class SearchCog(commands.Cog):
             "不要把聊天紀錄接寫下去，不要輸出「某人：……」這種說話者標籤或多角色對話。"
             "群聊紀錄只用來理解背景和接梗，真正要回覆的只有明確標示的本次訊息。"
         )
+
+        if not visual_parts:
+            freemind_answer = await self._generate_freemind_text(prompt, system_instruction)
+            if freemind_answer:
+                return _sanitize_chat_reply(freemind_answer)
 
         if not self.gemini_client or time.monotonic() < self.gemini_cooldown_until:
             if self.gemini_client and time.monotonic() < self.gemini_cooldown_until:
@@ -481,6 +552,13 @@ class SearchCog(commands.Cog):
         ))
 
     async def _generate_ai(self, prompt: str, system_instruction: str) -> str:
+        freemind_answer = await self._generate_freemind_text(
+            prompt,
+            system_instruction + "\n回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。",
+        )
+        if freemind_answer:
+            return _strip_emojis(freemind_answer)
+
         request = (
             f"{system_instruction}\n\n"
             "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。\n\n"
