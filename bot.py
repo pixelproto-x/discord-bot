@@ -771,14 +771,37 @@ async def transparent_message_relay(message: discord.Message):
             parts.extend(f"貼圖：{sticker.url}" for sticker in message.stickers)
         if not parts:
             parts.append("（此訊息沒有可轉發的文字或附件內容）")
+
+        # Preserve reply context transparently by quoting and linking the original.
+        if message.reference and message.reference.message_id:
+            replied = message.reference.resolved
+            if not isinstance(replied, discord.Message):
+                try:
+                    replied = await message.channel.fetch_message(message.reference.message_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    replied = None
+            if isinstance(replied, discord.Message):
+                quoted = replied.content.strip() or "（原訊息沒有文字內容）"
+                if len(quoted) > 500:
+                    quoted = quoted[:497] + "..."
+                quoted = quoted.replace("\n", "\n> ")
+                parts.append(
+                    f"↩ 回覆對象：{replied.author.display_name}\n"
+                    f"> {quoted}\n"
+                    f"原訊息連結：{replied.jump_url}"
+                )
+            else:
+                parts.append(
+                    f"↩ 回覆對象：原訊息無法讀取（訊息 ID：{message.reference.message_id}）"
+                )
+
         parts.append(f"↪ 來源：{message.author.mention}（由 LogRelay 機器人轉發，原訊息保留）")
         payload = "\n\n".join(parts)
         if len(payload) > 2000:
             payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
         await webhook.send(
             content=payload,
-            username=(message.author.display_name[:65] + " · 轉發"),
-            avatar_url=message.author.display_avatar.url,
+            username="LogRelay · 轉發",
             allowed_mentions=discord.AllowedMentions.none(),
             wait=False,
         )
