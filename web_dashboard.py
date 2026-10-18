@@ -368,11 +368,19 @@ async def start_dashboard(bot):
             # channel may not be the channel where the user copied the message.
             # Search readable text channels in the selected guild as a fallback.
             target = None
-            guild = channel.guild
-            candidates = list(guild.text_channels) + list(guild.threads)
+            # Message IDs are globally unique, but Discord requires a channel
+            # ID to fetch a message. Search channels visible to this bot, not
+            # only the currently selected channel/server.
+            seen_channel_ids = {channel.id}
+            candidates = []
+            for guild in bot.guilds:
+                candidates.extend(guild.text_channels)
+                candidates.extend(guild.threads)
             for candidate in candidates:
-                if candidate.id == channel.id:
+                if candidate.id in seen_channel_ids:
                     continue
+                seen_channel_ids.add(candidate.id)
+                guild = candidate.guild
                 me = guild.me
                 perms = candidate.permissions_for(me) if me else None
                 if not perms or not perms.view_channel or not perms.read_message_history:
@@ -383,9 +391,11 @@ async def start_dashboard(bot):
                     break
                 except (discord.NotFound, discord.Forbidden):
                     continue
+                except discord.HTTPException:
+                    continue
             if target is None:
                 return _json_error(
-                    "找不到該訊息。請確認訊息 ID 正確、訊息仍存在，而且 Bot 對該頻道有「查看頻道」及「讀取訊息歷史」權限。",
+                    "找不到該訊息：請確認訊息 ID 正確、訊息仍存在，而且 Bot 有權限查看該訊息所在頻道及讀取訊息歷史。請在訊息所在伺服器中確認 Bot 已加入。",
                     404,
                 )
         except discord.Forbidden:
