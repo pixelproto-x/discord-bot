@@ -44,7 +44,8 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 <div class="grid" style="margin-top:16px">
 <section class="card wide"><div class="toolbar" style="justify-content:space-between"><h2>Bot 狀態</h2><button class="secondary" id="refresh" style="width:auto">重新整理</button></div><div class="stats"><div class="stat"><b id="botName">—</b><span>登入帳號</span></div><div class="stat"><b id="guildCount">—</b><span>已加入伺服器</span></div><div class="stat"><b id="latency">—</b><span>Gateway 延遲</span></div></div><div class="message" id="statusMsg"></div></section>
 <section class="card"><h2>選擇伺服器與頻道</h2><label for="guild">伺服器</label><select id="guild"></select><label for="channel">文字頻道</label><select id="channel"></select><button id="selectTarget" style="margin-top:12px">設為目前控制頻道</button><div class="note" id="selectedInfo">尚未選擇</div><div class="message" id="selectMsg"></div></section>
-<section class="card"><h2>傳送訊息</h2><label for="sendText">要讓 LogRelay 發送的內容</label><textarea id="sendText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="sendBtn" style="margin-top:12px">傳送到選定頻道</button><div class="message" id="sendMsg"></div></section>
+<section class="card"><h2>傳送文字頻道訊息</h2><label for="sendText">要讓 LogRelay 發送的內容</label><textarea id="sendText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="sendBtn" style="margin-top:12px">傳送到選定文字頻道</button><div class="message" id="sendMsg"></div></section>
+<section class="card"><h2>語音頻道聊天</h2><label for="voiceChannel">語音頻道</label><select id="voiceChannel"></select><label for="voiceText">要傳送到語音頻道聊天的內容</label><textarea id="voiceText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="voiceSendBtn" style="margin-top:12px">傳送到語音頻道</button><div class="note">這是語音頻道內的文字聊天，不會讓 Bot 自動加入語音通話。</div><div class="message" id="voiceSendMsg"></div></section>
 <section class="card wide"><h2>引用指定訊息回覆</h2><div class="row"><div><label for="messageId">Discord 訊息 ID</label><input id="messageId" inputmode="numeric" placeholder="右鍵訊息 → 複製訊息 ID"></div><div><label for="replyText">LogRelay 的回覆內容</label><textarea id="replyText" maxlength="2000" placeholder="輸入要回覆的內容"></textarea></div></div><button id="replyBtn" style="margin-top:12px">引用該訊息並回覆</button><div class="note">必須先選擇該訊息所在的伺服器與頻道；LogRelay 需要能查看頻道及訊息歷史。</div><div class="message" id="replyMsg"></div></section>
 </div></div>
 </main>
@@ -74,6 +75,14 @@ async function loadChannels(){
  for(const channel of data.channels){const o=document.createElement("option");o.value=channel.id;o.textContent="#"+channel.name;select.append(o)}
  if(selectedChannel&&[...select.options].some(o=>o.value===selectedChannel))select.value=selectedChannel;
  if(select.value)selectedChannel=select.value;
+ await loadVoiceChannels();
+}
+async function loadVoiceChannels(){
+ const select=$("voiceChannel");select.replaceChildren();
+ if(!$("guild").value)return;
+ const data=await api("/api/voice-channels?guild_id="+encodeURIComponent($("guild").value));
+ for(const channel of data.channels){const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;select.append(o)}
+ if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可傳送訊息的語音頻道";select.append(o);select.disabled=true}else{select.disabled=false}
 }
 async function connect(){
  token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
@@ -86,6 +95,7 @@ $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
 $("sendBtn").onclick=async()=>{try{const d=await api("/api/send",{channel_id:$("channel").value,content:$("sendText").value});message("sendMsg",d.message);$("sendText").value=""}catch(e){message("sendMsg",e.message,true)}};
 $("replyBtn").onclick=async()=>{try{const d=await api("/api/reply",{channel_id:$("channel").value,message_id:$("messageId").value.trim(),content:$("replyText").value});message("replyMsg",d.message);$("replyText").value=""}catch(e){message("replyMsg",e.message,true)}};
+$("voiceSendBtn").onclick=async()=>{try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content:$("voiceText").value});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}};
 </script></body></html>"""
 
 def _json_error(message, status=400):
@@ -252,6 +262,46 @@ async def start_dashboard(bot):
                 items.append({"id": str(ch.id), "name": ch.name})
         return web.json_response({"channels": sorted(items, key=lambda x: x["name"].casefold())})
 
+    async def voice_channels(request):
+        try:
+            guild_id = int(request.query.get("guild_id", ""))
+        except ValueError:
+            return _json_error("請先選擇伺服器。")
+        guild = bot.get_guild(guild_id)
+        if not guild:
+            return _json_error("找不到伺服器，或 Bot 尚未加入。", 404)
+        me = guild.me
+        items = []
+        for channel in guild.voice_channels:
+            perms = channel.permissions_for(me) if me else None
+            if perms and perms.view_channel and perms.send_messages:
+                items.append({"id": str(channel.id), "name": channel.name})
+        return web.json_response({"channels": sorted(items, key=lambda item: item["name"].casefold())})
+
+    async def send_voice_message(request):
+        try:
+            data = await request.json()
+            channel_id = int(data.get("channel_id", ""))
+            content = str(data.get("content", "")).strip()
+        except (ValueError, TypeError):
+            return _json_error("語音頻道或訊息格式錯誤。")
+        channel = bot.get_channel(channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            return _json_error("找不到可用的語音頻道。", 404)
+        if not content or len(content) > 2000:
+            return _json_error("訊息不能空白，且最多 2000 字。")
+        me = channel.guild.me
+        perms = channel.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.send_messages:
+            return _json_error("Bot 沒有在這個語音頻道聊天的權限。", 403)
+        try:
+            await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
+        except discord.Forbidden:
+            return _json_error("Bot 沒有在這個語音頻道聊天的權限。", 403)
+        except discord.HTTPException:
+            return _json_error("Discord 傳送失敗，請稍後再試。", 502)
+        return web.json_response({"message": "已傳送訊息到語音頻道「" + channel.name + "」的聊天區。"})
+
     async def select_target(request):
         try:
             data = await request.json()
@@ -320,6 +370,8 @@ async def start_dashboard(bot):
     app.router.add_get("/api/status", status)
     app.router.add_get("/api/guilds", guilds)
     app.router.add_get("/api/channels", channels)
+    app.router.add_get("/api/voice-channels", voice_channels)
+    app.router.add_post("/api/send-voice", send_voice_message)
     app.router.add_post("/api/select", select_target)
     app.router.add_post("/api/send", send_message)
     app.router.add_post("/api/reply", reply_message)
