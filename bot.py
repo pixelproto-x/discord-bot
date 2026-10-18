@@ -180,6 +180,21 @@ class Bot(commands.Bot):
             await start_dashboard(self)
         print(f"Logged in as {self.user} ({self.user.id})")
         print(f"Connected guilds: {len(self.guilds)}")
+        for relay_guild in self.guilds:
+            if relay_guild.id not in _relay_enabled_cache:
+                try:
+                    stored_enabled = await asyncio.to_thread(
+                        storage.get_setting,
+                        relay_guild.id,
+                        "owner_message_relay_enabled",
+                        False,
+                    )
+                    _relay_enabled_cache[relay_guild.id] = bool(stored_enabled)
+                except Exception:
+                    traceback.print_exc()
+                    _relay_enabled_cache[relay_guild.id] = False
+            if _relay_enabled_cache.get(relay_guild.id, False):
+                _schedule_relay_warm(relay_guild)
         for guild in sorted(self.guilds, key=lambda item: item.name.casefold()):
             allowed = not ALLOWED_GUILD_IDS or guild.id in ALLOWED_GUILD_IDS
             status = "SLASH COMMANDS ENABLED" if allowed else "NOT ALLOWLISTED — slash commands will not appear here"
@@ -691,7 +706,67 @@ bot = Bot()
 # then the original is deleted after the webhook message is successfully sent.
 _RELAY_OWNER_ID = 1140900506198351924
 _relay_webhooks: dict[int, discord.Webhook] = {}
+_relay_webhook_locks: dict[int, asyncio.Lock] = {}
 _relay_enabled_cache: dict[int, bool] = {}
+_relay_warm_tasks: dict[int, asyncio.Task] = {}
+
+
+async def _get_relay_webhook(channel) -> discord.Webhook | None:
+    if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
+        return None
+    cached = _relay_webhooks.get(channel.id)
+    if cached is not None:
+        return cached
+
+    lock = _relay_webhook_locks.setdefault(channel.id, asyncio.Lock())
+    async with lock:
+        cached = _relay_webhooks.get(channel.id)
+        if cached is not None:
+            return cached
+        hooks = await channel.webhooks()
+        webhook = next(
+            (hook for hook in hooks if hook.name == "Transparent Message Relay"),
+            None,
+        )
+        if webhook is None:
+            webhook = await channel.create_webhook(name="Transparent Message Relay")
+        _relay_webhooks[channel.id] = webhook
+        return webhook
+
+
+async def _warm_relay_guild(guild: discord.Guild, exclude_channel_id: int | None = None):
+    semaphore = asyncio.Semaphore(3)
+
+    async def prepare(channel: discord.TextChannel):
+        if channel.id == exclude_channel_id or channel.id in _relay_webhooks:
+            return
+        me = guild.me
+        perms = channel.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.send_messages or not perms.manage_webhooks:
+            return
+        try:
+            async with semaphore:
+                await _get_relay_webhook(channel)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return
+
+    await asyncio.gather(
+        *(prepare(channel) for channel in guild.text_channels),
+        return_exceptions=True,
+    )
+
+
+def _schedule_relay_warm(guild: discord.Guild, exclude_channel_id: int | None = None):
+    current = _relay_warm_tasks.get(guild.id)
+    if current is not None and not current.done():
+        return
+    task = asyncio.create_task(_warm_relay_guild(guild, exclude_channel_id))
+    _relay_warm_tasks[guild.id] = task
+    task.add_done_callback(
+        lambda completed, guild_id=guild.id:
+            _relay_warm_tasks.pop(guild_id, None)
+            if _relay_warm_tasks.get(guild_id) is completed else None
+    )
 
 
 @bot.command(name="bot", hidden=True)
@@ -725,11 +800,23 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
             )
             return
 
+    if enabled:
+        try:
+            await _get_relay_webhook(ctx.channel)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            await ctx.reply(
+                f"無法準備目前頻道的轉發 Webhook：{type(exc).__name__}。請確認 Bot 有管理 Webhook 權限。",
+                mention_author=False,
+            )
+            return
+
     try:
         await asyncio.to_thread(
             storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
         )
         _relay_enabled_cache[ctx.guild.id] = enabled
+        if enabled:
+            _schedule_relay_warm(ctx.guild, exclude_channel_id=ctx.channel.id)
     except Exception as exc:
         print(f"Could not update relay setting for guild {ctx.guild.id}: {exc}")
         await ctx.reply("設定儲存失敗，請稍後再試。", mention_author=False)
@@ -770,16 +857,9 @@ async def transparent_message_relay(message: discord.Message):
         return
 
     try:
-        webhook = _relay_webhooks.get(channel.id)
+        webhook = await _get_relay_webhook(channel)
         if webhook is None:
-            hooks = await channel.webhooks()
-            webhook = next(
-                (hook for hook in hooks if hook.name == "Transparent Message Relay"),
-                None,
-            )
-            if webhook is None:
-                webhook = await channel.create_webhook(name="Transparent Message Relay")
-            _relay_webhooks[channel.id] = webhook
+            return
 
         parts = [message.content] if message.content else []
         if message.attachments:
@@ -801,9 +881,9 @@ async def transparent_message_relay(message: discord.Message):
             username=message.author.display_name,
             avatar_url=message.author.display_avatar.url,
             allowed_mentions=discord.AllowedMentions.none(),
-            wait=True,
+            wait=False,
         )
-        # Delete only after the replacement message has been sent successfully.
+        # Delete only after Discord accepts the replacement webhook message.
         await message.delete()
     except (discord.Forbidden, discord.NotFound) as exc:
         _relay_webhooks.pop(channel.id, None)
