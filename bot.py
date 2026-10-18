@@ -446,7 +446,7 @@ class Bot(commands.Bot):
             channel = self.get_channel(self._terminal_channel_id) if self._terminal_channel_id else None
             target_member = None
             if cmd == "/reply" or cmd == "/mention":
-                match = re.match(r'^/(?:reply|mention)\\s+(@(?:"[^"]+"|\\S+))\\s+(.+)
+                match = re.match(r'^/(?:reply|mention)\s+(@(?:"[^"]+"|\S+))\s+(.+)
                 try:
                     legacy_channel = self.get_channel(int(args[1])) or await self.fetch_channel(int(args[1]))
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
