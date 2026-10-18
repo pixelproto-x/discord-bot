@@ -25,6 +25,7 @@ from google import genai
 from openai import AsyncOpenAI
 
 from chat_context import collect_server_chat_context
+from cogs.ai_persona import CHAT_PERSONA_CONTRACT, is_valid_chat_reply, normalize_chat_reply
 
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -51,15 +52,9 @@ def _strip_emojis(text: str) -> str:
 
 
 def _sanitize_chat_reply(text: str) -> str:
-    """Keep casual chat output to one direct reply, not a fabricated dialogue script."""
-    answer = _strip_emojis((text or "").strip())
-    speaker_label = re.compile(r"(?:^|(?<=[。！？!?])\s*)[^\s：:\n]{1,12}\s*[：:]\s*", re.MULTILINE)
-    labels = list(speaker_label.finditer(answer))
-    if len(labels) >= 2:
-        answer = answer[:labels[1].start()].rstrip()
-        answer = re.sub(r"^\s*[^\s：:\n]{1,12}\s*[：:]\s*", "", answer)
-    answer = re.sub(r"^\s*(?:LogRelay|assistant|bot)\s*[：:]\s*", "", answer, flags=re.IGNORECASE)
-    return answer[:900].strip()
+    """Apply the same output normalization and minimum validity checks to every chat provider."""
+    answer = normalize_chat_reply(_strip_emojis(text or ""))
+    return answer if is_valid_chat_reply(answer) else ""
 
 
 class SearchCog(commands.Cog):
@@ -310,6 +305,7 @@ class SearchCog(commands.Cog):
         label: str = "Groq fallback",
         max_tokens: int = 768,
         temperature: float = 0.7,
+        top_p: float | None = None,
     ) -> str:
         """Generate a fallback answer through Groq using the same task instructions."""
         if not self.groq_client:
@@ -320,16 +316,19 @@ class SearchCog(commands.Cog):
             "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。"
         )
         try:
+            request_kwargs = {
+                "model": self.groq_model,
+                "messages": [
+                    {"role": "system", "content": request},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_completion_tokens": max_tokens,
+            }
+            if top_p is not None:
+                request_kwargs["top_p"] = top_p
             response = await asyncio.wait_for(
-                self.groq_client.chat.completions.create(
-                    model=self.groq_model,
-                    messages=[
-                        {"role": "system", "content": request},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=temperature,
-                    max_completion_tokens=max_tokens,
-                ),
+                self.groq_client.chat.completions.create(**request_kwargs),
                 timeout=25,
             )
             choices = getattr(response, "choices", None) or []
@@ -445,6 +444,7 @@ class SearchCog(commands.Cog):
             "不要把聊天紀錄接寫下去，不要輸出「某人：……」這種說話者標籤或多角色對話。"
             "群聊紀錄只用來理解背景和接梗，真正要回覆的只有明確標示的本次訊息。"
         )
+        system_instruction += "\n\n" + CHAT_PERSONA_CONTRACT
 
         if not visual_parts:
             freemind_answer = await self._generate_freemind_text(prompt, system_instruction)
@@ -458,7 +458,7 @@ class SearchCog(commands.Cog):
                 prompt += "\\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
             return _sanitize_chat_reply(await self._generate_groq_text(
                 prompt, system_instruction, label="Groq chat (Gemini unavailable)",
-                max_tokens=320, temperature=0.75,
+                max_tokens=320, temperature=0.75, top_p=0.9,
             ))
 
         base_contents = (
@@ -553,6 +553,7 @@ class SearchCog(commands.Cog):
             label=f"Groq chat fallback ({failure_reason})",
             max_tokens=320,
             temperature=0.75,
+            top_p=0.9,
         ))
 
     async def _generate_ai(self, prompt: str, system_instruction: str) -> str:
