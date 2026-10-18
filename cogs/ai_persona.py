@@ -32,7 +32,7 @@ _EMOJI_RE = re.compile(
     "]"
 )
 _SPEAKER_LABEL_RE = re.compile(
-    r"(?:^|(?<=[。！？!?])\s*)[^\s：:\n]{1,12}\s*[：:]\s*",
+    r"(?:^|(?<=[。！？!?])\s*)[^\s：:。！？!?\n]{1,12}\s*[：:]\s*",
     re.MULTILINE,
 )
 _LEADING_BOT_LABEL_RE = re.compile(
@@ -46,8 +46,9 @@ def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
     answer = _EMOJI_RE.sub("", (text or "").strip())
     labels = list(_SPEAKER_LABEL_RE.finditer(answer))
     if len(labels) >= 2:
-        answer = answer[: labels[1].start()].rstrip()
-        answer = _SPEAKER_LABEL_RE.sub("", answer, count=1)
+        # If multiple speaker labels appear, discard the fabricated dialogue from
+        # the first label onward rather than preserving another speaker's lines.
+        answer = answer[: labels[0].start()].rstrip()
     answer = _LEADING_BOT_LABEL_RE.sub("", answer)
     answer = re.sub(r"\n{3,}", "\n\n", answer)
     return answer[:max_chars].strip()
