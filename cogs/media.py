@@ -485,6 +485,8 @@ class SearchCog(commands.Cog):
                         contents=contents,
                         config={
                             "max_output_tokens": 1536,
+                            "temperature": 0.75,
+                            "top_p": 0.9,
                             "thinking_config": {"thinking_level": "low"},
                         },
                     ),
