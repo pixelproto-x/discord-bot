@@ -98,7 +98,7 @@ CATEGORIES = [
         ("/search wikipedia", "搜尋 Wikipedia。"),
         ("/search github", "搜尋 GitHub 公開專案。"),
     ]),
-    ("🤖 AI", "需要設定 AI API Key 才能使用的功能。", [
+    ("🤖 AI", "文字 AI 優先連接本機 FreeMind AI；圖片理解及本機服務不可用時仍可使用既有 API 備援。", [
         ("/ai ask", "問問題或請我幫你想東西。"),
         ("/ai translate", "翻譯並順一下語氣。"),
         ("/ai summarize", "把長文字整理成重點。"),
