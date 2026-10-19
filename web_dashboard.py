@@ -505,13 +505,13 @@ async def start_dashboard(bot):
             return _json_error("沒有可用的 AI 服務。請檢查 FreeMind AI、Gemini 或 Groq 設定。", 503)
         try:
             from chat_context import collect_server_chat_context
-            user_id = int(request.get("dashboard_user_id", DASHBOARD_OWNER_ID))
-            requester = channel.guild.get_member(user_id) or bot.get_user(user_id)
+            user_id = int(request["dashboard_user_id"])
+            requester = channel.guild.get_member(user_id)
             if requester is None:
-                try:
-                    requester = await bot.fetch_user(user_id)
-                except (discord.NotFound, discord.HTTPException):
-                    requester = channel.guild.me
+                return _json_error(
+                    "目前登入的 Discord 帳號不在所選伺服器中，無法依照該帳號的頻道可見權限讀取聊天樣本。",
+                    403,
+                )
             context = await collect_server_chat_context(channel, bot, requester=requester)
             prompt_parts = [
                 "【任務】根據伺服器聊天樣本，模仿整個伺服器所有成員共同呈現的聊天語氣、用詞、節奏、常見梗與互動風格，改寫或表達使用者指定的內容。",
