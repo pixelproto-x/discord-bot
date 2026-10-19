@@ -42,6 +42,96 @@ MAX_VIDEO_BYTES = 20 * 1024 * 1024
 MAX_VIDEO_SECONDS = 30
 
 
+MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
+MAX_EXTRACTED_TEXT_CHARS = 12000
+
+
+def _extract_attachment_text(filename: str, data: bytes) -> str:
+    """Extract readable text from common document and code attachments without executing them."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(data))
+                pages = []
+                for page in reader.pages[:30]:
+                    pages.append(page.extract_text() or "")
+                return "\n".join(pages).strip()[:MAX_EXTRACTED_TEXT_CHARS]
+            except Exception as exc:
+                return f"[PDF 檔案存在，但文字擷取失敗：{type(exc).__name__}]"
+
+        if name.endswith((".docx", ".pptx", ".xlsx")):
+            import zipfile
+            import xml.etree.ElementTree as ET
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                if name.endswith(".docx"):
+                    xml_names = ["word/document.xml"]
+                elif name.endswith(".pptx"):
+                    xml_names = sorted(
+                        item for item in archive.namelist()
+                        if re.fullmatch(r"ppt/slides/slide\d+\.xml", item)
+                    )
+                else:
+                    shared = []
+                    if "xl/sharedStrings.xml" in archive.namelist():
+                        root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                        shared = [
+                            "".join(node.itertext())
+                            for node in root
+                            if node.tag.endswith("}si")
+                        ]
+                    xml_names = sorted(
+                        item for item in archive.namelist()
+                        if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", item)
+                    )
+                    rows = []
+                    for xml_name in xml_names[:20]:
+                        root = ET.fromstring(archive.read(xml_name))
+                        for row in root.iter():
+                            if row.tag.endswith("}row"):
+                                values = []
+                                for cell in row:
+                                    if not cell.tag.endswith("}c"):
+                                        continue
+                                    value = next((child for child in cell if child.tag.endswith("}v")), None)
+                                    inline = next((child for child in cell if child.tag.endswith("}is")), None)
+                                    if inline is not None:
+                                        values.append("".join(inline.itertext()))
+                                    elif value is not None:
+                                        raw = value.text or ""
+                                        if cell.attrib.get("t") == "s":
+                                            try:
+                                                raw = shared[int(raw)]
+                                            except (ValueError, IndexError):
+                                                pass
+                                        values.append(raw)
+                                if values:
+                                    rows.append(" | ".join(values))
+                                if len(rows) >= 300:
+                                    break
+                    return "\n".join(rows)[:MAX_EXTRACTED_TEXT_CHARS]
+
+                chunks = []
+                for xml_name in xml_names[:40]:
+                    try:
+                        root = ET.fromstring(archive.read(xml_name))
+                        chunks.append(" ".join(part.strip() for part in root.itertext() if part.strip()))
+                    except Exception:
+                        continue
+                return "\n".join(chunks)[:MAX_EXTRACTED_TEXT_CHARS]
+
+        if name.endswith((".txt", ".md", ".csv", ".tsv", ".json", ".jsonl", ".xml",
+                          ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".jsx", ".css",
+                          ".sql", ".log", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+                          ".java", ".c", ".cpp", ".h", ".cs", ".sh", ".bat", ".ps1",
+                          ".rtf", ".srt", ".vtt")):
+            return data.decode("utf-8-sig", errors="replace")[:MAX_EXTRACTED_TEXT_CHARS].strip()
+    except Exception as exc:
+        return f"[檔案存在，但文字擷取失敗：{type(exc).__name__}]"
+    return ""
+
+
 def _strip_emojis(text: str) -> str:
     """Preserve emojis so casual AI replies can use them naturally."""
     return text
@@ -716,19 +806,71 @@ class SearchCog(commands.Cog):
         visual_count = 0
         visual_sources = []
         video_sources = []
+        document_parts = []
+        attachment_descriptions = []
         for attachment in message.attachments:
             content_type = (attachment.content_type or "").lower()
             filename = (attachment.filename or "").lower()
-            if content_type.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".m4v", ".mpeg", ".mpg")):
+            attachment_descriptions.append(
+                f"檔案：{attachment.filename}；類型：{content_type or '未知'}；大小：{attachment.size} bytes"
+            )
+            if content_type.startswith("video/") or filename.endswith((".mp4", ".mov", ".webm", ".m4v", ".mpeg", ".mpg", ".avi", ".mkv")):
                 video_sources.append((attachment.url, attachment.size, filename))
-            elif content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+            elif content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif")):
                 visual_sources.append(("attachment", attachment.url, attachment.size, content_type))
+            elif attachment.size <= MAX_TEXT_FILE_BYTES:
+                try:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
+                        async with session.get(attachment.url) as response:
+                            if response.status == 200:
+                                file_data = await response.content.read(MAX_TEXT_FILE_BYTES + 1)
+                            else:
+                                file_data = b""
+                    if file_data and len(file_data) <= MAX_TEXT_FILE_BYTES:
+                        extracted = _extract_attachment_text(filename, file_data)
+                        if extracted:
+                            document_parts.append(
+                                f"【檔案內容：{attachment.filename}】\n{extracted}"
+                            )
+                        elif filename.endswith((".pdf", ".docx", ".pptx", ".xlsx")):
+                            document_parts.append(
+                                f"【檔案：{attachment.filename}】格式已辨識，但目前無法擷取可讀文字"
+                            )
+                except Exception as file_exc:
+                    print(f"[Gemini file understanding] skipped {filename}: {type(file_exc).__name__}")
+            else:
+                document_parts.append(
+                    f"【檔案：{attachment.filename}】檔案太大，超過文字擷取上限，尚未讀取內容"
+                )
+
+        # Turn custom Discord emoji into both explicit name/ID context and visual input.
+        custom_emoji_descriptions = []
+        seen_emoji_ids = set()
+        for match in re.finditer(r"<(a?):([A-Za-z0-9_]{1,32}):(\d{15,22})>", message.content or ""):
+            emoji_name, emoji_id = match.group(2), match.group(3)
+            custom_emoji_descriptions.append(f"自訂表情符號：{emoji_name}（ID {emoji_id}，{'動態' if match.group(1) else '靜態'}）")
+            if emoji_id in seen_emoji_ids or len(seen_emoji_ids) >= 4:
+                continue
+            seen_emoji_ids.add(emoji_id)
+            extension = "gif" if match.group(1) else "png"
+            visual_sources.append((
+                "emoji",
+                f"https://cdn.discordapp.com/emojis/{emoji_id}.{extension}?size=256",
+                0,
+                "image/gif" if extension == "gif" else "image/png",
+            ))
+
+        sticker_descriptions = []
         for sticker in message.stickers:
             sticker_format = getattr(sticker, "format", None)
-            
-            
-            if str(getattr(sticker_format, "name", sticker_format)).upper() in ("PNG", "APNG", "1", "2"):
-                visual_sources.append(("sticker", sticker.url, 0, "image/png"))
+            sticker_format_name = str(getattr(sticker_format, "name", sticker_format) or "UNKNOWN").upper()
+            sticker_descriptions.append(
+                f"貼圖：{getattr(sticker, 'name', '未知')}；格式：{sticker_format_name}；"
+                f"描述：{getattr(sticker, 'description', None) or '無'}；網址：{sticker.url}"
+            )
+            if sticker_format_name in ("PNG", "APNG", "LOTTIE", "GIF", "1", "2", "3", "4") or str(sticker.url).lower().endswith((".png", ".apng", ".webp", ".gif")):
+                visual_sources.append(("sticker", sticker.url, 0, "image/webp"))
+
         for embed in message.embeds:
             image_url = getattr(getattr(embed, "image", None), "url", None)
             thumb_url = getattr(getattr(embed, "thumbnail", None), "url", None)
@@ -842,12 +984,25 @@ class SearchCog(commands.Cog):
             except Exception as video_exc:
                 print(f"[Gemini vision] video processing failed: {type(video_exc).__name__}")
 
+        if custom_emoji_descriptions:
+            user_prompt += "\n\n【訊息中的自訂 Emoji】\n" + "\n".join(custom_emoji_descriptions)
+        if sticker_descriptions:
+            user_prompt += "\n\n【對方發送的 Discord 貼圖資訊】\n" + "\n".join(sticker_descriptions)
+        if attachment_descriptions:
+            user_prompt += "\n\n【附件清單】\n" + "\n".join(attachment_descriptions)
+        if document_parts:
+            user_prompt += "\n\n【已擷取的附件文字內容】\n" + "\n\n".join(document_parts)
         if visual_parts:
-            user_prompt += f"\\n[系統提示：訊息附帶了 {visual_count} 張圖片畫面，請實際查看並自然回應；若是 GIF 或影片，畫面可能是不同時間點。]"
+            user_prompt += (
+                f"\n\n[系統提示：已附上 {visual_count} 個圖片／Emoji／貼圖／影片畫面供視覺理解。"
+                "請根據實際看到的內容回應，不要只描述檔案格式。影片目前以抽取畫面理解，未分析音軌。]"
+            )
         elif message.attachments or message.stickers or message.embeds:
-            user_prompt += "\\n[訊息可能含有無法讀取的圖片、貼圖或動畫格式；若看不到內容，不要假裝看懂。]"
+            user_prompt += (
+                "\n\n[系統提示：這則訊息含有附件、貼圖或嵌入媒體，但沒有成功取得可供視覺模型分析的畫面。"
+                "請依附件名稱、可讀文字和貼圖資訊作答；不要假裝看過未能讀取的內容。]"
+            )
 
-        
         creator_marker = (
             "[系統身分資訊：這則訊息的作者是創作者，Discord ID=1140900506198351924。可以熟悉自然互動，但不得惡意冒犯。]"
             if message.author.id == 1140900506198351924
@@ -984,21 +1139,7 @@ class SearchCog(commands.Cog):
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
 
-            # Use an existing server sticker when its name/tags fit the conversation.
-            sticker = _choose_server_sticker(
-                message.guild,
-                user_prompt,
-                answer,
-                server_context,
-            )
-            if sticker is not None:
-                try:
-                    await message.channel.send(
-                        stickers=[sticker],
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except (discord.Forbidden, discord.HTTPException) as sticker_exc:
-                    print(f"[AI sticker] could not send server sticker: {type(sticker_exc).__name__}")
+            # The bot is text/emoji-only and must never send Discord stickers.
         except (discord.Forbidden, discord.HTTPException) as exc:
             self._log_ai_error("Discord casual chat send", exc)
         except Exception as exc:
