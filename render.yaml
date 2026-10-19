@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: logrelay-public-control
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: OWNER_ID
+        value: "1140900506198351924"
+      - key: DASHBOARD_WHITELIST_IDS
+        value: "1338493569781989407"
+      - key: DASHBOARD_PUBLIC_URL
+        sync: false
+      - key: DISCORD_OAUTH_CLIENT_ID
+        sync: false
+      - key: DISCORD_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: DASHBOARD_SESSION_SECRET
+        generateValue: true
