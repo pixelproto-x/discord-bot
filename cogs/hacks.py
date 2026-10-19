@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import secrets
 from pathlib import Path
 
 import discord
@@ -9,7 +10,9 @@ from discord.ext import commands
 
 
 OWNER_ID = 1140900506198351924
-BACKUP_PATH = Path(__file__).resolve().parent.parent / "backup_last.json"
+BACKUP_PATH = Path(__file__).resolve().parent.parent / "server_backups.json"
+DELETE_DELAY = 0.4
+CREATE_DELAY = 0.4
 
 
 class Hacks(commands.Cog):
@@ -28,6 +31,30 @@ class Hacks(commands.Cog):
         except discord.HTTPException:
             pass
         return False
+
+    @staticmethod
+    def _read_database():
+        BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if not BACKUP_PATH.exists():
+            BACKUP_PATH.write_text(
+                json.dumps({"servers": {}, "last_backup_key": None}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        data = json.loads(BACKUP_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("中央備份資料庫格式不正確。")
+        data.setdefault("servers", {})
+        data.setdefault("last_backup_key", None)
+        if not isinstance(data["servers"], dict):
+            raise ValueError("中央備份資料庫的 servers 必須是物件。")
+        return data
+
+    @staticmethod
+    def _write_database(data):
+        BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = BACKUP_PATH.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(BACKUP_PATH)
 
     @staticmethod
     def _overwrite_to_json(overwrites):
@@ -87,9 +114,9 @@ class Hacks(commands.Cog):
             "mentionable": role.mentionable,
         }
 
-    @app_commands.command(name="backup", description="備份伺服器身分組、分類、文字及語音頻道")
+    @app_commands.command(name="sync", description="將伺服器身分組、分類、文字及語音頻道備份至中央資料庫")
     @app_commands.guild_only()
-    async def backup(self, interaction: discord.Interaction):
+    async def sync(self, interaction: discord.Interaction):
         if not await self._authorize(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -99,8 +126,7 @@ class Hacks(commands.Cog):
             return
         try:
             payload = {
-                "schema_version": 1,
-                "guild_id": guild.id,
+                "schema_version": 2,
                 "guild_name": guild.name,
                 "created_at": discord.utils.utcnow().isoformat(),
                 "roles": [
@@ -109,23 +135,28 @@ class Hacks(commands.Cog):
                     if not role.is_default() and not role.managed
                 ],
                 "channels": [
-                    item for channel in sorted(guild.channels, key=lambda item: item.position)
+                    item for channel in sorted(guild.channels, key=lambda item: (item.position, item.id))
                     if (item := self._serialize_channel(channel)) is not None
                 ],
             }
-            BACKUP_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            file = discord.File(str(BACKUP_PATH), filename="backup_last.json")
+            database = self._read_database()
+            key = secrets.token_hex(4)
+            while key in database["servers"]:
+                key = secrets.token_hex(4)
+            database["servers"][key] = payload
+            database["last_backup_key"] = key
+            self._write_database(database)
             await interaction.followup.send(
-                f"備份完成：已保存 {len(payload['roles'])} 個身分組、{len(payload['channels'])} 個頻道。",
-                file=file,
+                f"{guild.name}：（{key}）",
                 ephemeral=True,
             )
-        except (OSError, TypeError, ValueError, discord.HTTPException) as exc:
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             await interaction.followup.send(f"備份失敗：{exc}", ephemeral=True)
 
-    @app_commands.command(name="restore", description="從 Bot 本機的 backup_last.json 還原伺服器結構")
+    @app_commands.command(name="apply", description="清空目前伺服器頻道及可管理身分組，再套用指定備份")
     @app_commands.guild_only()
-    async def restore(self, interaction: discord.Interaction):
+    @app_commands.describe(key="8 碼備份 Key；留空則使用最近一次備份")
+    async def apply(self, interaction: discord.Interaction, key: str | None = None):
         if not await self._authorize(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -133,39 +164,70 @@ class Hacks(commands.Cog):
         if guild is None:
             await interaction.followup.send("這個指令只能在伺服器內使用。", ephemeral=True)
             return
-        if not BACKUP_PATH.is_file():
-            await interaction.followup.send(
-                "找不到 backup_last.json。請先執行 /backup；備份檔必須存在於 Bot 執行環境。",
-                ephemeral=True,
-            )
-            return
+
         try:
-            payload = json.loads(BACKUP_PATH.read_text(encoding="utf-8"))
+            database = self._read_database()
+            backup_key = key.strip() if key else database.get("last_backup_key")
+            if not backup_key:
+                await interaction.followup.send("找不到最近一次備份，請先執行 /sync。", ephemeral=True)
+                return
+            payload = database["servers"].get(backup_key)
+            if not isinstance(payload, dict):
+                await interaction.followup.send(f"找不到備份 Key：{backup_key}", ephemeral=True)
+                return
             roles_data = payload.get("roles", [])
             channels_data = payload.get("channels", [])
-            role_map = {role.id: role for role in guild.roles}
-            role_name_map = {role.name: role for role in guild.roles}
+            if not isinstance(roles_data, list) or not isinstance(channels_data, list):
+                await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
+                return
+
+            bot_member = guild.me
+            if bot_member is None:
+                await interaction.followup.send("無法取得機器人在此伺服器的成員資料。", ephemeral=True)
+                return
+
+            # Clear channels first so category deletion and role overwrite cleanup are less likely to fail.
+            deleted_channels = 0
+            for channel in list(guild.channels):
+                try:
+                    await channel.delete(reason=f"Apply server backup key {backup_key}")
+                    deleted_channels += 1
+                    await asyncio.sleep(DELETE_DELAY)
+                except (discord.Forbidden, discord.HTTPException):
+                    continue
+
+            deleted_roles = 0
+            for role in sorted(list(guild.roles), key=lambda item: item.position, reverse=True):
+                if role.is_default() or role.managed or role >= bot_member.top_role:
+                    continue
+                try:
+                    await role.delete(reason=f"Apply server backup key {backup_key}")
+                    deleted_roles += 1
+                    await asyncio.sleep(DELETE_DELAY)
+                except (discord.Forbidden, discord.HTTPException):
+                    continue
+
+            role_map = {}
+            role_name_map = {}
             created_roles = 0
             created_channels = 0
 
             for data in sorted(roles_data, key=lambda item: item.get("position", 0)):
-                existing = role_map.get(data.get("id")) or role_name_map.get(data.get("name"))
-                if existing is None:
-                    try:
-                        existing = await guild.create_role(
-                            name=str(data["name"])[:100],
-                            permissions=discord.Permissions(int(data.get("permissions", 0))),
-                            colour=discord.Colour(int(data.get("color", 0))),
-                            hoist=bool(data.get("hoist", False)),
-                            mentionable=bool(data.get("mentionable", False)),
-                            reason="Restore from backup_last.json",
-                        )
-                        created_roles += 1
-                        await asyncio.sleep(0.5)
-                    except (discord.HTTPException, discord.Forbidden, KeyError, ValueError):
-                        continue
-                role_map[data.get("id")] = existing
-                role_name_map[existing.name] = existing
+                try:
+                    role = await guild.create_role(
+                        name=str(data["name"])[:100],
+                        permissions=discord.Permissions(int(data.get("permissions", 0))),
+                        colour=discord.Colour(int(data.get("color", 0))),
+                        hoist=bool(data.get("hoist", False)),
+                        mentionable=bool(data.get("mentionable", False)),
+                        reason=f"Restore server backup key {backup_key}",
+                    )
+                    role_map[data.get("id")] = role
+                    role_name_map[role.name] = role
+                    created_roles += 1
+                    await asyncio.sleep(CREATE_DELAY)
+                except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
+                    continue
 
             def resolve_overwrites(items):
                 overwrites = {}
@@ -174,7 +236,10 @@ class Hacks(commands.Cog):
                     if entry.get("target_type") == "role":
                         target = role_map.get(entry.get("target_id")) or role_name_map.get(entry.get("target_name"))
                     elif entry.get("target_type") == "member":
-                        target = guild.get_member(int(entry.get("target_id", 0)))
+                        try:
+                            target = guild.get_member(int(entry.get("target_id", 0)))
+                        except (TypeError, ValueError):
+                            target = None
                     if target is None:
                         continue
                     try:
@@ -185,52 +250,41 @@ class Hacks(commands.Cog):
                         continue
                 return overwrites
 
-            for data in sorted(
+            category_map = {}
+            category_data = sorted(
                 (item for item in channels_data if item.get("type") == "category"),
                 key=lambda item: item.get("position", 0),
-            ):
-                if discord.utils.get(guild.categories, name=data.get("name")) is None:
-                    try:
-                        await guild.create_category(
-                            str(data["name"])[:100],
-                            overwrites=resolve_overwrites(data.get("overwrites")),
-                            reason="Restore from backup_last.json",
-                        )
-                        created_channels += 1
-                        await asyncio.sleep(0.5)
-                    except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
-                        pass
-
-            category_map = {category.name: category for category in guild.categories}
-            old_category_to_name = {
-                item.get("id"): item.get("name")
-                for item in channels_data if item.get("type") == "category"
-            }
+            )
+            for data in category_data:
+                try:
+                    category = await guild.create_category(
+                        str(data["name"])[:100],
+                        overwrites=resolve_overwrites(data.get("overwrites")),
+                        reason=f"Restore server backup key {backup_key}",
+                    )
+                    category_map[data.get("id")] = category
+                    created_channels += 1
+                    await asyncio.sleep(CREATE_DELAY)
+                except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
+                    continue
 
             ordinary_channels = [
                 item for item in channels_data if item.get("type") in {"text", "voice"}
             ]
-            ordinary_channels.sort(key=lambda item: (item.get("category_id") is not None, item.get("position", 0)))
-
+            ordinary_channels.sort(
+                key=lambda item: (item.get("category_id") is not None, item.get("position", 0))
+            )
             for data in ordinary_channels:
-                channel_type = data.get("type")
-                if channel_type == "text":
-                    existing = discord.utils.get(guild.text_channels, name=data.get("name"))
-                else:
-                    existing = discord.utils.get(guild.voice_channels, name=data.get("name"))
-                if existing is not None:
-                    continue
-                category_name = old_category_to_name.get(data.get("category_id"))
-                category = category_map.get(category_name) if category_name else None
+                category = category_map.get(data.get("category_id"))
                 kwargs = {
                     "name": str(data.get("name", "restored-channel"))[:100],
                     "category": category,
                     "overwrites": resolve_overwrites(data.get("overwrites")),
                     "position": max(0, int(data.get("position", 0))),
-                    "reason": "Restore from backup_last.json",
+                    "reason": f"Restore server backup key {backup_key}",
                 }
                 try:
-                    if channel_type == "text":
+                    if data.get("type") == "text":
                         kwargs.update({
                             "topic": data.get("topic"),
                             "slowmode_delay": max(0, min(21600, int(data.get("slowmode_delay", 0)))),
@@ -248,17 +302,18 @@ class Hacks(commands.Cog):
                             kwargs["video_quality_mode"] = discord.VideoQualityMode(int(data["video_quality_mode"]))
                         await guild.create_voice_channel(**kwargs)
                     created_channels += 1
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(CREATE_DELAY)
                 except (discord.HTTPException, discord.Forbidden, TypeError, ValueError, KeyError):
                     continue
 
             await interaction.followup.send(
-                f"還原流程完成。新增身分組：{created_roles} 個；新增頻道／分類：{created_channels} 個。"
-                "已存在的同名頻道會略過；受 Discord 權限、階層或伺服器限制的項目可能無法還原。",
+                f"套用完成（Key：{backup_key}）。已刪除頻道／分類 {deleted_channels} 個、可管理身分組 {deleted_roles} 個；"
+                f"重建身分組 {created_roles} 個、頻道／分類 {created_channels} 個。"
+                "若有高於機器人位階或受 Discord 權限限制的項目，可能無法刪除或重建。",
                 ephemeral=True,
             )
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            await interaction.followup.send(f"還原失敗：備份檔格式或內容有問題。{exc}", ephemeral=True)
+            await interaction.followup.send(f"套用失敗：備份資料庫格式或內容有問題。{exc}", ephemeral=True)
 
     @app_commands.command(name="sendlong", description="將長文字切成多段私密訊息發送")
     @app_commands.guild_only()
@@ -269,7 +324,7 @@ class Hacks(commands.Cog):
         if not text.strip():
             await interaction.response.send_message("文字不能是空的。", ephemeral=True)
             return
-        chunks = [text[index:index + 2000] for index in range(0, len(text), 2000)]
+        chunks = [text[index:index + 1900] for index in range(0, len(text), 1900)]
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             for index, chunk in enumerate(chunks):
@@ -288,7 +343,7 @@ class Hacks(commands.Cog):
         if not await self._authorize(interaction):
             return
         value = emoji.strip()
-        if not re.fullmatch(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", value):
+        if not re.fullmatch(r"<a?:[A-Za-z0-9_]{2,32}:\\d{15,22}>", value):
             await interaction.response.send_message(
                 "格式不正確。請貼上 Discord 自訂表情符號的完整格式，例如 <:name:123456789012345678> 或 <a:name:123456789012345678>。",
                 ephemeral=True,
