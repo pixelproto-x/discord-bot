@@ -921,7 +921,8 @@ class SearchCog(commands.Cog):
                 message.author.id == 1140900506198351924
                 or message.author.id == message.guild.owner_id
             )
-            if protected_author and is_disrespectful_to_protected_target(answer):
+            violation_detected = protected_author and is_disrespectful_to_protected_target(answer)
+            if violation_detected:
                 violations = int(storage.get_setting(message.guild.id, "fish_persona_violation_count", 0) or 0) + 1
                 storage.set_setting(message.guild.id, "fish_persona_violation_count", violations)
                 if violations == 1:
@@ -952,7 +953,7 @@ class SearchCog(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException):
                         pass
 
-            if recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
+            if not violation_detected and recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
                     prompt
                     + "\n\n【重新生成】上一版和近期回答太相似。請換一個不同的反應方式和句型"
