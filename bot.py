@@ -970,8 +970,6 @@ async def transparent_message_relay(message: discord.Message):
                 except (discord.HTTPException, discord.NotFound, discord.Forbidden, OSError) as media_exc:
                     parts.append(f"附件下載失敗：{attachment.filename}")
                     print(f"[Relay media] failed to download {attachment.filename}: {type(media_exc).__name__}")
-            if message.stickers:
-                parts.extend(f"貼圖：{sticker.url}" for sticker in message.stickers)
             if not parts and not relay_files:
                 parts.append("（此訊息沒有可轉發的文字或附件內容）")
 
