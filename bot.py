@@ -888,6 +888,22 @@ async def transparent_message_relay(message: discord.Message):
     if not enabled:
         return
 
+    # Keep a backend registry of human users encountered while message mimic is enabled.
+    # The database enforces one record per Discord user ID across all servers.
+    try:
+        await asyncio.to_thread(
+            storage.record_relay_seen_user,
+            message.author.id,
+            message.author.name,
+            message.author.display_name,
+            guild_id,
+        )
+    except Exception as exc:
+        print(
+            f"[Relay user registry] failed for user={message.author.id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
     channel = message.channel
     if not isinstance(channel, (discord.TextChannel, discord.Thread)):
         print(f"[Relay skipped] unsupported channel type: guild={guild_id} channel={getattr(channel, 'id', None)} type={type(channel).__name__}")
