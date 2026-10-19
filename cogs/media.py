@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import random
 import re
 import time
 import tempfile
@@ -55,6 +56,36 @@ def _sanitize_chat_reply(text: str) -> str:
     """Apply the same output normalization and minimum validity checks to every chat provider."""
     answer = normalize_chat_reply(_strip_emojis(text or ""))
     return answer if is_valid_chat_reply(answer) else ""
+
+
+def _choose_server_sticker(guild: discord.Guild, *texts: str):
+    """Choose a server sticker that matches the conversation, with an occasional playful fallback."""
+    stickers = list(getattr(guild, "stickers", []) or [])
+    if not stickers:
+        return None
+
+    context = " ".join(str(part or "") for part in texts).lower()
+    # Chinese bigrams help match sticker names such as 笑死、傻眼、哭了.
+    terms = set(re.findall(r"[a-z0-9]{3,}", context))
+    for chunk in re.findall(r"[\\u3400-\\u9fff]+", context):
+        terms.update(chunk[index:index + 2] for index in range(max(0, len(chunk) - 1)))
+
+    ranked = []
+    for sticker in stickers:
+        metadata = " ".join((
+            str(getattr(sticker, "name", "") or ""),
+            str(getattr(sticker, "description", "") or ""),
+            str(getattr(sticker, "tags", "") or ""),
+        )).lower()
+        score = sum(1 for term in terms if term and term in metadata)
+        if score:
+            ranked.append((score, sticker))
+
+    if ranked:
+        highest = max(score for score, _ in ranked)
+        best = [sticker for score, sticker in ranked if score == highest]
+        return random.choice(best)
+    return random.choice(stickers) if random.random() < 0.18 else None
 
 
 class SearchCog(commands.Cog):
@@ -888,6 +919,22 @@ class SearchCog(commands.Cog):
                         chunk,
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
+
+            # Use an existing server sticker when its name/tags fit the conversation.
+            sticker = _choose_server_sticker(
+                message.guild,
+                user_prompt,
+                answer,
+                server_context,
+            )
+            if sticker is not None:
+                try:
+                    await message.channel.send(
+                        stickers=[sticker],
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException) as sticker_exc:
+                    print(f"[AI sticker] could not send server sticker: {type(sticker_exc).__name__}")
         except (discord.Forbidden, discord.HTTPException) as exc:
             self._log_ai_error("Discord casual chat send", exc)
         except Exception as exc:
