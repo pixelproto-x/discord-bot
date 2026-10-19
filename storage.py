@@ -151,6 +151,19 @@ def init_db():
             title TEXT NOT NULL,
             content TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS message_snapshots (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            author_id INTEGER NOT NULL,
+            author_name TEXT NOT NULL,
+            author_display_name TEXT NOT NULL,
+            author_avatar_url TEXT,
+            content TEXT NOT NULL DEFAULT '',
+            attachments_json TEXT NOT NULL DEFAULT '[]',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
         """)
         columns = {row["name"] for row in con.execute("PRAGMA table_info(polls)").fetchall()}
         if "multiple" not in columns:
@@ -648,3 +661,79 @@ def finish_voice_session(guild_id, user_id):
                 (guild_id, user_id),
             )
         return row
+
+
+
+def save_message_snapshot(
+    message_id: int,
+    guild_id: int,
+    channel_id: int,
+    author_id: int,
+    author_name: str,
+    author_display_name: str,
+    author_avatar_url: str | None,
+    content: str,
+    attachments: list[dict],
+    created_at: float,
+):
+    """Persist a message while message deletion/edit auditing is enabled."""
+    now = time.time()
+    attachment_json = json.dumps(attachments or [], ensure_ascii=False)
+    with connect() as con:
+        con.execute(
+            """
+            INSERT INTO message_snapshots
+                (message_id, guild_id, channel_id, author_id, author_name,
+                 author_display_name, author_avatar_url, content, attachments_json,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET
+                guild_id=excluded.guild_id,
+                channel_id=excluded.channel_id,
+                author_id=excluded.author_id,
+                author_name=excluded.author_name,
+                author_display_name=excluded.author_display_name,
+                author_avatar_url=excluded.author_avatar_url,
+                content=excluded.content,
+                attachments_json=excluded.attachments_json,
+                created_at=excluded.created_at,
+                updated_at=excluded.updated_at
+            """,
+            (
+                int(message_id), int(guild_id), int(channel_id), int(author_id),
+                str(author_name)[:128], str(author_display_name)[:128],
+                author_avatar_url, str(content or ""), attachment_json,
+                float(created_at), now,
+            ),
+        )
+        # Keep only the latest 30 days; message contents are not retained forever.
+        con.execute("DELETE FROM message_snapshots WHERE updated_at < ?", (now - 30 * 86400,))
+
+
+def get_message_snapshot(message_id: int):
+    with connect() as con:
+        return con.execute(
+            "SELECT * FROM message_snapshots WHERE message_id=?",
+            (int(message_id),),
+        ).fetchone()
+
+
+def update_message_snapshot_content(message_id: int, content: str, attachments: list[dict] | None = None):
+    now = time.time()
+    with connect() as con:
+        if attachments is None:
+            cur = con.execute(
+                "UPDATE message_snapshots SET content=?, updated_at=? WHERE message_id=?",
+                (str(content or ""), now, int(message_id)),
+            )
+        else:
+            cur = con.execute(
+                "UPDATE message_snapshots SET content=?, attachments_json=?, updated_at=? WHERE message_id=?",
+                (str(content or ""), json.dumps(attachments, ensure_ascii=False), now, int(message_id)),
+            )
+        return cur.rowcount > 0
+
+
+def delete_message_snapshot(message_id: int):
+    with connect() as con:
+        con.execute("DELETE FROM message_snapshots WHERE message_id=?", (int(message_id),))
