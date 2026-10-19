@@ -154,6 +154,52 @@ class RolePanelView(ui.View):
         return cls(panel_row, guild)
 
 
+class AutoReplyAddModal(ui.Modal, title="新增觸發文字回覆"):
+    trigger = ui.TextInput(
+        label="觸發文字",
+        placeholder="例如：早安",
+        min_length=1,
+        max_length=100,
+        required=True,
+    )
+    response_text = ui.TextInput(
+        label="Bot 回覆內容",
+        placeholder="輸入觸發後要回覆的內容……",
+        style=discord.TextStyle.paragraph,
+        min_length=1,
+        max_length=1500,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        trigger = str(self.trigger).strip()
+        response = str(self.response_text).strip()
+        if not interaction.guild_id or not trigger or not response:
+            await interaction.response.send_message(
+                "觸發文字和回覆內容都不能空白，沒有新增任何設定。",
+                ephemeral=True,
+            )
+            return
+
+        rule_id = storage.add_autoreply(
+            interaction.guild_id,
+            trigger,
+            response,
+            "contains",
+        )
+        embed = discord.Embed(
+            title="✅ 觸發文字回覆已新增",
+            description="有人傳送包含觸發文字的訊息時，Bot 就會回覆你設定的內容。",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="觸發文字", value=trigger[:1024], inline=False)
+        embed.add_field(name="Bot 回覆", value=response[:1024], inline=False)
+        embed.add_field(name="匹配方式", value="包含觸發文字即可", inline=True)
+        embed.add_field(name="規則編號", value=str(rule_id), inline=True)
+        embed.set_footer(text="可用 /autoreply list 查看，或用 /autoreply edit 修改")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class AutoReplyCog(commands.Cog):
     autoreply = app_commands.Group(name="autoreply", description="自己設定一句話，Bot 回什麼都由你決定")
 
@@ -163,17 +209,12 @@ class AutoReplyCog(commands.Cog):
     def admin(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_guild)
 
-    @autoreply.command(name="add", description="新增一組觸發文字與回覆")
-    @app_commands.describe(trigger="你要講的話", response="Bot 要回的話", exact="是否要完全一樣才觸發")
-    async def add(self, interaction: discord.Interaction, trigger: str, response: str, exact: bool = False):
+    @autoreply.command(name="add", description="用表單新增一組觸發文字與回覆")
+    async def add(self, interaction: discord.Interaction):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有有管理伺服器權限的人可以改。", ephemeral=True)
             return
-        if not trigger.strip() or not response.strip() or len(trigger) > 100 or len(response) > 1500:
-            await interaction.response.send_message("觸發文字和回覆都不能空白；觸發文字最多 100 字，回覆最多 1500 字。", ephemeral=True)
-            return
-        rid = storage.add_autoreply(interaction.guild.id, trigger.strip(), response.strip(), "exact" if exact else "contains")
-        await interaction.response.send_message(f"好，設好了。有人講「{trigger.strip()}」時，我就回你設定的那句。編號：{rid}", ephemeral=True)
+        await interaction.response.send_modal(AutoReplyAddModal())
 
     @autoreply.command(name="remove", description="刪掉一組自動回覆")
     @app_commands.describe(rule_id="自動回覆編號")
