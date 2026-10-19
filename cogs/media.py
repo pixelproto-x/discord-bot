@@ -26,8 +26,10 @@ from google import genai
 from openai import AsyncOpenAI
 
 from chat_context import collect_server_chat_context
+import storage
 from cogs.ai_persona import (
     CHAT_PERSONA_CONTRACT,
+    is_disrespectful_to_protected_target,
     is_repetitive_reply,
     is_valid_chat_reply,
     normalize_chat_reply,
@@ -676,6 +678,13 @@ class SearchCog(commands.Cog):
         if not (is_mentioned or is_reply_to_bot):
             return
 
+        # Escalating persona penalties persist across restarts until an admin resets them.
+        if storage.get_setting(message.guild.id, "fish_persona_disabled", False):
+            return
+        muted_until = float(storage.get_setting(message.guild.id, "fish_persona_muted_until", 0) or 0)
+        if muted_until > time.time():
+            return
+
         now = time.monotonic()
         cooldown_key = (message.guild.id, message.channel.id, message.author.id)
         last = self.chat_cooldowns.get(cooldown_key, 0.0)
@@ -907,6 +916,41 @@ class SearchCog(commands.Cog):
                 return
 
             answer = answer.strip()
+
+            protected_author = (
+                message.author.id == 1140900506198351924
+                or message.author.id == message.guild.owner_id
+            )
+            if protected_author and is_disrespectful_to_protected_target(answer):
+                violations = int(storage.get_setting(message.guild.id, "fish_persona_violation_count", 0) or 0) + 1
+                storage.set_setting(message.guild.id, "fish_persona_violation_count", violations)
+                if violations == 1:
+                    answer = "剛剛那句越界了 我收回 抱歉"
+                    penalty = "第一次違規 已記錄警告"
+                elif violations == 2:
+                    storage.set_setting(message.guild.id, "fish_persona_muted_until", time.time() + 3600)
+                    answer = "我又越界了 我先閉嘴一小時 抱歉"
+                    penalty = "第二次違規 已暫停聊天一小時"
+                else:
+                    storage.set_setting(message.guild.id, "fish_persona_disabled", True)
+                    answer = "我又越界了 我先停止聊天 等管理員處理"
+                    penalty = "第三次違規 已停用聊天 等管理員重置"
+
+                log_channel_id = storage.get_setting(message.guild.id, "log_channel_id", 0)
+                log_channel = message.guild.get_channel(int(log_channel_id)) if log_channel_id else None
+                if log_channel:
+                    try:
+                        embed = discord.Embed(
+                            title="一條魚｜人設違規處分",
+                            description=penalty,
+                            color=0xED4245,
+                            timestamp=discord.utils.utcnow(),
+                        )
+                        embed.add_field(name="對象", value=f"{message.author}（{message.author.id}）", inline=False)
+                        embed.add_field(name="累計次數", value=str(violations), inline=True)
+                        await log_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
 
             if recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
@@ -1214,6 +1258,22 @@ class SearchCog(commands.Cog):
         except Exception as exc:
             print(f"OCR error: {exc}")
             await interaction.followup.send("OCR 這次失敗了，再試一次。")
+
+    @ai.command(name="persona-reset", description="重置一條魚的人設違規處分")
+    async def persona_reset(self, interaction: discord.Interaction):
+        member = interaction.user
+        if (
+            not interaction.guild
+            or not isinstance(member, discord.Member)
+            or not (member.guild_permissions.administrator or member.guild_permissions.manage_guild)
+        ):
+            await interaction.response.send_message("只有伺服器管理員能重置處分", ephemeral=True)
+            return
+
+        storage.set_setting(interaction.guild.id, "fish_persona_violation_count", 0)
+        storage.set_setting(interaction.guild.id, "fish_persona_muted_until", 0)
+        storage.set_setting(interaction.guild.id, "fish_persona_disabled", False)
+        await interaction.response.send_message("一條魚的違規紀錄與處分已重置", ephemeral=True)
 
     @ai.command(name="chat", description="和 Gemini 幹話聊天、吐槽與接梗")
     @app_commands.describe(prompt="想聊的內容")
