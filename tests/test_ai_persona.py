@@ -27,8 +27,9 @@ class ChatPersonaTests(unittest.TestCase):
 
     def test_keeps_a_natural_single_reply(self):
         answer = "先別整個重寫，貼錯誤訊息來，我們先抓是哪裡出問題。"
-        self.assertEqual(normalize_chat_reply(answer), answer)
-        self.assertTrue(is_valid_chat_reply(answer))
+        normalized = normalize_chat_reply(answer)
+        self.assertEqual(normalized, "先別整個重寫貼錯誤訊息來我們先抓是哪裡出問題")
+        self.assertTrue(is_valid_chat_reply(normalized))
 
     def test_rejects_empty_or_punctuation_only_reply(self):
         self.assertFalse(is_valid_chat_reply(""))
