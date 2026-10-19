@@ -697,11 +697,12 @@ class MemberEventsCog(commands.Cog):
         else:
             embed.set_author(name=str(author_name)[:256])
 
-        embed.add_field(
-            name="訊息內容",
-            value=(content[:1024] if content else "（沒有文字內容）"),
-            inline=False,
-        )
+        if content:
+            embed.add_field(name="訊息內容", value=content[:1024], inline=False)
+            if len(content) > 1024:
+                embed.add_field(name="訊息內容（續）", value=content[1024:2048], inline=False)
+        else:
+            embed.add_field(name="訊息內容", value="（沒有文字內容）", inline=False)
 
         if attachments:
             attachment_lines = []
