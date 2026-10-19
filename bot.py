@@ -756,7 +756,6 @@ async def _warm_relay_guild(guild: discord.Guild, exclude_channel_id: int | None
             or not perms.send_messages
             or not perms.manage_webhooks
             or not perms.manage_messages
-            or not perms.read_message_history
         ):
             return
         try:
@@ -854,7 +853,10 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
     """Legacy prefix command is intentionally silent; use /relay for private status."""
     try:
         await ctx.message.delete()
-    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+    except discord.NotFound:
+        return
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"[Relay control] could not delete !bot command message: {type(exc).__name__}: {exc}")
         return
     # Prefix commands cannot produce ephemeral responses. Do not DM the owner:
     # /relay is the supported control and returns a server-only ephemeral response.
@@ -893,14 +895,12 @@ async def transparent_message_relay(message: discord.Message):
         or not perms.send_messages
         or not perms.manage_webhooks
         or not perms.manage_messages
-        or not perms.read_message_history
     ):
         print(
             f"[Relay blocked] missing permissions: guild={guild_id} channel={channel.id} "
             f"view={bool(perms and perms.view_channel)} send={bool(perms and perms.send_messages)} "
             f"manage_webhooks={bool(perms and perms.manage_webhooks)} "
-            f"manage_messages={bool(perms and perms.manage_messages)} "
-            f"read_history={bool(perms and perms.read_message_history)}"
+            f"manage_messages={bool(perms and perms.manage_messages)}"
         )
         return
     webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
