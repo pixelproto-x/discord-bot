@@ -190,8 +190,8 @@ class AutoReplyAddModal(ui.Modal, title="新增觸發文字回覆"):
         embed = discord.Embed(
             title="✅ 觸發文字回覆已新增",
             description=(
-                f"**觸發文字**\\n{trigger}\\n\\n"
-                f"**Bot 回覆內容**\\n{response}"
+                f"**觸發文字**\n{trigger}\n\n"
+                f"**Bot 回覆內容**\n{response}"
             ),
             color=discord.Color.green(),
         )
