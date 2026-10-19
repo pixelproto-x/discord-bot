@@ -47,6 +47,8 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 <section class="card"><h2>傳送文字頻道訊息</h2><label for="sendText">要讓 LogRelay 發送的內容</label><textarea id="sendText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="sendBtn" style="margin-top:12px">傳送到選定文字頻道</button><div class="message" id="sendMsg"></div></section>
 <section class="card"><h2>語音頻道聊天</h2><label for="voiceChannel">語音頻道</label><select id="voiceChannel"></select><label for="voiceText">要傳送到語音頻道聊天的內容</label><textarea id="voiceText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="voiceSendBtn" style="margin-top:12px">傳送到語音頻道</button><div class="note">這是語音頻道內的文字聊天，不會讓 Bot 自動加入語音通話。</div><div class="message" id="voiceSendMsg"></div></section>
 <section class="card wide"><h2>引用指定訊息回覆</h2><div class="row"><div><label for="messageId">Discord 訊息 ID</label><input id="messageId" inputmode="numeric" placeholder="右鍵訊息 → 複製訊息 ID"></div><div><label for="replyText">LogRelay 的回覆內容</label><textarea id="replyText" maxlength="2000" placeholder="輸入要回覆的內容"></textarea></div></div><button id="replyBtn" style="margin-top:12px">引用該訊息並回覆</button><div class="note">必須先選擇該訊息所在的伺服器與頻道；LogRelay 需要能查看頻道及訊息歷史。</div><div class="message" id="replyMsg"></div></section>
+<section class="card"><h2>刪除指定訊息</h2><label for="deleteMessageId">Discord 訊息 ID</label><input id="deleteMessageId" inputmode="numeric" placeholder="右鍵目標訊息 → 複製訊息 ID"><button id="deleteBtn" style="margin-top:12px">刪除指定訊息</button><div class="note">刪除目前選定頻道中的訊息；Bot 必須有管理訊息權限。刪除後無法復原。</div><div class="message" id="deleteMsg"></div></section>
+<section class="card"><h2>私下模仿整個伺服器的群聊語氣</h2><label for="mimicPrompt">要讓 AI 模仿著表達的內容</label><textarea id="mimicPrompt" maxlength="2000" placeholder="輸入一句話或要改寫的內容"></textarea><button id="mimicBtn" style="margin-top:12px">模仿訊息（結果只有你看得到）</button><label for="mimicResult">模仿結果</label><textarea id="mimicResult" readonly placeholder="結果會顯示在這裡"></textarea><div class="message" id="mimicMsg"></div></section>
 </div></div>
 </main>
 <script>
@@ -98,6 +100,8 @@ $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
 $("sendBtn").onclick=async()=>{try{const d=await api("/api/send",{channel_id:$("channel").value,content:$("sendText").value});message("sendMsg",d.message);$("sendText").value=""}catch(e){message("sendMsg",e.message,true)}};
 $("replyBtn").onclick=async()=>{try{const d=await api("/api/reply",{channel_id:$("channel").value,message_id:$("messageId").value.trim(),content:$("replyText").value});message("replyMsg",d.message);$("replyText").value=""}catch(e){message("replyMsg",e.message,true)}};
+$("deleteBtn").onclick=async()=>{if(!confirm("確定刪除目前選定頻道中的這則訊息？此操作無法復原。"))return;try{const d=await api("/api/delete",{channel_id:$("channel").value,message_id:$("deleteMessageId").value.trim()});message("deleteMsg",d.message);$("deleteMessageId").value=""}catch(e){message("deleteMsg",e.message,true)}};
+$("mimicBtn").onclick=async()=>{const prompt=$("mimicPrompt").value.trim();if(!prompt){message("mimicMsg","請先輸入要模仿著表達的內容。",true);return}const btn=$("mimicBtn");btn.disabled=true;message("mimicMsg","正在讀取群聊樣本並產生結果…");try{const d=await api("/api/mimic",{channel_id:$("channel").value,prompt});$("mimicResult").value=d.answer;message("mimicMsg","完成。結果只有目前控制台使用者看得到。")}catch(e){message("mimicMsg",e.message,true)}finally{btn.disabled=false}};
 $("voiceSendBtn").onclick=async()=>{try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content:$("voiceText").value});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}};
 </script></body></html>"""
 
@@ -423,7 +427,81 @@ async def start_dashboard(bot):
     app.router.add_post("/api/send-voice", send_voice_message)
     app.router.add_post("/api/select", select_target)
     app.router.add_post("/api/send", send_message)
+    async def delete_message(request):
+        try:
+            data = await request.json()
+            channel = _get_channel(bot, data.get("channel_id"))
+            message_id = int(data.get("message_id", ""))
+        except (ValueError, TypeError):
+            return _json_error("訊息 ID 或請求格式錯誤。")
+        if not channel:
+            return _json_error("找不到可用的文字頻道。", 404)
+        me = channel.guild.me
+        perms = channel.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.read_message_history or not perms.manage_messages:
+            return _json_error("Bot 缺少查看訊息、讀取歷史或管理訊息權限。", 403)
+        try:
+            target = await channel.fetch_message(message_id)
+        except discord.NotFound:
+            return _json_error("找不到這個頻道中的訊息，請確認訊息 ID 與選定頻道。", 404)
+        except discord.Forbidden:
+            return _json_error("Bot 沒有讀取這則訊息的權限。", 403)
+        except discord.HTTPException:
+            return _json_error("Discord 讀取訊息失敗，請稍後再試。", 502)
+        try:
+            await target.delete()
+        except discord.Forbidden:
+            return _json_error("Discord 拒絕刪除。請確認 Bot 的管理訊息權限及頻道權限。", 403)
+        except discord.HTTPException:
+            return _json_error("Discord 刪除訊息失敗，請稍後再試。", 502)
+        return web.json_response({"message": "已刪除 #" + channel.name + " 中的指定訊息。"})
+
+    async def mimic_message(request):
+        try:
+            data = await request.json()
+            channel = _get_channel(bot, data.get("channel_id"))
+            prompt = str(data.get("prompt", "")).strip()
+        except (ValueError, TypeError):
+            return _json_error("請求格式錯誤。")
+        if not channel:
+            return _json_error("找不到可用的文字頻道。", 404)
+        if not prompt or len(prompt) > 2000:
+            return _json_error("模仿內容不能空白，且最多 2000 字。")
+        cog = bot.get_cog("SearchCog")
+        if not cog:
+            return _json_error("AI 模組尚未載入；請重新啟動 Bot。", 503)
+        if not (getattr(cog, "freemind_base_url", "") or getattr(cog, "gemini_client", None) or getattr(cog, "groq_client", None)):
+            return _json_error("沒有可用的 AI 服務。請檢查 FreeMind AI、Gemini 或 Groq 設定。", 503)
+        try:
+            from chat_context import collect_server_chat_context
+            user_id = int(request.get("dashboard_user_id", DASHBOARD_OWNER_ID))
+            requester = channel.guild.get_member(user_id) or bot.get_user(user_id)
+            if requester is None:
+                try:
+                    requester = await bot.fetch_user(user_id)
+                except (discord.NotFound, discord.HTTPException):
+                    requester = channel.guild.me
+            context = await collect_server_chat_context(channel, bot, requester=requester)
+            prompt_parts = [
+                "【任務】根據伺服器聊天樣本，模仿整個伺服器所有成員共同呈現的聊天語氣、用詞、節奏、常見梗與互動風格，改寫或表達使用者指定的內容。",
+                "不要只模仿單一成員，不要逐字複製任何人的完整訊息，也不要假裝自己就是某一位特定成員。只輸出結果，不要分析。",
+            ]
+            if context:
+                prompt_parts.append("【伺服器各頻道近期聊天樣本】\n" + context)
+            else:
+                prompt_parts.append("目前沒有足夠的聊天樣本；使用自然的繁體中文 Discord 群聊語氣，不要捏造群內梗。")
+            prompt_parts.append("【要模仿著表達的內容】\n" + prompt)
+            answer = await cog._generate_gemini_chat("\n\n".join(prompt_parts))
+            if not answer:
+                return _json_error("AI 沒有產生結果。請檢查 Bot 終端機中的 AI 錯誤，或確認 API 額度與模型設定。", 502)
+            return web.json_response({"answer": answer[:1900]})
+        except Exception as exc:
+            print(f"[Dashboard mimic] {type(exc).__name__}: {exc}")
+            return _json_error("模仿失敗，請查看 Bot 終端機的 [Dashboard mimic] 錯誤紀錄。", 502)
+
     app.router.add_post("/api/reply", reply_message)
+    app.router.add_post("/api/delete", delete_message)
+    app.router.add_post("/api/mimic", mimic_message)
 
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
