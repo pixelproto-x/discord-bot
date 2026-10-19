@@ -875,16 +875,41 @@ async def transparent_message_relay(message: discord.Message):
         if len(payload) > 2000:
             payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
 
-        # Send first so a failed webhook never causes the original message to be lost.
-        await webhook.send(
-            content=payload,
-            username=message.author.display_name,
-            avatar_url=message.author.display_avatar.url,
-            allowed_mentions=discord.AllowedMentions.none(),
-            wait=False,
-        )
-        # Delete only after Discord accepts the replacement webhook message.
-        await message.delete()
+        # Requested order: delete the user's original first, then send the webhook copy.
+        # This cannot eliminate Discord/network latency; it only changes which message appears first.
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            print(
+                f"Relay skipped in channel {channel.id}: original message could not be deleted "
+                f"({type(exc).__name__}: {exc})"
+            )
+            return
+
+        try:
+            await webhook.send(
+                content=payload,
+                username=message.author.display_name,
+                avatar_url=message.author.display_avatar.url,
+                allowed_mentions=discord.AllowedMentions.none(),
+                wait=False,
+            )
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            _relay_webhooks.pop(channel.id, None)
+            print(
+                f"Webhook relay failed after original was deleted in channel {channel.id}: "
+                f"{type(exc).__name__}: {exc}. Trying a plain-message fallback."
+            )
+            try:
+                await channel.send(
+                    content=payload,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as fallback_exc:
+                print(
+                    f"Fallback also failed in channel {channel.id}: "
+                    f"{type(fallback_exc).__name__}: {fallback_exc}"
+                )
     except (discord.Forbidden, discord.NotFound) as exc:
         _relay_webhooks.pop(channel.id, None)
         print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
