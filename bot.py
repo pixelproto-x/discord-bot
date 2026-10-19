@@ -922,7 +922,6 @@ async def transparent_message_relay(message: discord.Message):
             print(f"[Relay failed] no webhook available: guild={guild_id} channel={channel.id}")
             return
 
-        print(f"[Relay attempt] guild={guild_id} channel={channel.id} message={message.id} author={message.author.id}")
         parts = [message.content] if message.content else []
         relay_files = []
         try:
@@ -993,10 +992,6 @@ async def transparent_message_relay(message: discord.Message):
                 await message.delete()
                 delete_ms = (time.perf_counter() - delete_started) * 1000
                 total_ms = (time.perf_counter() - relay_started) * 1000
-                print(
-                    f"[Relay latency] channel={channel.id} delete={delete_ms:.0f}ms "
-                    f"event_to_delete={total_ms:.0f}ms"
-                )
             except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
                 if suppressed_ids is not None:
                     suppressed_ids.discard(message.id)
