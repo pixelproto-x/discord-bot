@@ -452,22 +452,46 @@ class ModerationCog(commands.Cog):
         await interaction.response.send_message(f"{member.mention} 的警告：\n" + "\n".join(lines), ephemeral=True)
 
     @app_commands.command(name="timeout", description="暫時讓成員不能聊天")
-    @app_commands.describe(member="要處理的人", minutes="分鐘", reason="原因")
+    @app_commands.describe(member="要處理的人", minutes="分鐘（最多 28 天）", reason="原因")
     async def timeout(self, interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "沒有寫原因"):
-        if not self.can_mod(interaction):
-            await interaction.response.send_message("你需要管理成員權限。", ephemeral=True)
+        guild = interaction.guild
+        actor = interaction.user if isinstance(interaction.user, discord.Member) else None
+        bot_member = guild.me if guild else None
+        if not guild or not actor or not bot_member:
+            await interaction.response.send_message("這個指令只能在伺服器內使用。", ephemeral=True)
             return
-        if not self.can_target(interaction, member):
-            await interaction.response.send_message("這個成員我不能處理，通常是身分組階級太高或對方是伺服器擁有者。", ephemeral=True)
+        if not (actor.guild_permissions.administrator or actor.guild_permissions.moderate_members):
+            await interaction.response.send_message("你需要「調節成員」或管理員權限才能使用禁言。", ephemeral=True)
+            return
+        if not (bot_member.guild_permissions.moderate_members or bot_member.guild_permissions.administrator):
+            await interaction.response.send_message("Bot 缺少「調節成員」權限，無法執行禁言。", ephemeral=True)
+            return
+        # 防止透過 Bot 越權：伺服器擁有者，或最高身分組高於 Bot 的管理者才能使用。
+        if actor.id != guild.owner_id and actor.top_role <= bot_member.top_role:
+            await interaction.response.send_message(
+                "你的最高身分組必須高於 Bot 的最高身分組，才能透過 Bot 使用禁言。",
+                ephemeral=True,
+            )
+            return
+        if member.id in {guild.owner_id, bot_member.id, actor.id}:
+            await interaction.response.send_message("不能禁言伺服器擁有者、Bot 自己或你自己。", ephemeral=True)
+            return
+        if actor.id != guild.owner_id and member.top_role >= actor.top_role:
+            await interaction.response.send_message("不能禁言身分組與你相同或比你高的成員。", ephemeral=True)
+            return
+        if member.top_role >= bot_member.top_role:
+            await interaction.response.send_message("不能禁言身分組與 Bot 相同或比 Bot 高的成員。", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         reason = reason[:1000]
         try:
             await member.timeout(discord.utils.utcnow() + timedelta(minutes=minutes), reason=reason)
-            await self.log_event(interaction.guild, "⏱️ 成員 Timeout", f"{member.mention} 被 {interaction.user.mention} Timeout {minutes} 分鐘。\n原因：{reason}")
-            await interaction.followup.send(f"好，{member.mention} 暫停聊天 {minutes} 分鐘。", ephemeral=True)
+            await self.log_event(guild, "⏱️ 成員禁言", f"{member.mention} 被 {actor.mention} 禁言 {minutes} 分鐘。\\n原因：{reason}")
+            await interaction.followup.send(f"已將 {member.mention} 禁言 {minutes} 分鐘。", ephemeral=True)
         except discord.Forbidden:
-            await interaction.followup.send("Discord 不讓我 Timeout 這個人。", ephemeral=True)
+            await interaction.followup.send("Discord 拒絕執行禁言，請確認 Bot 的權限與目標身分組階級。", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.followup.send("Discord 暫時無法執行禁言，請稍後再試。", ephemeral=True)
 
     @app_commands.command(name="kick", description="把成員踢出伺服器")
     async def kick(self, interaction, member: discord.Member, reason: str = "沒有寫原因"):
