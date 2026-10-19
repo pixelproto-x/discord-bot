@@ -189,11 +189,12 @@ class AutoReplyAddModal(ui.Modal, title="新增觸發文字回覆"):
         )
         embed = discord.Embed(
             title="✅ 觸發文字回覆已新增",
-            description="有人傳送包含觸發文字的訊息時，Bot 就會回覆你設定的內容。",
+            description=(
+                f"**觸發文字**\\n{trigger}\\n\\n"
+                f"**Bot 回覆內容**\\n{response}"
+            ),
             color=discord.Color.green(),
         )
-        embed.add_field(name="觸發文字", value=trigger[:1024], inline=False)
-        embed.add_field(name="Bot 回覆", value=response[:1024], inline=False)
         embed.add_field(name="匹配方式", value="包含觸發文字即可", inline=True)
         embed.add_field(name="規則編號", value=str(rule_id), inline=True)
         embed.set_footer(text="可用 /autoreply list 查看，或用 /autoreply edit 修改")
