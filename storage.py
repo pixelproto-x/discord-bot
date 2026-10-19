@@ -707,7 +707,7 @@ def save_message_snapshot(
             ),
         )
         # Keep only the latest 30 days; message contents are not retained forever.
-        con.execute("DELETE FROM message_snapshots WHERE updated_at < ?", (now - 30 * 86400,))
+        con.execute("DELETE FROM message_snapshots WHERE created_at < ?", (now - 30 * 86400,))
 
 
 def get_message_snapshot(message_id: int):
