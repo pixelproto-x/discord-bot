@@ -46,13 +46,13 @@ _LEADING_BOT_LABEL_RE = re.compile(
 def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
     """Normalize chat replies consistently, regardless of which provider produced them."""
     answer = (text or "").strip()
-    answer = "".join(ch for ch in answer if not unicodedata.category(ch).startswith("P"))
     labels = list(_SPEAKER_LABEL_RE.finditer(answer))
     if len(labels) >= 2:
         # If multiple speaker labels appear, discard the fabricated dialogue from
         # the first label onward rather than preserving another speaker's lines.
         answer = answer[: labels[0].start()].rstrip()
     answer = _LEADING_BOT_LABEL_RE.sub("", answer)
+    answer = "".join(ch for ch in answer if not unicodedata.category(ch).startswith("P"))
     answer = re.sub(r"\n{3,}", "\n\n", answer)
     return answer[:max_chars].strip()
 
