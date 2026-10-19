@@ -958,7 +958,16 @@ async def transparent_message_relay(message: discord.Message):
             sent = False
             sent_message = None
             referenced_id = getattr(message.reference, "message_id", None) if message.reference else None
-            relayed_target_id = _relay_message_map.get(referenced_id) if referenced_id else None
+            resolved_reference = getattr(message.reference, "resolved", None) if message.reference else None
+            # A reply to the visible webhook copy already references that copy's ID.
+            # Also support references to source IDs still present in the relay map.
+            if referenced_id and (
+                referenced_id in _relay_message_map.values()
+                or getattr(resolved_reference, "webhook_id", None)
+            ):
+                relayed_target_id = referenced_id
+            else:
+                relayed_target_id = _relay_message_map.get(referenced_id) if referenced_id else None
 
             # Discord webhooks cannot create native replies. If this message replies to
             # another relayed message, use a bot-authored native reply to the visible copy.
@@ -982,6 +991,11 @@ async def transparent_message_relay(message: discord.Message):
                         f"[Relay reply failed] guild={guild_id} channel={channel.id} "
                         f"target={relayed_target_id}: {type(reply_exc).__name__}; falling back to webhook"
                     )
+                    for relay_file in relay_files:
+                        try:
+                            relay_file.fp.seek(0)
+                        except (AttributeError, OSError):
+                            pass
 
             if not sent:
                 try:
