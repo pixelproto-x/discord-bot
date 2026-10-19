@@ -2,6 +2,7 @@ import unittest
 
 from cogs.ai_persona import (
     CHAT_PERSONA_CONTRACT,
+    is_repetitive_reply,
     is_valid_chat_reply,
     normalize_chat_reply,
 )
@@ -30,6 +31,19 @@ class ChatPersonaTests(unittest.TestCase):
         normalized = normalize_chat_reply(answer)
         self.assertEqual(normalized, "先別整個重寫貼錯誤訊息來我們先抓是哪裡出問題")
         self.assertTrue(is_valid_chat_reply(normalized))
+
+    def test_detects_near_duplicate_replies(self):
+        self.assertTrue(is_repetitive_reply(
+            "這個真的很扯我們先看看是哪裡出問題",
+            ["這個真的很扯我們先看看是哪裡出問題"],
+        ))
+
+    def test_allows_short_reactions_and_different_replies(self):
+        self.assertFalse(is_repetitive_reply("笑死", ["笑死"]))
+        self.assertFalse(is_repetitive_reply(
+            "先貼一下錯誤訊息我幫你定位問題",
+            ["你先把專案整份重寫就好了這樣會比較乾淨"],
+        ))
 
     def test_rejects_empty_or_punctuation_only_reply(self):
         self.assertFalse(is_valid_chat_reply(""))
