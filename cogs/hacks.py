@@ -280,33 +280,30 @@ class Hacks(commands.Cog):
                 await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
                 return
 
-            # Restore name and available server assets before clearing the structure.
+            # Restore the name first, then each asset independently so one unsupported
+            # asset (for example a banner on a non-boosted server) cannot block the others.
             server_name = payload.get("server_name")
             server_assets = payload.get("server_assets") or {}
             if not isinstance(server_assets, dict):
                 server_assets = {}
             icon_data = payload.get("icon_base64") or server_assets.get("icon")
-            edit_kwargs = {"reason": f"Apply server backup key {backup_key}"}
             if server_name:
-                edit_kwargs["name"] = str(server_name)[:100]
+                try:
+                    await guild.edit(name=str(server_name)[:100], reason=f"Apply server backup key {backup_key}")
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    pass
             for asset_key in ("icon", "banner", "splash", "discovery_splash"):
                 encoded = icon_data if asset_key == "icon" else server_assets.get(asset_key)
                 if not encoded:
                     continue
                 try:
-                    edit_kwargs[asset_key] = base64.b64decode(encoded, validate=True)
-                except (ValueError, TypeError):
-                    continue
-            if len(edit_kwargs) > 1:
-                try:
-                    await guild.edit(**edit_kwargs)
+                    asset_bytes = base64.b64decode(encoded, validate=True)
+                    await guild.edit(
+                        **{asset_key: asset_bytes},
+                        reason=f"Restore server {asset_key} from backup {backup_key}",
+                    )
                 except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
-                    # Some assets require server boosts/features; try restoring the name alone.
-                    if server_name:
-                        try:
-                            await guild.edit(name=str(server_name)[:100], reason=f"Apply server backup key {backup_key}")
-                        except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
-                            pass
+                    continue
 
             bot_member = guild.me
             if bot_member is None:
@@ -492,6 +489,7 @@ class Hacks(commands.Cog):
                     "verification_level": discord.VerificationLevel,
                     "default_notifications": discord.NotificationLevel,
                     "explicit_content_filter": discord.ContentFilter,
+                    "preferred_locale": discord.Locale,
                 }
                 for setting_name, converter in setting_converters.items():
                     if setting_name not in guild_settings:
@@ -504,7 +502,7 @@ class Hacks(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
                         pass
                 scalar_settings = (
-                    "description", "afk_timeout", "preferred_locale", "premium_progress_bar_enabled"
+                    "description", "afk_timeout", "premium_progress_bar_enabled"
                 )
                 for setting_name in scalar_settings:
                     if setting_name not in guild_settings:
@@ -545,9 +543,15 @@ class Hacks(commands.Cog):
                     if not emoji_name or not encoded or discord.utils.get(guild.emojis, name=emoji_name):
                         continue
                     image_bytes = base64.b64decode(encoded, validate=True)
+                    emoji_roles = [
+                        role_map.get(role_id)
+                        for role_id in emoji_data.get("roles", [])
+                        if role_map.get(role_id) is not None
+                    ]
                     await guild.create_custom_emoji(
                         name=emoji_name,
                         image=image_bytes,
+                        roles=emoji_roles,
                         reason=f"Restore server backup key {backup_key}",
                     )
                     restored_emojis += 1
@@ -565,7 +569,7 @@ class Hacks(commands.Cog):
                         continue
                     image_bytes = base64.b64decode(encoded, validate=True)
                     fmt = int(sticker_data.get("format", 1))
-                    extension = {1: "png", 2: "apng", 3: "json"}.get(fmt, "png")
+                    extension = {1: "png", 2: "apng", 3: "json", 4: "gif"}.get(fmt, "png")
                     sticker_file = discord.File(io.BytesIO(image_bytes), filename=f"{sticker_name}.{extension}")
                     await guild.create_sticker(
                         name=sticker_name,
