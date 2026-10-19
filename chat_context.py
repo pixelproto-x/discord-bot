@@ -6,12 +6,12 @@ from typing import Optional
 import discord
 
 
-CURRENT_CHANNEL_LIMIT = 18
-OTHER_CHANNEL_LIMIT = 5
-OTHER_CHANNEL_MESSAGES = 3
-MAX_CONTEXT_CHARS = 4800
-MAX_LINE_CHARS = 190
-HISTORY_TIMEOUT_SECONDS = 4.0
+CURRENT_CHANNEL_LIMIT = 40
+OTHER_CHANNEL_LIMIT = 10
+OTHER_CHANNEL_MESSAGES = 8
+MAX_CONTEXT_CHARS = 12000
+MAX_LINE_CHARS = 260
+HISTORY_TIMEOUT_SECONDS = 6.0
 
 
 def _can_read(channel, bot_member: discord.Member, viewer_member: Optional[discord.Member] = None) -> bool:
@@ -70,8 +70,8 @@ async def collect_server_chat_context(
     requester=None,
 ) -> str:
     """
-    Gather a small, transient sample of recent messages from the current channel
-    and a few other readable, non-NSFW text channels in the same guild.
+    Gather a broad, transient sample of recent messages from the current channel
+    and other readable, non-NSFW text channels in the same guild.
 
     No messages are written to disk or a database. Unavailable channels are skipped.
     """
