@@ -29,6 +29,7 @@ from cogs import (
     banter,
     speech_control,
     help as help_cog,
+    web_tools,
 )
 
 
@@ -131,6 +132,7 @@ class Bot(commands.Bot):
             banter,
             speech_control,
             help_cog,
+            web_tools,
         ]
         failed_modules = []
         for module in modules:
