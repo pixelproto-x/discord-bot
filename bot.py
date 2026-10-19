@@ -867,8 +867,26 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
 
 
 @bot.listen("on_message")
+async def block_sticker_messages(message: discord.Message):
+    """Delete every human message containing any Discord sticker, including server stickers."""
+    if message.guild is None or message.author.bot or message.webhook_id or not message.stickers:
+        return
+    try:
+        await message.delete()
+        print(
+            f"[Sticker blocked] guild={message.guild.id} channel={message.channel.id} "
+            f"user={message.author.id} stickers={len(message.stickers)}"
+        )
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+        print(
+            f"[Sticker block failed] guild={message.guild.id} channel={message.channel.id} "
+            f"message={message.id}: {type(exc).__name__}: {exc}"
+        )
+
+
+@bot.listen("on_message")
 async def transparent_message_relay(message: discord.Message):
-    if message.guild is None or message.author.bot or message.webhook_id:
+    if message.guild is None or message.author.bot or message.webhook_id or message.stickers:
         return
     # Relay messages from all human members in this guild. Never relay commands,
     # bots, or webhook messages, so command handling and the relay cannot loop.
