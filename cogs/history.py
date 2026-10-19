@@ -248,24 +248,23 @@ def build_history_embed(record: dict) -> discord.Embed:
         else:
             parts.append("🔗 下載: 無可用連結")
 
-    embed.description = _clean_text("\n".join(parts), 4000)
-
     created = _as_utc_timestamp(record.get("created_at"))
     deleted = _as_utc_timestamp(record.get("deleted_at"))
-    embed.add_field(
-        name="傳送時間",
-        value=f"<t:{created}:F> (<t:{created}:R>)",
-        inline=False,
+    parts.extend(
+        [
+            "",
+            "**傳送時間**",
+            f"<t:{created}:F> (<t:{created}:R>)",
+            "",
+            "**刪除時間**",
+            f"<t:{deleted}:F> (<t:{deleted}:R>)",
+        ]
     )
-    embed.add_field(
-        name="刪除時間",
-        value=f"<t:{deleted}:F> (<t:{deleted}:R>)",
-        inline=False,
-    )
+    embed.description = _clean_text("\n".join(parts), 4000)
     embed.set_footer(
         text=(
-            f"頻道 ID：{record.get('channel_id', '未知')} ・ "
-            f"訊息 ID：{record.get('message_id', '未知')}"
+            f"作者 ID：{record.get('author_id', '未知')} ・ "
+            f"頻道：#{record.get('channel_name') or record.get('channel_id', '未知')}"
         )
     )
     return embed
@@ -380,7 +379,7 @@ class History(commands.Cog):
             "channel_id": message.channel.id,
             "channel_name": getattr(message.channel, "name", ""),
             "author_id": message.author.id,
-            "author_name": str(message.author),
+            "author_name": str(message.author.display_name or message.author.name),
             "author_avatar_url": str(message.author.display_avatar.url),
             "content": message.content or "",
             "attachments": attachments,
@@ -402,7 +401,7 @@ class History(commands.Cog):
                 "channel_id": message.channel.id,
                 "channel_name": getattr(message.channel, "name", ""),
                 "author_id": message.author.id,
-                "author_name": str(message.author),
+                "author_name": str(message.author.display_name or message.author.name),
                 "author_avatar_url": str(message.author.display_avatar.url),
                 "content": message.content or "",
                 "attachments": [
