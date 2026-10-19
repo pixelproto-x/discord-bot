@@ -790,7 +790,12 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
     try:
         await ctx.message.delete()
     except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-        pass
+        if ctx.author.id == _RELAY_CONTROL_OWNER_ID:
+            try:
+                await ctx.author.send("我無法隱藏控制指令 所以沒有變更設定 請在 Bot 有管理訊息權限的頻道使用")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        return
 
     if ctx.author.id != _RELAY_CONTROL_OWNER_ID:
         return
