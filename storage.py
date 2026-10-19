@@ -77,6 +77,13 @@ def init_db():
             value TEXT NOT NULL,
             PRIMARY KEY(guild_id, key)
         );
+        CREATE TABLE IF NOT EXISTS relay_seen_users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            first_guild_id INTEGER NOT NULL,
+            first_seen_at REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS role_panels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER NOT NULL,
@@ -277,6 +284,26 @@ def due_reminders(now=None):
 def complete_reminder(reminder_id: int):
     with connect() as con:
         con.execute("UPDATE reminders SET done=1 WHERE id=? AND done=0", (reminder_id,))
+
+def record_relay_seen_user(user_id, username, display_name, guild_id):
+    """Record each human Discord user only once across all servers."""
+    with connect() as con:
+        cursor = con.execute(
+            """
+            INSERT OR IGNORE INTO relay_seen_users
+                (user_id, username, display_name, first_guild_id, first_seen_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                int(user_id),
+                str(username)[:128],
+                str(display_name)[:128],
+                int(guild_id),
+                time.time(),
+            ),
+        )
+        return cursor.rowcount == 1
+
 
 def ensure_profile(guild_id, user_id):
     with connect() as con:
