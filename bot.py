@@ -949,7 +949,7 @@ async def transparent_message_relay(message: discord.Message):
                 "username": message.author.display_name,
                 "avatar_url": message.author.display_avatar.url,
                 "allowed_mentions": discord.AllowedMentions.none(),
-                "thread": channel if isinstance(channel, discord.Thread) else None,
+                 **({"thread": channel} if isinstance(channel, discord.Thread) else {}),
                 "wait": True,
             }
             sent = False
