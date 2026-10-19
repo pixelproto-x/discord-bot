@@ -90,6 +90,14 @@ class ModerationCog(commands.Cog):
         """將刪除的訊息送到伺服器設定的管理紀錄頻道。"""
         if not message.guild or message.author.bot:
             return
+
+        # Relay cleanup and its private control command are not moderation events.
+        suppressed_ids = getattr(self.bot, "_relay_suppressed_delete_log_ids", None)
+        if suppressed_ids is not None and message.id in suppressed_ids:
+            suppressed_ids.discard(message.id)
+            return
+        if re.match(r"^!bot\s+(?:on|off)\s*$", (message.content or "").strip(), re.IGNORECASE):
+            return
         channel_id = storage.get_setting(message.guild.id, "log_channel_id", 0)
         channel = message.guild.get_channel(int(channel_id)) if channel_id else None
         if not channel:
