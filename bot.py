@@ -856,8 +856,12 @@ async def transparent_message_relay(message: discord.Message):
     if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
         return
 
+    relay_started = time.perf_counter()
     try:
-        webhook = await _get_relay_webhook(channel)
+        # Webhooks are cached and warmed ahead of time; keep deletion as the first API action.
+        webhook = _relay_webhooks.get(channel.id)
+        if webhook is None:
+            webhook = await _get_relay_webhook(channel)
         if webhook is None:
             return
 
@@ -877,8 +881,15 @@ async def transparent_message_relay(message: discord.Message):
 
         # Requested order: delete the user's original first, then send the webhook copy.
         # This cannot eliminate Discord/network latency; it only changes which message appears first.
+        delete_started = time.perf_counter()
         try:
             await message.delete()
+            delete_ms = (time.perf_counter() - delete_started) * 1000
+            total_ms = (time.perf_counter() - relay_started) * 1000
+            print(
+                f"[Relay latency] channel={channel.id} delete={delete_ms:.0f}ms "
+                f"event_to_delete={total_ms:.0f}ms"
+            )
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
             print(
                 f"Relay skipped in channel {channel.id}: original message could not be deleted "
