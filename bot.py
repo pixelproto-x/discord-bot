@@ -867,61 +867,73 @@ async def transparent_message_relay(message: discord.Message):
             return
 
         parts = [message.content] if message.content else []
-        if message.attachments:
-            parts.extend(f"附件：{attachment.url}" for attachment in message.attachments)
-        if message.stickers:
-            parts.extend(f"貼圖：{sticker.url}" for sticker in message.stickers)
-        if not parts:
-            parts.append("（此訊息沒有可轉發的文字或附件內容）")
-
-        # Keep the relay path short: do not fetch reply messages before sending.
-
-        payload = "\n\n".join(parts)
-        if len(payload) > 2000:
-            payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
-
-        # Requested order: delete the user's original first, then send the webhook copy.
-        # This cannot eliminate Discord/network latency; it only changes which message appears first.
-        delete_started = time.perf_counter()
+        relay_files = []
         try:
-            await message.delete()
-            delete_ms = (time.perf_counter() - delete_started) * 1000
-            total_ms = (time.perf_counter() - relay_started) * 1000
-            print(
-                f"[Relay latency] channel={channel.id} delete={delete_ms:.0f}ms "
-                f"event_to_delete={total_ms:.0f}ms"
-            )
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-            print(
-                f"Relay skipped in channel {channel.id}: original message could not be deleted "
-                f"({type(exc).__name__}: {exc})"
-            )
-            return
+            # Download media before deleting the source message so the repost contains real files.
+            for attachment in message.attachments[:10]:
+                try:
+                    relay_files.append(await attachment.to_file(use_cached=True))
+                except (discord.HTTPException, discord.NotFound, discord.Forbidden, OSError) as media_exc:
+                    parts.append(f"附件下載失敗：{attachment.filename}")
+                    print(f"[Relay media] failed to download {attachment.filename}: {type(media_exc).__name__}")
+            if message.stickers:
+                parts.extend(f"貼圖：{sticker.url}" for sticker in message.stickers)
+            if not parts and not relay_files:
+                parts.append("（此訊息沒有可轉發的文字或附件內容）")
 
-        try:
-            await webhook.send(
-                content=payload,
-                username=message.author.display_name,
-                avatar_url=message.author.display_avatar.url,
-                allowed_mentions=discord.AllowedMentions.none(),
-                wait=False,
-            )
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-            _relay_webhooks.pop(channel.id, None)
-            print(
-                f"Webhook relay failed after original was deleted in channel {channel.id}: "
-                f"{type(exc).__name__}: {exc}. Trying a plain-message fallback."
-            )
+            payload = "\n\n".join(parts)
+            if len(payload) > 2000:
+                payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
+
+            # Media must be cached first; then preserve delete-before-repost order.
+            delete_started = time.perf_counter()
             try:
-                await channel.send(
-                    content=payload,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as fallback_exc:
+                await message.delete()
+                delete_ms = (time.perf_counter() - delete_started) * 1000
+                total_ms = (time.perf_counter() - relay_started) * 1000
                 print(
-                    f"Fallback also failed in channel {channel.id}: "
-                    f"{type(fallback_exc).__name__}: {fallback_exc}"
+                    f"[Relay latency] channel={channel.id} delete={delete_ms:.0f}ms "
+                    f"event_to_delete={total_ms:.0f}ms"
                 )
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                print(
+                    f"Relay skipped in channel {channel.id}: original message could not be deleted "
+                    f"({type(exc).__name__}: {exc})"
+                )
+                return
+
+            try:
+                await webhook.send(
+                    content=payload or None,
+                    files=relay_files or None,
+                    username=message.author.display_name,
+                    avatar_url=message.author.display_avatar.url,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    wait=False,
+                )
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                _relay_webhooks.pop(channel.id, None)
+                print(
+                    f"Webhook relay failed after original was deleted in channel {channel.id}: "
+                    f"{type(exc).__name__}: {exc}. Trying a plain-message fallback."
+                )
+                try:
+                    await channel.send(
+                        content=payload or None,
+                        files=relay_files or None,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as fallback_exc:
+                    print(
+                        f"Fallback also failed in channel {channel.id}: "
+                        f"{type(fallback_exc).__name__}: {fallback_exc}"
+                    )
+        finally:
+            for relay_file in relay_files:
+                try:
+                    relay_file.close()
+                except Exception:
+                    pass
     except (discord.Forbidden, discord.NotFound) as exc:
         _relay_webhooks.pop(channel.id, None)
         print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
