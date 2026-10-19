@@ -4,6 +4,7 @@ import json
 import io
 import re
 import secrets
+import aiohttp
 from pathlib import Path
 
 import discord
@@ -142,29 +143,39 @@ class Hacks(commands.Cog):
             return None
 
     @staticmethod
-    async def _serialize_emoji(emoji):
+    async def _download_asset_base64(url):
         try:
-            return {
-                "name": emoji.name,
-                "image_base64": base64.b64encode(await emoji.url.read()).decode("ascii"),
-                "roles": [role.id for role in emoji.roles],
-                "available": emoji.available,
-            }
-        except (discord.HTTPException, OSError, TypeError, ValueError):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(str(url), timeout=aiohttp.ClientTimeout(total=20)) as response:
+                    response.raise_for_status()
+                    return base64.b64encode(await response.read()).decode("ascii")
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, TypeError, ValueError):
             return None
 
-    @staticmethod
-    async def _serialize_sticker(sticker):
-        try:
-            return {
-                "name": sticker.name,
-                "description": sticker.description or "",
-                "emoji": sticker.emoji or "🙂",
-                "format": int(sticker.format),
-                "image_base64": base64.b64encode(await sticker.url.read()).decode("ascii"),
-            }
-        except (discord.HTTPException, OSError, TypeError, ValueError):
+    @classmethod
+    async def _serialize_emoji(cls, emoji):
+        image_base64 = await cls._download_asset_base64(emoji.url)
+        if not image_base64:
             return None
+        return {
+            "name": emoji.name,
+            "image_base64": image_base64,
+            "roles": [role.id for role in emoji.roles],
+            "available": emoji.available,
+        }
+
+    @classmethod
+    async def _serialize_sticker(cls, sticker):
+        image_base64 = await cls._download_asset_base64(sticker.url)
+        if not image_base64:
+            return None
+        return {
+            "name": sticker.name,
+            "description": sticker.description or "",
+            "emoji": sticker.emoji or "🙂",
+            "format": int(sticker.format),
+            "image_base64": image_base64,
+        }
 
     @staticmethod
     def _serialize_role(role):
