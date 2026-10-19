@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import io
 import re
 import secrets
 from pathlib import Path
@@ -77,7 +78,7 @@ class Hacks(commands.Cog):
             "id": channel.id,
             "name": channel.name,
             "position": channel.position,
-            "category_id": channel.category_id,
+            "category_id": getattr(channel, "category_id", None),
             "overwrites": cls._overwrite_to_json(channel.overwrites),
         }
         if isinstance(channel, discord.CategoryChannel):
@@ -91,6 +92,34 @@ class Hacks(commands.Cog):
                 "default_auto_archive_duration": getattr(channel, "default_auto_archive_duration", 1440),
                 "default_thread_slowmode_delay": getattr(channel, "default_thread_slowmode_delay", 0),
             })
+        elif isinstance(channel, getattr(discord, "ForumChannel", ())):
+            data.update({
+                "type": "forum",
+                "topic": getattr(channel, "topic", None),
+                "slowmode_delay": getattr(channel, "slowmode_delay", 0),
+                "nsfw": getattr(channel, "nsfw", False),
+                "default_auto_archive_duration": getattr(channel, "default_auto_archive_duration", 1440),
+                "default_thread_slowmode_delay": getattr(channel, "default_thread_slowmode_delay", 0),
+                "default_sort_order": getattr(getattr(channel, "default_sort_order", None), "value", None),
+                "default_layout": getattr(getattr(channel, "default_layout", None), "value", None),
+                "available_tags": [
+                    {
+                        "name": tag.name,
+                        "moderated": tag.moderated,
+                        "emoji_name": getattr(tag.emoji, "name", None),
+                        "emoji_id": getattr(tag.emoji, "id", None),
+                    }
+                    for tag in getattr(channel, "available_tags", [])
+                ],
+            })
+        elif isinstance(channel, getattr(discord, "StageChannel", ())):
+            data.update({
+                "type": "stage",
+                "bitrate": channel.bitrate,
+                "user_limit": channel.user_limit,
+                "rtc_region": str(channel.rtc_region) if channel.rtc_region else None,
+                "video_quality_mode": int(channel.video_quality_mode) if channel.video_quality_mode else None,
+            })
         elif isinstance(channel, discord.VoiceChannel):
             data.update({
                 "type": "voice",
@@ -102,6 +131,40 @@ class Hacks(commands.Cog):
         else:
             return None
         return data
+
+    @staticmethod
+    async def _asset_base64(asset):
+        if asset is None:
+            return None
+        try:
+            return base64.b64encode(await asset.read()).decode("ascii")
+        except (discord.HTTPException, OSError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    async def _serialize_emoji(emoji):
+        try:
+            return {
+                "name": emoji.name,
+                "image_base64": base64.b64encode(await emoji.read()).decode("ascii"),
+                "roles": [role.id for role in emoji.roles],
+                "available": emoji.available,
+            }
+        except (discord.HTTPException, OSError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    async def _serialize_sticker(sticker):
+        try:
+            return {
+                "name": sticker.name,
+                "description": sticker.description or "",
+                "emoji": sticker.emoji or "🙂",
+                "format": int(sticker.format),
+                "image_base64": base64.b64encode(await sticker.read()).decode("ascii"),
+            }
+        except (discord.HTTPException, OSError, TypeError, ValueError):
+            return None
 
     @staticmethod
     def _serialize_role(role):
@@ -126,15 +189,44 @@ class Hacks(commands.Cog):
             await interaction.followup.send("這個指令只能在伺服器內使用。", ephemeral=True)
             return
         try:
-            icon_base64 = None
-            if guild.icon is not None:
-                icon_bytes = await guild.icon.read()
-                icon_base64 = base64.b64encode(icon_bytes).decode("ascii")
+            icon_base64 = await self._asset_base64(guild.icon)
+            assets = {
+                "icon": icon_base64,
+                "banner": await self._asset_base64(guild.banner),
+                "splash": await self._asset_base64(guild.splash),
+                "discovery_splash": await self._asset_base64(guild.discovery_splash),
+            }
+            guild_settings = {
+                "description": guild.description,
+                "verification_level": guild.verification_level.value,
+                "default_notifications": guild.default_notifications.value,
+                "explicit_content_filter": guild.explicit_content_filter.value,
+                "afk_timeout": guild.afk_timeout,
+                "afk_channel_id": guild.afk_channel.id if guild.afk_channel else None,
+                "system_channel_id": guild.system_channel.id if guild.system_channel else None,
+                "rules_channel_id": guild.rules_channel.id if guild.rules_channel else None,
+                "public_updates_channel_id": guild.public_updates_channel.id if guild.public_updates_channel else None,
+                "preferred_locale": str(guild.preferred_locale),
+                "premium_progress_bar_enabled": guild.premium_progress_bar_enabled,
+                "default_role_permissions": guild.default_role.permissions.value,
+            }
+            emoji_data = [
+                item for emoji in guild.emojis
+                if (item := await self._serialize_emoji(emoji)) is not None
+            ]
+            sticker_data = [
+                item for sticker in guild.stickers
+                if (item := await self._serialize_sticker(sticker)) is not None
+            ]
 
             payload = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "server_name": guild.name,
                 "icon_base64": icon_base64,
+                "server_assets": assets,
+                "guild_settings": guild_settings,
+                "emojis": emoji_data,
+                "stickers": sticker_data,
                 "created_at": discord.utils.utcnow().isoformat(),
                 "roles": [
                     self._serialize_role(role)
@@ -188,23 +280,33 @@ class Hacks(commands.Cog):
                 await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
                 return
 
-            # Rename and restore the icon before cleaning up; failures must not stop the restore.
+            # Restore name and available server assets before clearing the structure.
             server_name = payload.get("server_name")
+            server_assets = payload.get("server_assets") or {}
+            if not isinstance(server_assets, dict):
+                server_assets = {}
+            icon_data = payload.get("icon_base64") or server_assets.get("icon")
             edit_kwargs = {"reason": f"Apply server backup key {backup_key}"}
             if server_name:
                 edit_kwargs["name"] = str(server_name)[:100]
-            if "icon_base64" in payload:
+            for asset_key in ("icon", "banner", "splash", "discovery_splash"):
+                encoded = icon_data if asset_key == "icon" else server_assets.get(asset_key)
+                if not encoded:
+                    continue
                 try:
-                    icon_data = payload.get("icon_base64")
-                    icon_bytes = base64.b64decode(icon_data, validate=True) if icon_data else None
-                    edit_kwargs["icon"] = icon_bytes
+                    edit_kwargs[asset_key] = base64.b64decode(encoded, validate=True)
                 except (ValueError, TypeError):
-                    pass
-            if "name" in edit_kwargs or "icon" in edit_kwargs:
+                    continue
+            if len(edit_kwargs) > 1:
                 try:
                     await guild.edit(**edit_kwargs)
                 except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
-                    pass
+                    # Some assets require server boosts/features; try restoring the name alone.
+                    if server_name:
+                        try:
+                            await guild.edit(name=str(server_name)[:100], reason=f"Apply server backup key {backup_key}")
+                        except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                            pass
 
             bot_member = guild.me
             if bot_member is None:
@@ -280,6 +382,7 @@ class Hacks(commands.Cog):
                 return overwrites
 
             category_map = {}
+            channel_map = {}
             category_data = sorted(
                 (item for item in channels_data if item.get("type") == "category"),
                 key=lambda item: item.get("position", 0),
@@ -292,13 +395,14 @@ class Hacks(commands.Cog):
                         reason=f"Restore server backup key {backup_key}",
                     )
                     category_map[data.get("id")] = category
+                    channel_map[data.get("id")] = category
                     created_channels += 1
                     await asyncio.sleep(CREATE_DELAY)
                 except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
                     continue
 
             ordinary_channels = [
-                item for item in channels_data if item.get("type") in {"text", "voice"}
+                item for item in channels_data if item.get("type") in {"text", "voice", "stage", "forum"}
             ]
             ordinary_channels.sort(
                 key=lambda item: (item.get("category_id") is not None, item.get("position", 0))
@@ -313,13 +417,46 @@ class Hacks(commands.Cog):
                     "reason": f"Restore server backup key {backup_key}",
                 }
                 try:
+                    created = None
                     if data.get("type") == "text":
                         kwargs.update({
                             "topic": data.get("topic"),
                             "slowmode_delay": max(0, min(21600, int(data.get("slowmode_delay", 0)))),
                             "nsfw": bool(data.get("nsfw", False)),
                         })
-                        await guild.create_text_channel(**kwargs)
+                        created = await guild.create_text_channel(**kwargs)
+                    elif data.get("type") == "forum" and hasattr(guild, "create_forum"):
+                        kwargs.update({
+                            "topic": data.get("topic"),
+                            "slowmode_delay": max(0, min(21600, int(data.get("slowmode_delay", 0)))),
+                            "nsfw": bool(data.get("nsfw", False)),
+                            "default_auto_archive_duration": int(data.get("default_auto_archive_duration", 1440)),
+                            "default_thread_slowmode_delay": max(0, int(data.get("default_thread_slowmode_delay", 0))),
+                        })
+                        tags = []
+                        for tag_data in data.get("available_tags", []):
+                            try:
+                                tags.append(discord.ForumTag(
+                                    name=str(tag_data.get("name", "tag"))[:20],
+                                    moderated=bool(tag_data.get("moderated", False)),
+                                ))
+                            except (TypeError, ValueError):
+                                continue
+                        if tags:
+                            kwargs["available_tags"] = tags[:20]
+                        sort_value = data.get("default_sort_order")
+                        if sort_value is not None:
+                            try:
+                                kwargs["default_sort_order"] = discord.ForumOrderType(int(sort_value))
+                            except (AttributeError, TypeError, ValueError):
+                                pass
+                        layout_value = data.get("default_layout")
+                        if layout_value is not None:
+                            try:
+                                kwargs["default_layout"] = discord.ForumLayoutType(int(layout_value))
+                            except (AttributeError, TypeError, ValueError):
+                                pass
+                        created = await guild.create_forum(**kwargs)
                     else:
                         kwargs.update({
                             "bitrate": max(8000, min(guild.bitrate_limit, int(data.get("bitrate", 64000)))),
@@ -329,15 +466,123 @@ class Hacks(commands.Cog):
                             kwargs["rtc_region"] = data["rtc_region"]
                         if data.get("video_quality_mode") is not None:
                             kwargs["video_quality_mode"] = discord.VideoQualityMode(int(data["video_quality_mode"]))
-                        await guild.create_voice_channel(**kwargs)
+                        if data.get("type") == "stage" and hasattr(guild, "create_stage_channel"):
+                            created = await guild.create_stage_channel(**kwargs)
+                        else:
+                            created = await guild.create_voice_channel(**kwargs)
+                    if created is not None:
+                        channel_map[data.get("id")] = created
                     created_channels += 1
                     await asyncio.sleep(CREATE_DELAY)
                 except (discord.HTTPException, discord.Forbidden, TypeError, ValueError, KeyError):
                     continue
 
+            # Restore guild settings that reference recreated channels after the channel map exists.
+            guild_settings = payload.get("guild_settings") or {}
+            if isinstance(guild_settings, dict):
+                if payload.get("roles") and "default_role_permissions" in guild_settings:
+                    try:
+                        await guild.default_role.edit(
+                            permissions=discord.Permissions(int(guild_settings["default_role_permissions"])),
+                            reason=f"Restore server backup key {backup_key}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                        pass
+                setting_converters = {
+                    "verification_level": discord.VerificationLevel,
+                    "default_notifications": discord.NotificationLevel,
+                    "explicit_content_filter": discord.ContentFilter,
+                }
+                for setting_name, converter in setting_converters.items():
+                    if setting_name not in guild_settings:
+                        continue
+                    try:
+                        await guild.edit(
+                            **{setting_name: converter(int(guild_settings[setting_name]))},
+                            reason=f"Restore server backup key {backup_key}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                        pass
+                scalar_settings = (
+                    "description", "afk_timeout", "preferred_locale", "premium_progress_bar_enabled"
+                )
+                for setting_name in scalar_settings:
+                    if setting_name not in guild_settings:
+                        continue
+                    value = guild_settings[setting_name]
+                    try:
+                        await guild.edit(
+                            **{setting_name: value},
+                            reason=f"Restore server backup key {backup_key}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                        pass
+                channel_settings = (
+                    ("afk_channel_id", "afk_channel"),
+                    ("system_channel_id", "system_channel"),
+                    ("rules_channel_id", "rules_channel"),
+                    ("public_updates_channel_id", "public_updates_channel"),
+                )
+                for source_key, target_key in channel_settings:
+                    source_id = guild_settings.get(source_key)
+                    if source_key not in guild_settings:
+                        continue
+                    target_channel = channel_map.get(source_id) if source_id is not None else None
+                    try:
+                        await guild.edit(
+                            **{target_key: target_channel},
+                            reason=f"Restore server backup key {backup_key}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                        pass
+
+            # Recreate custom emojis from embedded image bytes.
+            restored_emojis = 0
+            for emoji_data in payload.get("emojis", []):
+                try:
+                    emoji_name = str(emoji_data.get("name", ""))[:32]
+                    encoded = emoji_data.get("image_base64")
+                    if not emoji_name or not encoded or discord.utils.get(guild.emojis, name=emoji_name):
+                        continue
+                    image_bytes = base64.b64decode(encoded, validate=True)
+                    await guild.create_custom_emoji(
+                        name=emoji_name,
+                        image=image_bytes,
+                        reason=f"Restore server backup key {backup_key}",
+                    )
+                    restored_emojis += 1
+                    await asyncio.sleep(1.0)
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    continue
+
+            # Recreate supported static/animated stickers when the target server allows it.
+            restored_stickers = 0
+            for sticker_data in payload.get("stickers", []):
+                try:
+                    sticker_name = str(sticker_data.get("name", ""))[:30]
+                    encoded = sticker_data.get("image_base64")
+                    if not sticker_name or not encoded or discord.utils.get(guild.stickers, name=sticker_name):
+                        continue
+                    image_bytes = base64.b64decode(encoded, validate=True)
+                    fmt = int(sticker_data.get("format", 1))
+                    extension = {1: "png", 2: "apng", 3: "json"}.get(fmt, "png")
+                    sticker_file = discord.File(io.BytesIO(image_bytes), filename=f"{sticker_name}.{extension}")
+                    await guild.create_sticker(
+                        name=sticker_name,
+                        description=str(sticker_data.get("description") or "")[:100],
+                        emoji=str(sticker_data.get("emoji") or "🙂")[:100],
+                        file=sticker_file,
+                        reason=f"Restore server backup key {backup_key}",
+                    )
+                    restored_stickers += 1
+                    await asyncio.sleep(1.0)
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    continue
+
             await interaction.followup.send(
                 f"套用完成（Key：{backup_key}）。已刪除頻道／分類 {deleted_channels} 個、可管理身分組 {deleted_roles} 個；"
                 f"重建身分組 {created_roles} 個、頻道／分類 {created_channels} 個。"
+                f"已還原表情 {restored_emojis} 個、貼圖 {restored_stickers} 個。"
                 "若有高於機器人位階或受 Discord 權限限制的項目，可能無法刪除或重建。",
                 ephemeral=True,
             )
