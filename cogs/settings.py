@@ -372,10 +372,28 @@ class SettingsChannelSelect(discord.ui.ChannelSelect):
     async def callback(self, interaction):
         if not await self.panel.require_admin(interaction):
             return
-        channel = self.values[0]
-        bot_member = interaction.guild.me
-        if not isinstance(channel, discord.TextChannel) or bot_member is None:
-            await interaction.response.send_message("請選擇有效的文字頻道。", ephemeral=True)
+        guild = interaction.guild
+        selected = self.values[0] if self.values else None
+        channel_id = getattr(selected, "id", None)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if channel is None and channel_id:
+            try:
+                channel = await self.panel.bot.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                channel = None
+        bot_member = guild.me or (
+            guild.get_member(self.panel.bot.user.id)
+            if self.panel.bot.user else None
+        )
+        if (
+            not isinstance(channel, discord.TextChannel)
+            or channel.guild.id != guild.id
+            or bot_member is None
+        ):
+            await interaction.response.send_message(
+                "無法確認這個文字頻道或 Bot 的伺服器身分，設定沒有變更。請重新開啟 /settings show 再選一次。",
+                ephemeral=True,
+            )
             return
         perms = channel.permissions_for(bot_member)
         if not perms.view_channel or not perms.send_messages:
@@ -384,7 +402,7 @@ class SettingsChannelSelect(discord.ui.ChannelSelect):
                 ephemeral=True,
             )
             return
-        storage.set_setting(interaction.guild.id, self.key, channel.id)
+        storage.set_setting(guild.id, self.key, channel.id)
         await self.panel.refresh(interaction)
 
 
@@ -583,6 +601,83 @@ class SettingsCog(commands.Cog):
 class MemberEventsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    async def _send_message_log(self, guild_id, *, title, description, color, author=None, channel_id=None, message_id=None):
+        log_channel_id = storage.get_setting(guild_id, "message_log_channel_id")
+        if not log_channel_id:
+            return
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return
+        channel = guild.get_channel(int(log_channel_id))
+        if not isinstance(channel, discord.TextChannel):
+            try:
+                fetched = await self.bot.fetch_channel(int(log_channel_id))
+                channel = fetched if isinstance(fetched, discord.TextChannel) and fetched.guild.id == guild_id else None
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                channel = None
+        if channel is None:
+            return
+        embed = discord.Embed(title=title, description=(description or "（沒有文字內容）")[:4000], color=color)
+        if author:
+            embed.set_author(name=str(author)[:256])
+        if channel_id:
+            embed.add_field(name="來源頻道", value=f"<#{channel_id}>", inline=True)
+        if message_id:
+            embed.add_field(name="訊息 ID", value=str(message_id), inline=True)
+        try:
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"Message log delivery failed in guild {guild_id}, channel {log_channel_id}: {exc!r}")
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload):
+        if payload.guild_id is None:
+            return
+        message = payload.cached_message
+        if message is None:
+            description = "訊息已刪除，但 Bot 當時沒有快取原文，因此無法記錄文字內容。"
+            author = None
+        else:
+            content = message.content or "（沒有文字內容，可能是附件／嵌入內容）"
+            description = content
+            author = f"{message.author}（ID：{message.author.id}）"
+        await self._send_message_log(
+            payload.guild_id,
+            title="🗑️ 訊息已刪除",
+            description=description,
+            color=discord.Color.red(),
+            author=author,
+            channel_id=payload.channel_id,
+            message_id=payload.message_id,
+        )
+
+    @commands.Cog.listener()
+    async def on_raw_message_edit(self, payload):
+        if payload.guild_id is None:
+            return
+        data = payload.data or {}
+        if "content" not in data:
+            return
+        message = payload.cached_message
+        old_content = message.content if message is not None else None
+        new_content = data.get("content") or "（沒有文字內容）"
+        if old_content is None:
+            description = f"修改後：\n{new_content}\n\n修改前：Bot 沒有快取到原文，無法還原。"
+        elif old_content == new_content:
+            return
+        else:
+            description = f"修改前：\n{old_content or '（沒有文字內容）'}\n\n修改後：\n{new_content}"
+        author = f"{message.author}（ID：{message.author.id}）" if message is not None else None
+        await self._send_message_log(
+            payload.guild_id,
+            title="✏️ 訊息已編輯",
+            description=description,
+            color=discord.Color.orange(),
+            author=author,
+            channel_id=payload.channel_id,
+            message_id=payload.message_id,
+        )
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
