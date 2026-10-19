@@ -188,7 +188,10 @@ class Hacks(commands.Cog):
 
             # Clear channels first so category deletion and role overwrite cleanup are less likely to fail.
             deleted_channels = 0
-            for channel in list(guild.channels):
+            existing_channels = list(guild.channels)
+            channels_first = [channel for channel in existing_channels if not isinstance(channel, discord.CategoryChannel)]
+            categories_last = [channel for channel in existing_channels if isinstance(channel, discord.CategoryChannel)]
+            for channel in channels_first + categories_last:
                 try:
                     await channel.delete(reason=f"Apply server backup key {backup_key}")
                     deleted_channels += 1
@@ -343,7 +346,7 @@ class Hacks(commands.Cog):
         if not await self._authorize(interaction):
             return
         value = emoji.strip()
-        if not re.fullmatch(r"<a?:[A-Za-z0-9_]{2,32}:\\d{15,22}>", value):
+        if not re.fullmatch(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", value):
             await interaction.response.send_message(
                 "格式不正確。請貼上 Discord 自訂表情符號的完整格式，例如 <:name:123456789012345678> 或 <a:name:123456789012345678>。",
                 ephemeral=True,
