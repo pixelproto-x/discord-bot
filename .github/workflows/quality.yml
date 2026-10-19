@@ -1,4 +1,4 @@
-name: Website quality checks
+name: Python bot checks
 on:
   push:
     branches: ["main"]
@@ -190,25 +190,6 @@ jobs:
           from discord import app_commands as discord_app_commands
           asyncio.run(main())
           PY
-      - name: Check JavaScript syntax
-        run: node --check app.js
-      - name: Check command catalog syntax
-        run: node --check commands.js
-      - name: Check config syntax
-        run: node --check site-config.js
-      - name: Verify website assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          for f in index.html styles.css styles-a.css styles-b.css styles-c.css app.js commands.js site-config.js favicon.svg 404.html robots.txt sitemap.xml privacy.html terms.html; do
-            test -s "$f"
-          done
-          grep -q 'styles.css' index.html
-          grep -q 'commands.js' index.html
-          grep -q 'app.js' index.html
-          grep -q 'site-config.js' index.html
-          echo "Website asset references look valid."
-
       - name: Smoke test calculator and role security
         run: |
           python - <<'PY'
