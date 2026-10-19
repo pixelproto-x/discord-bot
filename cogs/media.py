@@ -36,21 +36,8 @@ MAX_VIDEO_SECONDS = 30
 
 
 def _strip_emojis(text: str) -> str:
-    """Remove emoji and presentation/sequence characters from Gemini output."""
-    text = re.sub(
-        "["
-        "\\U0001F000-\\U0001FAFF"
-        "\\U0001FC00-\\U0001FFFF"
-        "\\u2300-\\u23FF"
-        "\\u2600-\\u27BF"
-        "\\u2B00-\\u2BFF"
-        "\\uFE0E\\uFE0F\\u200D\\u20E3"
-        "]",
-        "",
-        text,
-    )
+    """Preserve emojis so casual AI replies can use them naturally."""
     return text
-
 
 def _sanitize_chat_reply(text: str) -> str:
     """Apply the same output normalization and minimum validity checks to every chat provider."""
@@ -344,7 +331,7 @@ class SearchCog(commands.Cog):
             return ""
         request = (
             f"{system_instruction}\n\n"
-            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只輸出純文字。"
+            "可以自然使用 emoji 或表情符號，但不要每句都加，也不要使用顏文字。"
         )
         try:
             request_kwargs = {
@@ -463,7 +450,7 @@ class SearchCog(commands.Cog):
             "少用反問句，不要每句最後都問問題；能直接接話就直接接。避免重複開場、總結和多餘的客套結尾。"
             "不要說「作為 AI」，不要提自己在模仿朋友，也不要解釋你正在使用什麼聊天風格。"
             "遇到真正嚴肅、危險或求助的問題時，先認真幫忙，不要硬開玩笑。"
-            "回答一律禁止使用 emoji、表情符號、顏文字或用符號拼成的表情；只用純文字。"
+            "可以自然使用 emoji 或表情符號，但不要每句都加，也不要使用顏文字。"
         )
 
         system_instruction += (
