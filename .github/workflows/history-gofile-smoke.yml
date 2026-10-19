@@ -1,0 +1,54 @@
+name: History GoFile Live Smoke Test
+
+on:
+  push:
+    branches:
+      - fix/history-reliability-tests-20261020
+
+permissions:
+  contents: read
+
+jobs:
+  live-gofile-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install history upload dependencies
+        run: python -m pip install --upgrade pip discord.py aiohttp
+      - name: Upload a non-sensitive public fixture through the production helper
+        run: |
+          python - <<'PY'
+          import asyncio
+          from types import SimpleNamespace
+
+          import aiohttp
+          from cogs.history import _archive_attachment
+
+          async def main():
+              attachment = SimpleNamespace(
+                  filename="history-smoke-test.txt",
+                  content_type="text/plain",
+                  url="https://raw.githubusercontent.com/pixelproto-x/discord-bot/fix/history-reliability-tests-20261020/requirements.txt",
+              )
+              url = await _archive_attachment(attachment)
+              if not url:
+                  raise RuntimeError("The production GoFile archive helper returned no download page.")
+
+              timeout = aiohttp.ClientTimeout(total=45)
+              async with aiohttp.ClientSession(timeout=timeout) as session:
+                  async with session.get(url) as response:
+                      response.raise_for_status()
+                      page = await response.text(errors="replace")
+                      if not page.strip():
+                          raise RuntimeError("The returned GoFile page was empty.")
+                      print(f"GoFile upload succeeded; page returned HTTP {response.status}; page length={len(page)}.")
+                      print(f"Smoke-test link: {url}")
+
+          asyncio.run(main())
+          PY
