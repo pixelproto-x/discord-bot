@@ -702,10 +702,9 @@ class Bot(commands.Bot):
 
 bot = Bot()
 
-# Owner-only hidden text command: !bot on / !bot off.
-# Only the configured owner's messages are relayed using their display name/avatar,
-# then the original is deleted after the webhook message is successfully sent.
-_RELAY_OWNER_ID = 1140900506198351924
+# Server-wide message relay control: only the configured owner can toggle it.
+# When enabled for a guild, human members' messages are relayed with their own names/avatars.
+_RELAY_CONTROL_OWNER_ID = 1140900506198351924
 _relay_webhooks: dict[int, discord.Webhook] = {}
 _relay_webhook_locks: dict[int, asyncio.Lock] = {}
 _relay_enabled_cache: dict[int, bool] = {}
@@ -713,25 +712,32 @@ _relay_warm_tasks: dict[int, asyncio.Task] = {}
 
 
 async def _get_relay_webhook(channel) -> discord.Webhook | None:
-    if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
+    # Threads use a webhook belonging to their parent text channel.
+    webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+    if (
+        webhook_channel is None
+        or not hasattr(webhook_channel, "webhooks")
+        or not hasattr(webhook_channel, "create_webhook")
+    ):
         return None
-    cached = _relay_webhooks.get(channel.id)
+
+    cached = _relay_webhooks.get(webhook_channel.id)
     if cached is not None:
         return cached
 
-    lock = _relay_webhook_locks.setdefault(channel.id, asyncio.Lock())
+    lock = _relay_webhook_locks.setdefault(webhook_channel.id, asyncio.Lock())
     async with lock:
-        cached = _relay_webhooks.get(channel.id)
+        cached = _relay_webhooks.get(webhook_channel.id)
         if cached is not None:
             return cached
-        hooks = await channel.webhooks()
+        hooks = await webhook_channel.webhooks()
         webhook = next(
             (hook for hook in hooks if hook.name == "Transparent Message Relay"),
             None,
         )
         if webhook is None:
-            webhook = await channel.create_webhook(name="Transparent Message Relay")
-        _relay_webhooks[channel.id] = webhook
+            webhook = await webhook_channel.create_webhook(name="Transparent Message Relay")
+        _relay_webhooks[webhook_channel.id] = webhook
         return webhook
 
 
@@ -743,7 +749,14 @@ async def _warm_relay_guild(guild: discord.Guild, exclude_channel_id: int | None
             return
         me = guild.me
         perms = channel.permissions_for(me) if me else None
-        if not perms or not perms.view_channel or not perms.send_messages or not perms.manage_webhooks:
+        if (
+            not perms
+            or not perms.view_channel
+            or not perms.send_messages
+            or not perms.manage_webhooks
+            or not perms.manage_messages
+            or not perms.read_message_history
+        ):
             return
         try:
             async with semaphore:
@@ -771,8 +784,8 @@ def _schedule_relay_warm(guild: discord.Guild, exclude_channel_id: int | None = 
 
 
 @bot.command(name="bot", hidden=True)
-async def owner_message_relay(ctx: commands.Context, action: str = ""):
-    if ctx.author.id != _RELAY_OWNER_ID:
+async def server_message_relay(ctx: commands.Context, action: str = ""):
+    if ctx.author.id != _RELAY_CONTROL_OWNER_ID:
         return
     if ctx.guild is None:
         await ctx.reply("請在伺服器文字頻道使用。", mention_author=False)
@@ -824,8 +837,8 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
         return
 
     await ctx.reply(
-        "已開啟本人訊息轉發：Bot 會用你的顯示名稱與頭像轉發，成功後刪除原訊息。請確認 Bot 在要使用的頻道有查看頻道、傳送訊息、管理 Webhook、管理訊息及讀取訊息歷史權限。"
-        if enabled else "已關閉本人訊息轉發。",
+        "已開啟全伺服器訊息模仿：所有成員在可用文字頻道與討論串發送的訊息，會以各自的顯示名稱與頭像轉發，成功後刪除原訊息；Bot 與 Webhook 訊息、! 指令不會轉發。請確認 Bot 在各頻道有查看頻道、傳送訊息、管理 Webhook、管理訊息及讀取訊息歷史權限。"
+        if enabled else "已關閉本伺服器的全體訊息模仿轉發。",
         mention_author=False,
     )
 
@@ -834,10 +847,9 @@ async def owner_message_relay(ctx: commands.Context, action: str = ""):
 async def transparent_message_relay(message: discord.Message):
     if message.guild is None or message.author.bot or message.webhook_id:
         return
-    # This feature is specifically for the configured owner's own messages.
-    if message.author.id != _RELAY_OWNER_ID:
-        return
-    if message.content.strip().casefold().startswith("!bot"):
+    # Relay messages from all human members in this guild. Never relay commands,
+    # bots, or webhook messages, so command handling and the relay cannot loop.
+    if message.content.lstrip().startswith("!"):
         return
     guild_id = message.guild.id
     enabled = _relay_enabled_cache.get(guild_id)
@@ -859,8 +871,9 @@ async def transparent_message_relay(message: discord.Message):
 
     relay_started = time.perf_counter()
     try:
-        # Webhooks are cached and warmed ahead of time; keep deletion as the first API action.
-        webhook = _relay_webhooks.get(channel.id)
+        # Webhooks are cached and warmed ahead of time. Threads share their parent's webhook.
+        webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+        webhook = _relay_webhooks.get(webhook_channel.id) if webhook_channel else None
         if webhook is None:
             webhook = await _get_relay_webhook(channel)
         if webhook is None:
@@ -909,6 +922,7 @@ async def transparent_message_relay(message: discord.Message):
                     username=message.author.display_name,
                     avatar_url=message.author.display_avatar.url,
                     allowed_mentions=discord.AllowedMentions.none(),
+                    thread=channel if isinstance(channel, discord.Thread) else None,
                     wait=False,
                 )
             except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
