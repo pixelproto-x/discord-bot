@@ -45,6 +45,18 @@ _LEADING_BOT_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_PROTECTED_TARGET_INSULT_RE = re.compile(
+    r"(?:你|您|主人|服主|創作者).{0,6}(?:白痴|智障|腦殘|低能|廢物|垃圾|蠢貨|有病|去死|閉嘴|滾開)"
+    r"|(?:去死|操你媽|滾開|閉嘴)",
+    re.IGNORECASE,
+)
+
+
+def is_disrespectful_to_protected_target(text: str) -> bool:
+    """Catch clear direct insults before they are sent to the creator or server owner."""
+    compact = re.sub(r"\s+", "", text or "")
+    return bool(_PROTECTED_TARGET_INSULT_RE.search(compact))
+
 
 def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
     """Normalize chat replies consistently, regardless of which provider produced them."""
