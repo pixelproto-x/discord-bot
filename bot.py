@@ -866,7 +866,12 @@ async def transparent_message_relay(message: discord.Message):
         return
 
     channel = message.channel
-    if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
+    webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+    if (
+        webhook_channel is None
+        or not hasattr(webhook_channel, "webhooks")
+        or not hasattr(webhook_channel, "create_webhook")
+    ):
         return
 
     relay_started = time.perf_counter()
