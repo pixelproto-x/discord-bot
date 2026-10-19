@@ -33,7 +33,7 @@ def _can_read(channel, bot_member: discord.Member, viewer_member: Optional[disco
 def _message_line(message: discord.Message, bot_id: Optional[int]) -> Optional[str]:
     
     
-    if message.author.bot and message.author.id != bot_id:
+    if message.author.bot and message.author.id != bot_id and not getattr(message, "webhook_id", None):
         return None
 
     content = " ".join((message.clean_content or "").split()).strip()
