@@ -64,6 +64,47 @@ class VoiceCog(commands.Cog):
                 except discord.HTTPException:
                     pass
             await interaction.followup.send("Discord 這次建立語音頻道失敗了，再試一次。", ephemeral=True)
+    @voice.command(name="join", description="讓 Bot 加入指定的語音頻道")
+    @app_commands.describe(channel="要讓 Bot 加入的語音頻道")
+    async def join(self, interaction: discord.Interaction, channel: discord.VoiceChannel):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("請在伺服器內使用這個指令。", ephemeral=True)
+            return
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("這個指令需要「管理伺服器」權限。", ephemeral=True)
+            return
+        if channel.guild.id != interaction.guild.id:
+            await interaction.response.send_message("只能選擇目前伺服器的語音頻道。", ephemeral=True)
+            return
+
+        bot_member = interaction.guild.me
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.view_channel or not permissions.connect:
+            await interaction.response.send_message(
+                f"我沒有查看或連線到 {channel.mention} 的權限，請檢查頻道權限。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            voice_client = interaction.guild.voice_client
+            if voice_client and voice_client.is_connected():
+                if voice_client.channel.id == channel.id:
+                    await interaction.followup.send(f"我已經在 {channel.mention} 裡了。", ephemeral=True)
+                    return
+                await voice_client.move_to(channel)
+            else:
+                await channel.connect()
+
+            await interaction.followup.send(f"已加入語音頻道：{channel.mention}", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("Discord 拒絕了連線，請確認我有「查看頻道」和「連線」權限。", ephemeral=True)
+        except discord.ClientException as exc:
+            await interaction.followup.send(f"目前無法加入語音：{str(exc)[:300]}", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.followup.send("Discord 連線失敗，請稍後再試。", ephemeral=True)
+
     @voice.command(name="notice", description="設定誰進出語音時要在哪個文字頻道通知")
     @app_commands.describe(channel="通知頻道")
     async def notice(self, interaction, channel: discord.TextChannel):
