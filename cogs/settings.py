@@ -20,6 +20,7 @@ def autorole_is_safe(role, bot_member) -> bool:
 SETTINGS_CATEGORIES = [
     ("security", "安全防護", "短時間刷屏、邀請連結、大量大寫與標記上限"),
     ("notifications", "紀錄／語音", "管理紀錄頻道及語音進出通知"),
+    ("message_logs", "訊息刪除／編輯", "把成員刪除或編輯的訊息記錄到指定頻道"),
     ("welcome", "歡迎／離開", "新人歡迎、成員離開通知與訊息"),
     ("roles", "新人身分組", "設定新成員自動取得的身分組"),
 ]
@@ -58,6 +59,11 @@ class SettingsPanelView(discord.ui.View):
             self.add_item(SettingsChannelSelect(self, "voice_notice_channel_id", "選擇語音通知頻道", 3))
             self.add_item(SettingsActionButton(
                 self, "關閉語音通知", "clear_voice", 4, discord.ButtonStyle.danger,
+            ))
+        elif self.page == "message_logs":
+            self.add_item(SettingsChannelSelect(self, "message_log_channel_id", "選擇訊息刪除／編輯紀錄頻道", 1))
+            self.add_item(SettingsActionButton(
+                self, "關閉訊息刪除／編輯紀錄", "clear_message_logs", 2, discord.ButtonStyle.danger,
             ))
         elif self.page == "welcome":
             self.add_item(SettingsChannelSelect(self, "welcome_channel_id", "選擇新人歡迎頻道", 1))
@@ -139,6 +145,22 @@ class SettingsPanelView(discord.ui.View):
             embed.add_field(
                 name="說明",
                 value="選擇文字頻道會立即套用；若選單中沒有頻道，請確認 Bot 能查看並在該頻道發訊息。",
+                inline=False,
+            )
+        elif self.page == "message_logs":
+            embed.add_field(
+                name="訊息紀錄頻道",
+                value=self._channel_mention(guild, "message_log_channel_id"),
+                inline=False,
+            )
+            embed.add_field(
+                name="紀錄內容",
+                value="有人刪除訊息時會記錄原有文字、作者、頻道及訊息 ID；有人編輯訊息時會記錄修改前與修改後的文字。選擇頻道即啟用，按「關閉」即可停用。",
+                inline=False,
+            )
+            embed.add_field(
+                name="注意",
+                value="Bot 只能記錄它實際收到或快取到的內容；無法還原 Bot 加入前或未取得的已刪除訊息。",
                 inline=False,
             )
         elif self.page == "welcome":
@@ -223,6 +245,8 @@ class SettingsActionButton(discord.ui.Button):
             storage.set_setting(guild_id, "block_caps", not bool(storage.get_setting(guild_id, "block_caps", False)))
         elif self.action == "clear_log":
             storage.set_setting(guild_id, "log_channel_id", None)
+        elif self.action == "clear_message_logs":
+            storage.set_setting(guild_id, "message_log_channel_id", None)
         elif self.action == "clear_voice":
             storage.set_setting(guild_id, "voice_notice_channel_id", 0)
         elif self.action == "clear_welcome":
