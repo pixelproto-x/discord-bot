@@ -760,6 +760,12 @@ class MemberEventsCog(commands.Cog):
         log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
         if log_channel_id and int(log_channel_id) == payload.channel_id:
             return
+        suppressed_ids = getattr(self.bot, "_relay_suppressed_delete_log_ids", None)
+        if suppressed_ids is not None and payload.message_id in suppressed_ids:
+            suppressed_ids.discard(payload.message_id)
+            storage.delete_message_snapshot(payload.message_id)
+            return
+
         cached_message = payload.cached_message
         if cached_message is not None and cached_message.author.bot:
             storage.delete_message_snapshot(payload.message_id)
