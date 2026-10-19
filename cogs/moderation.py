@@ -85,6 +85,48 @@ class ModerationCog(commands.Cog):
         except Exception:
             pass
 
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        """將刪除的訊息送到伺服器設定的管理紀錄頻道。"""
+        if not message.guild or message.author.bot:
+            return
+        channel_id = storage.get_setting(message.guild.id, "log_channel_id", 0)
+        channel = message.guild.get_channel(int(channel_id)) if channel_id else None
+        if not channel:
+            return
+
+        content = (message.content or "").strip()
+        if not content:
+            content = "（沒有文字內容）"
+        if message.attachments:
+            files = "\\n".join(
+                f"[{attachment.filename}]({attachment.url})"
+                for attachment in message.attachments[:10]
+            )
+            content = f"{content}\\n\\n附件：\\n{files}"
+        if message.embeds:
+            content += f"\\n（另含 {len(message.embeds)} 個嵌入內容）"
+
+        embed = discord.Embed(
+            title="🗑️ 訊息已刪除",
+            description=content[:4000],
+            color=0xED4245,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="作者", value=f"{message.author}（{message.author.id}）", inline=False)
+        embed.add_field(name="頻道", value=message.channel.mention, inline=True)
+        embed.add_field(name="訊息 ID", value=str(message.id), inline=True)
+        try:
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"Deleted-message log failed in guild {message.guild.id}: {exc!r}")
+
+    @commands.Cog.listener()
+    async def on_bulk_message_delete(self, messages):
+        """大量刪除時逐則記錄，避免訊息遺失。"""
+        for message in messages:
+            await self.on_message_delete(message)
+
     async def punish_message(self, message: discord.Message, reason: str):
         try:
             await message.delete()
