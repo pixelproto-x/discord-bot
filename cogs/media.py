@@ -1493,6 +1493,47 @@ class SearchCog(commands.Cog):
             "Gemini 這次沒接到梗，再試一次。",
         )
 
+    @ai.command(name="mimic", description="私下模仿整個伺服器所有成員的聊天語氣")
+    @app_commands.describe(prompt="輸入要讓一條魚模仿群聊語氣說的內容")
+    async def ai_mimic(self, interaction: discord.Interaction, prompt: str):
+        prompt = prompt.strip()
+        if not interaction.guild or not interaction.channel:
+            await interaction.response.send_message("這個指令要在 Discord 伺服器的文字頻道使用。", ephemeral=True)
+            return
+        if not prompt:
+            await interaction.response.send_message("先輸入要模仿著說的內容。", ephemeral=True)
+            return
+        if len(prompt) > 2000:
+            await interaction.response.send_message("內容太長了，請控制在 2000 字內。", ephemeral=True)
+            return
+        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
+            await interaction.response.send_message("目前沒有可用的 AI 服務，請先檢查 FreeMind AI、Gemini 或 Groq 設定。", ephemeral=True)
+            return
+        if not await self._check_ai_limit(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        server_context = await collect_server_chat_context(
+            interaction.channel, self.bot, requester=interaction.user
+        )
+        prompt_parts = [
+            "【任務】根據提供的伺服器聊天樣本，模仿整個伺服器所有成員共同呈現的聊天語氣、用詞、節奏、常見梗與互動風格，然後改寫或回應使用者指定的內容。",
+            "不要只模仿單一成員，不要逐字複製任何人的完整訊息，也不要假裝自己就是某一位特定成員。不要輸出分析或說明，只輸出一則結果。",
+        ]
+        if server_context:
+            prompt_parts.append("【伺服器各頻道近期聊天樣本】\n" + server_context)
+        else:
+            prompt_parts.append("目前無法讀取到足夠的聊天樣本；請坦白依一般自然的繁體中文 Discord 群聊語氣處理，不要捏造群內梗。")
+        prompt_parts.append(
+            f"【要模仿著表達的內容】\n{prompt}"
+        )
+        answer = await self._generate_gemini_chat("\n\n".join(prompt_parts))
+        if not answer:
+            await interaction.followup.send("AI 這次沒有產生結果，請稍後再試。", ephemeral=True)
+            return
+        answer = answer[:1900]
+        await interaction.followup.send(answer, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
     @ai.command(name="translate", description="讓 Gemini 幫你翻譯並順一下語氣")
     @app_commands.describe(text="原文", target="目標語言")
     async def ai_translate(
