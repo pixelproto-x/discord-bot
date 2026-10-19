@@ -959,8 +959,9 @@ async def transparent_message_relay(message: discord.Message):
             sent_message = None
             referenced_id = getattr(message.reference, "message_id", None) if message.reference else None
             resolved_reference = getattr(message.reference, "resolved", None) if message.reference else None
-            # A reply to the visible webhook copy already references that copy's ID.
-            # Also support references to source IDs still present in the relay map.
+            # Keep every relayed message under the original author's webhook identity.
+            # Webhooks cannot create Discord-native replies, so preserve reply context
+            # as visible text instead of switching the sender to the bot account.
             if referenced_id and (
                 referenced_id in _relay_message_map.values()
                 or getattr(resolved_reference, "webhook_id", None)
@@ -969,31 +970,11 @@ async def transparent_message_relay(message: discord.Message):
             else:
                 relayed_target_id = _relay_message_map.get(referenced_id) if referenced_id else None
 
-            # Discord webhooks cannot create native replies. If this message replies to
-            # another relayed message, use a bot-authored native reply to the visible copy.
             if relayed_target_id:
-                try:
-                    reply_content = f"**{message.author.display_name}**\n{payload}" if payload else f"**{message.author.display_name}**"
-                    sent_message = await channel.send(
-                        content=reply_content,
-                        files=relay_files,
-                        reference=discord.MessageReference(
-                            message_id=relayed_target_id,
-                            channel_id=channel.id,
-                            guild_id=guild_id,
-                        ),
-                        mention_author=False,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                    sent = True
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as reply_exc:
-                    print(
-                        f"[Relay reply failed] guild={guild_id} channel={channel.id} "
-                        f"target={relayed_target_id}: {type(reply_exc).__name__}; original message kept"
-                    )
-                    # Never fall back to a non-reply webhook post: that would silently
-                    # lose the user's intended reply target and then delete their source.
-                    return
+                target_author = getattr(resolved_reference, "author", None)
+                target_name = getattr(target_author, "display_name", None) or getattr(target_author, "name", None)
+                reply_label = f"↪ 回覆「{target_name}」：" if target_name else "↪ 回覆上一則模仿訊息："
+                send_kwargs["content"] = f"{reply_label}\\n{payload}" if payload else reply_label
 
             if not sent:
                 try:
