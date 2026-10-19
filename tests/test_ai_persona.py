@@ -2,6 +2,7 @@ import unittest
 
 from cogs.ai_persona import (
     CHAT_PERSONA_CONTRACT,
+    is_disrespectful_to_protected_target,
     is_repetitive_reply,
     is_valid_chat_reply,
     normalize_chat_reply,
@@ -31,6 +32,11 @@ class ChatPersonaTests(unittest.TestCase):
         normalized = normalize_chat_reply(answer)
         self.assertEqual(normalized, "先別整個重寫貼錯誤訊息來我們先抓是哪裡出問題")
         self.assertTrue(is_valid_chat_reply(normalized))
+
+    def test_detects_direct_insults_for_protected_users(self):
+        self.assertTrue(is_disrespectful_to_protected_target("你這個白痴"))
+        self.assertTrue(is_disrespectful_to_protected_target("主人去死"))
+        self.assertFalse(is_disrespectful_to_protected_target("這個程式真的很難修"))
 
     def test_detects_near_duplicate_replies(self):
         self.assertTrue(is_repetitive_reply(
