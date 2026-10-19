@@ -167,24 +167,6 @@ class Hacks(commands.Cog):
                 role_map[data.get("id")] = existing
                 role_name_map[existing.name] = existing
 
-            for data in sorted(
-                (item for item in channels_data if item.get("type") == "category"),
-                key=lambda item: item.get("position", 0),
-            ):
-                if discord.utils.get(guild.categories, name=data.get("name")) is None:
-                    try:
-                        await guild.create_category(str(data["name"])[:100], reason="Restore from backup_last.json")
-                        created_channels += 1
-                        await asyncio.sleep(0.5)
-                    except (discord.HTTPException, discord.Forbidden, KeyError):
-                        pass
-
-            category_map = {category.name: category for category in guild.categories}
-            old_category_to_name = {
-                item.get("id"): item.get("name")
-                for item in channels_data if item.get("type") == "category"
-            }
-
             def resolve_overwrites(items):
                 overwrites = {}
                 for entry in items or []:
@@ -202,6 +184,28 @@ class Hacks(commands.Cog):
                     except (TypeError, ValueError):
                         continue
                 return overwrites
+
+            for data in sorted(
+                (item for item in channels_data if item.get("type") == "category"),
+                key=lambda item: item.get("position", 0),
+            ):
+                if discord.utils.get(guild.categories, name=data.get("name")) is None:
+                    try:
+                        await guild.create_category(
+                            str(data["name"])[:100],
+                            overwrites=resolve_overwrites(data.get("overwrites")),
+                            reason="Restore from backup_last.json",
+                        )
+                        created_channels += 1
+                        await asyncio.sleep(0.5)
+                    except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
+                        pass
+
+            category_map = {category.name: category for category in guild.categories}
+            old_category_to_name = {
+                item.get("id"): item.get("name")
+                for item in channels_data if item.get("type") == "category"
+            }
 
             ordinary_channels = [
                 item for item in channels_data if item.get("type") in {"text", "voice"}
@@ -231,8 +235,6 @@ class Hacks(commands.Cog):
                             "topic": data.get("topic"),
                             "slowmode_delay": max(0, min(21600, int(data.get("slowmode_delay", 0)))),
                             "nsfw": bool(data.get("nsfw", False)),
-                            "default_auto_archive_duration": int(data.get("default_auto_archive_duration", 1440)),
-                            "default_thread_slowmode_delay": max(0, min(21600, int(data.get("default_thread_slowmode_delay", 0)))),
                         })
                         await guild.create_text_channel(**kwargs)
                     else:
