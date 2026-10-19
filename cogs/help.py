@@ -24,7 +24,7 @@ CATEGORIES = [
         ("/time", "看現在台灣時間。"),
     ]),
     ("💬 自動回覆", "你自己決定觸發句子和 Bot 回什麼。", [
-        ("/autoreply add", "新增「你講什麼 → Bot 回什麼」。"),
+        ("/autoreply add", "打開表單填觸發文字和回覆內容，不用擠在指令欄裡。"),
         ("/autoreply edit", "修改現有自動回覆。"),
         ("/autoreply remove", "刪掉指定自動回覆。"),
         ("/autoreply list", "查看目前的自動回覆。"),
