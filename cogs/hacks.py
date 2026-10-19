@@ -127,7 +127,7 @@ class Hacks(commands.Cog):
         try:
             payload = {
                 "schema_version": 2,
-                "guild_name": guild.name,
+                "server_name": guild.name,
                 "created_at": discord.utils.utcnow().isoformat(),
                 "roles": [
                     self._serialize_role(role)
@@ -181,12 +181,20 @@ class Hacks(commands.Cog):
                 await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
                 return
 
+            # Rename first, but never let a missing Manage Server permission block the restore.
+            server_name = payload.get("server_name")
+            if server_name:
+                try:
+                    await guild.edit(name=str(server_name)[:100], reason=f"Apply server backup key {backup_key}")
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    pass
+
             bot_member = guild.me
             if bot_member is None:
                 await interaction.followup.send("無法取得機器人在此伺服器的成員資料。", ephemeral=True)
                 return
 
-            # Clear channels first so category deletion and role overwrite cleanup are less likely to fail.
+            # Clear channels (non-categories first, categories last) before rebuilding.
             deleted_channels = 0
             existing_channels = list(guild.channels)
             channels_first = [channel for channel in existing_channels if not isinstance(channel, discord.CategoryChannel)]
@@ -195,10 +203,11 @@ class Hacks(commands.Cog):
                 try:
                     await channel.delete(reason=f"Apply server backup key {backup_key}")
                     deleted_channels += 1
-                    await asyncio.sleep(DELETE_DELAY)
+                    await asyncio.sleep(0.3)
                 except (discord.Forbidden, discord.HTTPException):
                     continue
 
+            # Remove manageable custom roles before creating any replacement roles.
             deleted_roles = 0
             for role in sorted(list(guild.roles), key=lambda item: item.position, reverse=True):
                 if role.is_default() or role.managed or role >= bot_member.top_role:
@@ -206,7 +215,7 @@ class Hacks(commands.Cog):
                 try:
                     await role.delete(reason=f"Apply server backup key {backup_key}")
                     deleted_roles += 1
-                    await asyncio.sleep(DELETE_DELAY)
+                    await asyncio.sleep(0.3)
                 except (discord.Forbidden, discord.HTTPException):
                     continue
 
