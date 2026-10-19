@@ -146,7 +146,7 @@ class Hacks(commands.Cog):
         try:
             return {
                 "name": emoji.name,
-                "image_base64": base64.b64encode(await emoji.read()).decode("ascii"),
+                "image_base64": base64.b64encode(await emoji.url.read()).decode("ascii"),
                 "roles": [role.id for role in emoji.roles],
                 "available": emoji.available,
             }
@@ -161,7 +161,7 @@ class Hacks(commands.Cog):
                 "description": sticker.description or "",
                 "emoji": sticker.emoji or "🙂",
                 "format": int(sticker.format),
-                "image_base64": base64.b64encode(await sticker.read()).decode("ascii"),
+                "image_base64": base64.b64encode(await sticker.url.read()).decode("ascii"),
             }
         except (discord.HTTPException, OSError, TypeError, ValueError):
             return None
@@ -477,7 +477,7 @@ class Hacks(commands.Cog):
             # Restore guild settings that reference recreated channels after the channel map exists.
             guild_settings = payload.get("guild_settings") or {}
             if isinstance(guild_settings, dict):
-                if payload.get("roles") and "default_role_permissions" in guild_settings:
+                if "default_role_permissions" in guild_settings:
                     try:
                         await guild.default_role.edit(
                             permissions=discord.Permissions(int(guild_settings["default_role_permissions"])),
