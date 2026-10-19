@@ -701,6 +701,7 @@ class Bot(commands.Bot):
 
 
 bot = Bot()
+bot._relay_suppressed_delete_log_ids = set()
 
 # Server-wide message relay control: only the configured owner can toggle it.
 # When enabled for a guild, human members' messages are relayed with their own names/avatars.
@@ -785,15 +786,28 @@ def _schedule_relay_warm(guild: discord.Guild, exclude_channel_id: int | None = 
 
 @bot.command(name="bot", hidden=True)
 async def server_message_relay(ctx: commands.Context, action: str = ""):
+    # Keep the control command and its result out of public channels.
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        pass
+
     if ctx.author.id != _RELAY_CONTROL_OWNER_ID:
         return
+
+    async def notify_owner(text: str):
+        try:
+            await ctx.author.send(text)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
     if ctx.guild is None:
-        await ctx.reply("請在伺服器文字頻道使用。", mention_author=False)
+        await notify_owner("請在伺服器文字頻道使用這個指令")
         return
 
     action = action.casefold().strip()
     if action not in {"on", "off"}:
-        await ctx.reply("用法：`!bot on` 或 `!bot off`", mention_author=False)
+        await notify_owner("用法是 !bot on 或 !bot off")
         return
 
     enabled = action == "on"
@@ -808,19 +822,15 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
             or not perms.manage_messages
             or not perms.read_message_history
         ):
-            await ctx.reply(
-                "無法開啟：Bot 在目前頻道需要「查看頻道」「傳送訊息」「管理 Webhook」「管理訊息」「讀取訊息歷史」權限。",
-                mention_author=False,
+            await notify_owner(
+                "無法開啟訊息模仿功能 目前頻道需要查看頻道 傳送訊息 管理 Webhook 管理訊息及讀取訊息歷史權限"
             )
             return
-
-    if enabled:
         try:
             await _get_relay_webhook(ctx.channel)
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-            await ctx.reply(
-                f"無法準備目前頻道的轉發 Webhook：{type(exc).__name__}。請確認 Bot 有管理 Webhook 權限。",
-                mention_author=False,
+            await notify_owner(
+                f"無法準備目前頻道的訊息轉發服務 {type(exc).__name__} 請確認 Bot 有管理 Webhook 權限"
             )
             return
 
@@ -832,15 +842,11 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
         if enabled:
             _schedule_relay_warm(ctx.guild, exclude_channel_id=ctx.channel.id)
     except Exception as exc:
-        print(f"Could not update relay setting for guild {ctx.guild.id}: {exc}")
-        await ctx.reply("設定儲存失敗，請稍後再試。", mention_author=False)
+        print(f"Could not update relay setting for guild {ctx.guild.id}: {type(exc).__name__}")
+        await notify_owner("設定儲存失敗 請稍後再試")
         return
 
-    await ctx.reply(
-        "已開啟全伺服器訊息模仿：所有成員在可用文字頻道與討論串發送的訊息，會以各自的顯示名稱與頭像轉發，成功後刪除原訊息；Bot 與 Webhook 訊息、! 指令不會轉發。請確認 Bot 在各頻道有查看頻道、傳送訊息、管理 Webhook、管理訊息及讀取訊息歷史權限。"
-        if enabled else "已關閉本伺服器的全體訊息模仿轉發。",
-        mention_author=False,
-    )
+    await notify_owner("已開啟" if enabled else "已關閉")
 
 
 @bot.listen("on_message")
@@ -903,8 +909,52 @@ async def transparent_message_relay(message: discord.Message):
             if len(payload) > 2000:
                 payload = payload[:1900] + "\n…（內容過長，部分內容省略）"
 
-            # Media must be cached first; then preserve delete-before-repost order.
+            # Confirm the mimic message was posted before deleting the original.
+            send_kwargs = {
+                "content": payload or None,
+                "files": relay_files or None,
+                "username": message.author.display_name,
+                "avatar_url": message.author.display_avatar.url,
+                "allowed_mentions": discord.AllowedMentions.none(),
+                "thread": channel if isinstance(channel, discord.Thread) else None,
+                "wait": True,
+            }
+            sent = False
+            try:
+                await webhook.send(**send_kwargs)
+                sent = True
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as first_exc:
+                _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
+                print(
+                    f"Webhook relay attempt failed in channel {channel.id}: "
+                    f"{type(first_exc).__name__}; refreshing webhook and retrying"
+                )
+                try:
+                    webhook = await _get_relay_webhook(channel)
+                    if webhook is not None:
+                        for relay_file in relay_files:
+                            try:
+                                relay_file.fp.seek(0)
+                            except (AttributeError, OSError):
+                                pass
+                        await webhook.send(**send_kwargs)
+                        sent = True
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as retry_exc:
+                    _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
+                    print(
+                        f"Webhook relay retry failed in channel {channel.id}: "
+                        f"{type(retry_exc).__name__}; original message kept"
+                    )
+
+            if not sent:
+                return
+
             delete_started = time.perf_counter()
+            suppressed_ids = getattr(bot, "_relay_suppressed_delete_log_ids", None)
+            if suppressed_ids is not None:
+                suppressed_ids.add(message.id)
+                while len(suppressed_ids) > 5000:
+                    suppressed_ids.pop()
             try:
                 await message.delete()
                 delete_ms = (time.perf_counter() - delete_started) * 1000
@@ -914,39 +964,12 @@ async def transparent_message_relay(message: discord.Message):
                     f"event_to_delete={total_ms:.0f}ms"
                 )
             except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+                if suppressed_ids is not None:
+                    suppressed_ids.discard(message.id)
                 print(
-                    f"Relay skipped in channel {channel.id}: original message could not be deleted "
-                    f"({type(exc).__name__}: {exc})"
+                    f"Relay posted but original message could not be deleted in channel {channel.id}: "
+                    f"{type(exc).__name__}"
                 )
-                return
-
-            try:
-                await webhook.send(
-                    content=payload or None,
-                    files=relay_files or None,
-                    username=message.author.display_name,
-                    avatar_url=message.author.display_avatar.url,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                    thread=channel if isinstance(channel, discord.Thread) else None,
-                    wait=False,
-                )
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-                _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
-                print(
-                    f"Webhook relay failed after original was deleted in channel {channel.id}: "
-                    f"{type(exc).__name__}: {exc}. Trying a plain-message fallback."
-                )
-                try:
-                    await channel.send(
-                        content=payload or None,
-                        files=relay_files or None,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as fallback_exc:
-                    print(
-                        f"Fallback also failed in channel {channel.id}: "
-                        f"{type(fallback_exc).__name__}: {fallback_exc}"
-                    )
         finally:
             for relay_file in relay_files:
                 try:
