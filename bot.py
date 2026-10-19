@@ -1275,7 +1275,7 @@ async def stopspam(interaction: discord.Interaction, member: discord.Member | No
         await interaction.response.send_message("他現在沒有正在跑的發送工作。", ephemeral=True)
 
 
-@bot.tree.command(name="history", description="搜尋並清掉歷史訊息")
+@bot.tree.command(name="history_cleanup", description="搜尋並清掉歷史訊息")
 @app_commands.describe(
     count="搜尋範圍 1 到 1000",
     member="只處理這位成員",
