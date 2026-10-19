@@ -98,7 +98,7 @@ class ModerationCog(commands.Cog):
             return
         if re.match(r"^!bot\s+(?:on|off)\s*$", (message.content or "").strip(), re.IGNORECASE):
             return
-        channel_id = storage.get_setting(message.guild.id, "log_channel_id", 0)
+        channel_id = storage.get_setting(message.guild.id, "message_log_channel_id", 0)
         channel = message.guild.get_channel(int(channel_id)) if channel_id else None
         if not channel:
             return
@@ -128,6 +128,34 @@ class ModerationCog(commands.Cog):
             await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"Deleted-message log failed in guild {message.guild.id}: {exc!r}")
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        """將成員編輯前後的文字記錄到指定頻道。"""
+        if not before.guild or before.author.bot or before.content == after.content:
+            return
+
+        channel_id = storage.get_setting(before.guild.id, "message_log_channel_id", 0)
+        channel = before.guild.get_channel(int(channel_id)) if channel_id else None
+        if not channel:
+            return
+
+        before_text = (before.content or "").strip() or "（空白訊息）"
+        after_text = (after.content or "").strip() or "（空白訊息）"
+        embed = discord.Embed(
+            title="✏️ 訊息已編輯",
+            color=0xFEE75C,
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="作者", value=f"{before.author}（{before.author.id}）", inline=False)
+        embed.add_field(name="頻道", value=before.channel.mention, inline=True)
+        embed.add_field(name="訊息 ID", value=str(before.id), inline=True)
+        embed.add_field(name="修改前", value=before_text[:1024], inline=False)
+        embed.add_field(name="修改後", value=after_text[:1024], inline=False)
+        try:
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"Edited-message log failed in guild {before.guild.id}: {exc!r}")
 
     @commands.Cog.listener()
     async def on_bulk_message_delete(self, messages):
