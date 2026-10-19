@@ -82,6 +82,21 @@ async def _archive_attachment(attachment: discord.Attachment) -> str | None:
                 pass
 
 
+def _initial_attachment_snapshot(message: discord.Message) -> list[dict]:
+    """Persist original metadata before any network upload can delay deletion handling."""
+    return [
+        {
+            "filename": attachment.filename,
+            "size": int(attachment.size),
+            "url": str(attachment.url),
+            "discord_url": str(attachment.url),
+            "content_type": attachment.content_type,
+            "archived": False,
+        }
+        for attachment in message.attachments
+    ]
+
+
 async def _snapshot_attachments(message: discord.Message) -> list[dict]:
     results = []
     for attachment in message.attachments:
@@ -211,6 +226,33 @@ class HistoryStore:
             ).fetchone()
         return self._record_from_row(row) if row else None
 
+    def has_deleted(self, message_id: int) -> bool:
+        with storage.connect() as con:
+            row = con.execute(
+                "SELECT 1 FROM history_deleted_messages WHERE message_id=?",
+                (int(message_id),),
+            ).fetchone()
+        return row is not None
+
+    def update_attachments(self, message_id: int, attachments: list[dict]) -> None:
+        """Apply completed archive URLs whether the message is active or already deleted."""
+        encoded = json.dumps(attachments or [], ensure_ascii=False)
+        with storage.connect() as con:
+            con.execute(
+                "UPDATE history_message_snapshots SET attachments_json=? WHERE message_id=?",
+                (encoded, int(message_id)),
+            )
+            con.execute(
+                "UPDATE history_deleted_messages SET attachments_json=? WHERE message_id=?",
+                (encoded, int(message_id)),
+            )
+
+        for recent_map in (self.channel_recent, self.user_recent):
+            for queue in recent_map.values():
+                for record in queue:
+                    if int(record.get("message_id", -1)) == int(message_id):
+                        record["attachments"] = attachments or []
+
     def mark_deleted(self, message_id: int, fallback: dict | None = None) -> bool:
         with storage.connect() as con:
             row = con.execute(
@@ -297,6 +339,10 @@ def build_history_embed(record: dict) -> discord.Embed:
         parts.append(content)
     elif not attachments:
         parts.append("（無文字內容）")
+
+    if attachments:
+        parts.append("")
+        parts.append("**附件**")
 
     for item in attachments:
         filename = _clean_text(item.get("filename") or "未知檔案", 180)
@@ -418,13 +464,13 @@ class History(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.store = HistoryStore()
+        self._delete_locks: dict[int, asyncio.Lock] = {}
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot:
             return
 
-        attachments = await _snapshot_attachments(message)
         record = {
             "message_id": message.id,
             "guild_id": message.guild.id,
@@ -434,19 +480,47 @@ class History(commands.Cog):
             "author_name": str(message.author.display_name or message.author.name),
             "author_avatar_url": str(message.author.display_avatar.url),
             "content": message.content or "",
-            "attachments": attachments,
+            "attachments": _initial_attachment_snapshot(message),
             "created_at": message.created_at.timestamp(),
         }
         try:
+            # Persist before network I/O so a fast deletion cannot beat the snapshot.
             self.store.remember(record)
+            if message.attachments:
+                archived_attachments = await _snapshot_attachments(message)
+                self.store.update_attachments(message.id, archived_attachments)
         except Exception:
             logger.exception("保存訊息歷史失敗：%s", message.id)
 
-    @commands.Cog.listener()
-    async def on_message_delete(self, message: discord.Message) -> None:
-        if message.guild is None or message.author.bot:
+    async def _process_delete(
+        self,
+        message_id: int,
+        guild_id: int | None,
+        message: discord.Message | None,
+    ) -> None:
+        if guild_id is None:
             return
-        try:
+
+        if len(self._delete_locks) >= 1024:
+            self._delete_locks = {
+                key: lock for key, lock in self._delete_locks.items() if lock.locked()
+            }
+        lock = self._delete_locks.setdefault(int(message_id), asyncio.Lock())
+
+        async with lock:
+            if self.store.has_deleted(message_id):
+                return
+
+            # Cached and raw-delete events can both fire for one message.
+            if self.store.get_snapshot(message_id):
+                self.store.mark_deleted(message_id)
+                return
+
+            # If the bot missed the original message event, use the cached message
+            # as a best-effort fallback while Discord's attachment URL still works.
+            if message is None or message.guild is None or message.author.bot:
+                return
+
             fallback = {
                 "message_id": message.id,
                 "guild_id": message.guild.id,
@@ -459,7 +533,14 @@ class History(commands.Cog):
                 "attachments": await _snapshot_attachments(message),
                 "created_at": message.created_at.timestamp(),
             }
-            self.store.mark_deleted(message.id, fallback)
+            self.store.mark_deleted(message_id, fallback)
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message) -> None:
+        if message.guild is None or message.author.bot:
+            return
+        try:
+            await self._process_delete(message.id, message.guild.id, message)
         except Exception:
             logger.exception("記錄刪除訊息失敗：%s", message.id)
 
@@ -470,22 +551,11 @@ class History(commands.Cog):
         if payload.guild_id is None:
             return
         try:
-            fallback = None
-            message = payload.cached_message
-            if message is not None and not message.author.bot:
-                fallback = {
-                    "message_id": message.id,
-                    "guild_id": message.guild.id,
-                    "channel_id": message.channel.id,
-                    "channel_name": getattr(message.channel, "name", ""),
-                    "author_id": message.author.id,
-                    "author_name": str(message.author),
-                    "author_avatar_url": str(message.author.display_avatar.url),
-                    "content": message.content or "",
-                    "attachments": await _snapshot_attachments(message),
-                    "created_at": message.created_at.timestamp(),
-                }
-            self.store.mark_deleted(payload.message_id, fallback)
+            await self._process_delete(
+                payload.message_id,
+                payload.guild_id,
+                payload.cached_message,
+            )
         except Exception:
             logger.exception("記錄 Raw 刪除訊息失敗：%s", payload.message_id)
 
