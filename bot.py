@@ -30,6 +30,7 @@ from cogs import (
     speech_control,
     help as help_cog,
     web_tools,
+    hacks,
 )
 
 
@@ -133,6 +134,7 @@ class Bot(commands.Bot):
             speech_control,
             help_cog,
             web_tools,
+            hacks,
         ]
         failed_modules = []
         for module in modules:
