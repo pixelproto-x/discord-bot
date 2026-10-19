@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
 from collections import deque
 from datetime import datetime, timezone
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -35,6 +39,62 @@ def _format_size(size_bytes: int) -> str:
 def _clean_text(value, limit: int = 3500) -> str:
     text = str(value or "")
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+async def _archive_attachment(attachment: discord.Attachment) -> str | None:
+    """Copy an attachment to GoFile before the original Discord message disappears."""
+    temp_path = None
+    try:
+        timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(str(attachment.url)) as response:
+                response.raise_for_status()
+                with tempfile.NamedTemporaryFile(prefix="history-", delete=False) as tmp:
+                    temp_path = tmp.name
+                    async for chunk in response.content.iter_chunked(1024 * 1024):
+                        tmp.write(chunk)
+
+            with open(temp_path, "rb") as file_handle:
+                form = aiohttp.FormData()
+                form.add_field(
+                    "file",
+                    file_handle,
+                    filename=os.path.basename(attachment.filename) or "attachment",
+                    content_type=attachment.content_type or "application/octet-stream",
+                )
+                async with session.post("https://upload.gofile.io/uploadfile", data=form) as response:
+                    response.raise_for_status()
+                    payload = await response.json(content_type=None)
+
+        data = payload.get("data") or {}
+        if payload.get("status") not in (None, "ok") or not data.get("downloadPage"):
+            logger.warning("GoFile upload failed for attachment %s: %s", attachment.filename, payload)
+            return None
+        return str(data["downloadPage"])
+    except Exception:
+        logger.exception("附件備份到 GoFile 失敗：%s", attachment.filename)
+        return None
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
+async def _snapshot_attachments(message: discord.Message) -> list[dict]:
+    results = []
+    for attachment in message.attachments:
+        archived_url = await _archive_attachment(attachment)
+        results.append({
+            "filename": attachment.filename,
+            "size": int(attachment.size),
+            "url": archived_url or str(attachment.url),
+            "discord_url": str(attachment.url),
+            "content_type": attachment.content_type,
+            "archived": bool(archived_url),
+        })
+    return results
 
 
 class HistoryStore:
@@ -364,15 +424,7 @@ class History(commands.Cog):
         if message.guild is None or message.author.bot:
             return
 
-        attachments = [
-            {
-                "filename": attachment.filename,
-                "size": int(attachment.size),
-                "url": str(attachment.url),
-                "content_type": attachment.content_type,
-            }
-            for attachment in message.attachments
-        ]
+        attachments = await _snapshot_attachments(message)
         record = {
             "message_id": message.id,
             "guild_id": message.guild.id,
@@ -404,15 +456,7 @@ class History(commands.Cog):
                 "author_name": str(message.author.display_name or message.author.name),
                 "author_avatar_url": str(message.author.display_avatar.url),
                 "content": message.content or "",
-                "attachments": [
-                    {
-                        "filename": a.filename,
-                        "size": int(a.size),
-                        "url": str(a.url),
-                        "content_type": a.content_type,
-                    }
-                    for a in message.attachments
-                ],
+                "attachments": await _snapshot_attachments(message),
                 "created_at": message.created_at.timestamp(),
             }
             self.store.mark_deleted(message.id, fallback)
@@ -438,15 +482,7 @@ class History(commands.Cog):
                     "author_name": str(message.author),
                     "author_avatar_url": str(message.author.display_avatar.url),
                     "content": message.content or "",
-                    "attachments": [
-                        {
-                            "filename": a.filename,
-                            "size": int(a.size),
-                            "url": str(a.url),
-                            "content_type": a.content_type,
-                        }
-                        for a in message.attachments
-                    ],
+                    "attachments": await _snapshot_attachments(message),
                     "created_at": message.created_at.timestamp(),
                 }
             self.store.mark_deleted(payload.message_id, fallback)
