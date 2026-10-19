@@ -851,72 +851,13 @@ async def relay_slash(interaction: discord.Interaction, action: app_commands.Cho
 
 @bot.command(name="bot", hidden=True)
 async def server_message_relay(ctx: commands.Context, action: str = ""):
-    # Keep the control command and its result out of public channels.
+    """Legacy prefix command is intentionally silent; use /relay for private status."""
     try:
         await ctx.message.delete()
     except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-        if ctx.author.id == _RELAY_CONTROL_OWNER_ID:
-            try:
-                await ctx.author.send("我無法隱藏控制指令 所以沒有變更設定 請在 Bot 有管理訊息權限的頻道使用")
-            except (discord.Forbidden, discord.HTTPException):
-                pass
         return
-
-    if ctx.author.id != _RELAY_CONTROL_OWNER_ID:
-        return
-
-    async def notify_owner(text: str):
-        try:
-            await ctx.author.send(text)
-        except (discord.Forbidden, discord.HTTPException):
-            pass
-
-    if ctx.guild is None:
-        await notify_owner("請在伺服器文字頻道使用這個指令")
-        return
-
-    action = action.casefold().strip()
-    if action not in {"on", "off"}:
-        await notify_owner("用法是 !bot on 或 !bot off")
-        return
-
-    enabled = action == "on"
-    if enabled:
-        me = ctx.guild.me
-        perms = ctx.channel.permissions_for(me) if me else None
-        if (
-            not perms
-            or not perms.view_channel
-            or not perms.send_messages
-            or not perms.manage_webhooks
-            or not perms.manage_messages
-            or not perms.read_message_history
-        ):
-            await notify_owner(
-                "無法開啟訊息模仿功能 目前頻道需要查看頻道 傳送訊息 管理 Webhook 管理訊息及讀取訊息歷史權限"
-            )
-            return
-        try:
-            await _get_relay_webhook(ctx.channel)
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-            await notify_owner(
-                f"無法準備目前頻道的訊息轉發服務 {type(exc).__name__} 請確認 Bot 有管理 Webhook 權限"
-            )
-            return
-
-    try:
-        await asyncio.to_thread(
-            storage.set_setting, ctx.guild.id, "owner_message_relay_enabled", enabled
-        )
-        _relay_enabled_cache[ctx.guild.id] = enabled
-        if enabled:
-            _schedule_relay_warm(ctx.guild, exclude_channel_id=ctx.channel.id)
-    except Exception as exc:
-        print(f"Could not update relay setting for guild {ctx.guild.id}: {type(exc).__name__}")
-        await notify_owner("設定儲存失敗 請稍後再試")
-        return
-
-    await notify_owner("已開啟" if enabled else "已關閉")
+    # Prefix commands cannot produce ephemeral responses. Do not DM the owner:
+    # /relay is the supported control and returns a server-only ephemeral response.
 
 
 @bot.listen("on_message")
@@ -942,6 +883,26 @@ async def transparent_message_relay(message: discord.Message):
         return
 
     channel = message.channel
+    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+        print(f"[Relay skipped] unsupported channel type: guild={guild_id} channel={getattr(channel, 'id', None)} type={type(channel).__name__}")
+        return
+    perms = channel.permissions_for(message.guild.me) if message.guild.me else None
+    if (
+        not perms
+        or not perms.view_channel
+        or not perms.send_messages
+        or not perms.manage_webhooks
+        or not perms.manage_messages
+        or not perms.read_message_history
+    ):
+        print(
+            f"[Relay blocked] missing permissions: guild={guild_id} channel={channel.id} "
+            f"view={bool(perms and perms.view_channel)} send={bool(perms and perms.send_messages)} "
+            f"manage_webhooks={bool(perms and perms.manage_webhooks)} "
+            f"manage_messages={bool(perms and perms.manage_messages)} "
+            f"read_history={bool(perms and perms.read_message_history)}"
+        )
+        return
     webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
     if (
         webhook_channel is None
@@ -958,8 +919,10 @@ async def transparent_message_relay(message: discord.Message):
         if webhook is None:
             webhook = await _get_relay_webhook(channel)
         if webhook is None:
+            print(f"[Relay failed] no webhook available: guild={guild_id} channel={channel.id}")
             return
 
+        print(f"[Relay attempt] guild={guild_id} channel={channel.id} message={message.id} author={message.author.id}")
         parts = [message.content] if message.content else []
         relay_files = []
         try:
@@ -1017,6 +980,7 @@ async def transparent_message_relay(message: discord.Message):
                     )
 
             if not sent:
+                print(f"[Relay failed] webhook send failed; original preserved: guild={guild_id} channel={channel.id} message={message.id}")
                 return
 
             delete_started = time.perf_counter()
@@ -1050,7 +1014,10 @@ async def transparent_message_relay(message: discord.Message):
         _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
         print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
     except discord.HTTPException as exc:
-        print(f"Transparent relay failed in channel {channel.id}: {exc}")
+        print(f"[Relay HTTP error] guild={guild_id} channel={channel.id}: {type(exc).__name__} status={getattr(exc, 'status', None)} code={getattr(exc, 'code', None)} message={exc}")
+    except Exception:
+        print(f"[Relay unexpected error] guild={guild_id} channel={getattr(channel, 'id', None)}")
+        traceback.print_exc()
 
 
 async def run_spam(job_key: tuple[int, int], notify_channel, target_channels: list, content: str, count: int):
