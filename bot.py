@@ -989,13 +989,11 @@ async def transparent_message_relay(message: discord.Message):
                 except (discord.Forbidden, discord.NotFound, discord.HTTPException) as reply_exc:
                     print(
                         f"[Relay reply failed] guild={guild_id} channel={channel.id} "
-                        f"target={relayed_target_id}: {type(reply_exc).__name__}; falling back to webhook"
+                        f"target={relayed_target_id}: {type(reply_exc).__name__}; original message kept"
                     )
-                    for relay_file in relay_files:
-                        try:
-                            relay_file.fp.seek(0)
-                        except (AttributeError, OSError):
-                            pass
+                    # Never fall back to a non-reply webhook post: that would silently
+                    # lose the user's intended reply target and then delete their source.
+                    return
 
             if not sent:
                 try:
