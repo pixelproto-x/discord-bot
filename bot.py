@@ -57,6 +57,10 @@ ALLOWED_GUILD_IDS = parse_guild_ids(os.getenv('GUILD_IDS', ''))
 
 active_spam: dict[tuple[int, int], dict] = {}
 
+# Map deleted source messages to their visible relay copies so replies can target the copy.
+_relay_message_map: dict[int, int] = {}
+_RELAY_MESSAGE_MAP_LIMIT = 5000
+
 
 class ChannelSelectView(discord.ui.View):
     def __init__(self):
@@ -952,35 +956,68 @@ async def transparent_message_relay(message: discord.Message):
                 "wait": True,
             }
             sent = False
-            try:
-                await webhook.send(**send_kwargs)
-                sent = True
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException) as first_exc:
-                _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
-                print(
-                    f"Webhook relay attempt failed in channel {channel.id}: "
-                    f"{type(first_exc).__name__}; refreshing webhook and retrying"
-                )
+            sent_message = None
+            referenced_id = getattr(message.reference, "message_id", None) if message.reference else None
+            relayed_target_id = _relay_message_map.get(referenced_id) if referenced_id else None
+
+            # Discord webhooks cannot create native replies. If this message replies to
+            # another relayed message, use a bot-authored native reply to the visible copy.
+            if relayed_target_id:
                 try:
-                    webhook = await _get_relay_webhook(channel)
-                    if webhook is not None:
-                        for relay_file in relay_files:
-                            try:
-                                relay_file.fp.seek(0)
-                            except (AttributeError, OSError):
-                                pass
-                        await webhook.send(**send_kwargs)
-                        sent = True
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as retry_exc:
+                    reply_content = f"**{message.author.display_name}**\n{payload}" if payload else f"**{message.author.display_name}**"
+                    sent_message = await channel.send(
+                        content=reply_content,
+                        files=relay_files,
+                        reference=discord.MessageReference(
+                            message_id=relayed_target_id,
+                            channel_id=channel.id,
+                            guild_id=guild_id,
+                        ),
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    sent = True
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as reply_exc:
+                    print(
+                        f"[Relay reply failed] guild={guild_id} channel={channel.id} "
+                        f"target={relayed_target_id}: {type(reply_exc).__name__}; falling back to webhook"
+                    )
+
+            if not sent:
+                try:
+                    sent_message = await webhook.send(**send_kwargs)
+                    sent = True
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException) as first_exc:
                     _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
                     print(
-                        f"Webhook relay retry failed in channel {channel.id}: "
-                        f"{type(retry_exc).__name__}; original message kept"
+                        f"Webhook relay attempt failed in channel {channel.id}: "
+                        f"{type(first_exc).__name__}; refreshing webhook and retrying"
                     )
+                    try:
+                        webhook = await _get_relay_webhook(channel)
+                        if webhook is not None:
+                            for relay_file in relay_files:
+                                try:
+                                    relay_file.fp.seek(0)
+                                except (AttributeError, OSError):
+                                    pass
+                            sent_message = await webhook.send(**send_kwargs)
+                            sent = True
+                    except (discord.Forbidden, discord.NotFound, discord.HTTPException) as retry_exc:
+                        _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
+                        print(
+                            f"Webhook relay retry failed in channel {channel.id}: "
+                            f"{type(retry_exc).__name__}; original message kept"
+                        )
 
             if not sent:
                 print(f"[Relay failed] webhook send failed; original preserved: guild={guild_id} channel={channel.id} message={message.id}")
                 return
+
+            if sent_message is not None:
+                _relay_message_map[message.id] = sent_message.id
+                while len(_relay_message_map) > _RELAY_MESSAGE_MAP_LIMIT:
+                    _relay_message_map.pop(next(iter(_relay_message_map)))
 
             delete_started = time.perf_counter()
             suppressed_ids = getattr(bot, "_relay_suppressed_delete_log_ids", None)
