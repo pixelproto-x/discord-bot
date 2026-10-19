@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import re
 import secrets
@@ -125,9 +126,15 @@ class Hacks(commands.Cog):
             await interaction.followup.send("這個指令只能在伺服器內使用。", ephemeral=True)
             return
         try:
+            icon_base64 = None
+            if guild.icon is not None:
+                icon_bytes = await guild.icon.read()
+                icon_base64 = base64.b64encode(icon_bytes).decode("ascii")
+
             payload = {
                 "schema_version": 2,
                 "server_name": guild.name,
+                "icon_base64": icon_base64,
                 "created_at": discord.utils.utcnow().isoformat(),
                 "roles": [
                     self._serialize_role(role)
@@ -150,7 +157,7 @@ class Hacks(commands.Cog):
                 f"{guild.name}：（{key}）",
                 ephemeral=True,
             )
-        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, TypeError, ValueError, json.JSONDecodeError, discord.HTTPException) as exc:
             await interaction.followup.send(f"備份失敗：{exc}", ephemeral=True)
 
     @app_commands.command(name="apply", description="清空目前伺服器頻道及可管理身分組，再套用指定備份")
@@ -181,11 +188,21 @@ class Hacks(commands.Cog):
                 await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
                 return
 
-            # Rename first, but never let a missing Manage Server permission block the restore.
+            # Rename and restore the icon before cleaning up; failures must not stop the restore.
             server_name = payload.get("server_name")
+            edit_kwargs = {"reason": f"Apply server backup key {backup_key}"}
             if server_name:
+                edit_kwargs["name"] = str(server_name)[:100]
+            if "icon_base64" in payload:
                 try:
-                    await guild.edit(name=str(server_name)[:100], reason=f"Apply server backup key {backup_key}")
+                    icon_data = payload.get("icon_base64")
+                    icon_bytes = base64.b64decode(icon_data, validate=True) if icon_data else None
+                    edit_kwargs["icon"] = icon_bytes
+                except (ValueError, TypeError):
+                    pass
+            if "name" in edit_kwargs or "icon" in edit_kwargs:
+                try:
+                    await guild.edit(**edit_kwargs)
                 except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
                     pass
 
