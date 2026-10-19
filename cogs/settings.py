@@ -599,12 +599,240 @@ class SettingsCog(commands.Cog):
 
 
 class MemberEventsCog(commands.Cog):
+    MESSAGE_SNAPSHOT_RETENTION_DAYS = 30
+
     def __init__(self, bot):
         self.bot = bot
 
+    @staticmethod
+    def _attachment_data(attachments):
+        result = []
+        for attachment in attachments or []:
+            if isinstance(attachment, dict):
+                item = attachment
+            else:
+                item = {
+                    "id": getattr(attachment, "id", None),
+                    "filename": getattr(attachment, "filename", "attachment"),
+                    "size": getattr(attachment, "size", 0),
+                    "url": getattr(attachment, "url", ""),
+                    "content_type": getattr(attachment, "content_type", None),
+                }
+            result.append({
+                "id": item.get("id"),
+                "filename": str(item.get("filename") or "attachment")[:255],
+                "size": max(0, int(item.get("size") or 0)),
+                "url": str(item.get("url") or item.get("proxy_url") or "")[:2000],
+                "content_type": item.get("content_type"),
+            })
+        return result
+
+    @staticmethod
+    def _format_size(size):
+        size = max(0, int(size or 0))
+        if size >= 1024 ** 3:
+            return f"{size / (1024 ** 3):.2f} GB"
+        if size >= 1024 ** 2:
+            return f"{size / (1024 ** 2):.2f} MB"
+        if size >= 1024:
+            return f"{size / 1024:.2f} KB"
+        return f"{size} B"
+
+    @staticmethod
+    def _format_timestamp(timestamp):
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+        return f"{discord.utils.format_dt(dt, style='F')}（{discord.utils.format_dt(dt, style='R')}）"
+
+    async def _send_delete_log(self, guild_id, payload, snapshot=None, cached_message=None):
+        log_channel_id = storage.get_setting(guild_id, "message_log_channel_id")
+        if not log_channel_id or int(log_channel_id) == payload.channel_id:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return
+        channel = guild.get_channel(int(log_channel_id))
+        if not isinstance(channel, discord.TextChannel):
+            try:
+                fetched = await self.bot.fetch_channel(int(log_channel_id))
+                channel = fetched if isinstance(fetched, discord.TextChannel) and fetched.guild.id == guild_id else None
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                channel = None
+        if channel is None:
+            return
+
+        if snapshot is not None:
+            author_id = int(snapshot["author_id"])
+            author_name = snapshot["author_display_name"] or snapshot["author_name"]
+            avatar_url = snapshot["author_avatar_url"]
+            content = snapshot["content"] or ""
+            attachments = self._attachment_data(json.loads(snapshot["attachments_json"] or "[]"))
+            created_at = float(snapshot["created_at"])
+        elif cached_message is not None:
+            author_id = cached_message.author.id
+            author_name = getattr(cached_message.author, "display_name", str(cached_message.author))
+            avatar_url = str(cached_message.author.display_avatar.url)
+            content = cached_message.content or ""
+            attachments = self._attachment_data(cached_message.attachments)
+            created_at = cached_message.created_at.timestamp()
+        else:
+            author_id = None
+            author_name = "無法取得作者資料"
+            avatar_url = None
+            content = ""
+            attachments = []
+            created_at = None
+
+        if self.bot.user and author_id == self.bot.user.id:
+            return
+
+        embed = discord.Embed(
+            color=discord.Color.red(),
+            description=None,
+        )
+        embed.title = "🗑️ 訊息已刪除"
+        if avatar_url:
+            embed.set_author(name=str(author_name)[:256], icon_url=avatar_url)
+        else:
+            embed.set_author(name=str(author_name)[:256])
+
+        embed.add_field(
+            name="訊息內容",
+            value=(content[:1024] if content else "（沒有文字內容）"),
+            inline=False,
+        )
+
+        if attachments:
+            attachment_lines = []
+            for item in attachments[:10]:
+                filename = discord.utils.escape_markdown(str(item.get("filename") or "附件"))[:180]
+                size_text = self._format_size(item.get("size", 0))
+                url = str(item.get("url") or "")
+                link = f" [🔗 下載]({url})" if url.startswith(("https://", "http://")) else ""
+                attachment_lines.append(f"📦 **{filename}**（{size_text}）{link}")
+            if len(attachments) > 10:
+                attachment_lines.append(f"…另有 {len(attachments) - 10} 個附件")
+            embed.add_field(name="附件", value="\n".join(attachment_lines)[:1024], inline=False)
+        else:
+            embed.add_field(name="附件", value="無", inline=False)
+
+        if created_at is not None:
+            embed.add_field(name="傳送時間", value=self._format_timestamp(created_at), inline=False)
+        else:
+            embed.add_field(name="傳送時間", value="無法取得（訊息未曾被 Bot 保存）", inline=False)
+        embed.add_field(name="刪除時間", value=self._format_timestamp(discord.utils.utcnow().timestamp()), inline=False)
+        embed.set_footer(text=f"頻道 ID：{payload.channel_id} ・ 訊息 ID：{payload.message_id}")
+
+        try:
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"Message deletion log delivery failed in guild {guild_id}, channel {log_channel_id}: {exc!r}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if not message.guild or message.author.bot:
+            return
+        log_channel_id = storage.get_setting(message.guild.id, "message_log_channel_id")
+        if not log_channel_id or int(log_channel_id) == message.channel.id:
+            return
+        try:
+            storage.save_message_snapshot(
+                message_id=message.id,
+                guild_id=message.guild.id,
+                channel_id=message.channel.id,
+                author_id=message.author.id,
+                author_name=str(message.author),
+                author_display_name=getattr(message.author, "display_name", str(message.author)),
+                author_avatar_url=str(message.author.display_avatar.url),
+                content=message.content or "",
+                attachments=self._attachment_data(message.attachments),
+                created_at=message.created_at.timestamp(),
+            )
+        except Exception as exc:
+            print(f"Message snapshot save failed for {message.id}: {exc!r}")
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload):
+        if payload.guild_id is None:
+            return
+        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
+        if log_channel_id and int(log_channel_id) == payload.channel_id:
+            return
+        cached_message = payload.cached_message
+        if cached_message is not None and cached_message.author.bot:
+            storage.delete_message_snapshot(payload.message_id)
+            return
+        snapshot = storage.get_message_snapshot(payload.message_id)
+        try:
+            await self._send_delete_log(payload.guild_id, payload, snapshot, cached_message)
+        finally:
+            storage.delete_message_snapshot(payload.message_id)
+
+    @commands.Cog.listener()
+    async def on_raw_message_edit(self, payload):
+        if payload.guild_id is None:
+            return
+        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
+        if log_channel_id and int(log_channel_id) == payload.channel_id:
+            return
+        data = payload.data or {}
+        if "content" not in data and "attachments" not in data:
+            return
+
+        cached_message = payload.cached_message
+        if cached_message is not None and cached_message.author.bot:
+            return
+
+        snapshot = storage.get_message_snapshot(payload.message_id)
+        old_content = snapshot["content"] if snapshot is not None else (
+            cached_message.content if cached_message is not None else None
+        )
+        new_content = data.get("content", old_content or "") or ""
+        attachment_data = self._attachment_data(data.get("attachments")) if "attachments" in data else None
+
+        if snapshot is not None:
+            storage.update_message_snapshot_content(payload.message_id, new_content, attachment_data)
+        elif cached_message is not None:
+            storage.save_message_snapshot(
+                message_id=cached_message.id,
+                guild_id=cached_message.guild.id,
+                channel_id=cached_message.channel.id,
+                author_id=cached_message.author.id,
+                author_name=str(cached_message.author),
+                author_display_name=getattr(cached_message.author, "display_name", str(cached_message.author)),
+                author_avatar_url=str(cached_message.author.display_avatar.url),
+                content=new_content,
+                attachments=attachment_data if attachment_data is not None else self._attachment_data(cached_message.attachments),
+                created_at=cached_message.created_at.timestamp(),
+            )
+
+        if old_content is not None and old_content == new_content and attachment_data is None:
+            return
+        author = (
+            f"{getattr(cached_message.author, 'display_name', str(cached_message.author))}（ID：{cached_message.author.id}）"
+            if cached_message is not None else
+            (f"{snapshot['author_display_name']}（ID：{snapshot['author_id']}）" if snapshot is not None else "無法取得作者資料")
+        )
+        description = (
+            f"修改前：\n{old_content or '（沒有文字內容）'}\n\n"
+            f"修改後：\n{new_content or '（沒有文字內容）'}"
+            if old_content is not None else
+            f"修改後：\n{new_content or '（沒有文字內容）'}\n\n修改前：Bot 尚未保存原文。"
+        )
+        await self._send_message_log(
+            payload.guild_id,
+            title="✏️ 訊息已編輯",
+            description=description,
+            color=discord.Color.orange(),
+            author=author,
+            channel_id=payload.channel_id,
+            message_id=payload.message_id,
+        )
+
     async def _send_message_log(self, guild_id, *, title, description, color, author=None, channel_id=None, message_id=None):
         log_channel_id = storage.get_setting(guild_id, "message_log_channel_id")
-        if not log_channel_id:
+        if not log_channel_id or (channel_id and int(log_channel_id) == int(channel_id)):
             return
         guild = self.bot.get_guild(guild_id)
         if guild is None:
@@ -629,65 +857,6 @@ class MemberEventsCog(commands.Cog):
             await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"Message log delivery failed in guild {guild_id}, channel {log_channel_id}: {exc!r}")
-
-    @commands.Cog.listener()
-    async def on_raw_message_delete(self, payload):
-        if payload.guild_id is None:
-            return
-        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
-        if log_channel_id and int(log_channel_id) == payload.channel_id:
-            return
-        message = payload.cached_message
-        if message is not None and self.bot.user and message.author.id == self.bot.user.id:
-            return
-        if message is None:
-            description = "訊息已刪除，但 Bot 當時沒有快取原文，因此無法記錄文字內容。"
-            author = None
-        else:
-            content = message.content or "（沒有文字內容，可能是附件／嵌入內容）"
-            description = content
-            author = f"{message.author}（ID：{message.author.id}）"
-        await self._send_message_log(
-            payload.guild_id,
-            title="🗑️ 訊息已刪除",
-            description=description,
-            color=discord.Color.red(),
-            author=author,
-            channel_id=payload.channel_id,
-            message_id=payload.message_id,
-        )
-
-    @commands.Cog.listener()
-    async def on_raw_message_edit(self, payload):
-        if payload.guild_id is None:
-            return
-        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
-        if log_channel_id and int(log_channel_id) == payload.channel_id:
-            return
-        data = payload.data or {}
-        if "content" not in data:
-            return
-        message = payload.cached_message
-        if message is not None and self.bot.user and message.author.id == self.bot.user.id:
-            return
-        old_content = message.content if message is not None else None
-        new_content = data.get("content") or "（沒有文字內容）"
-        if old_content is None:
-            description = f"修改後：\n{new_content}\n\n修改前：Bot 沒有快取到原文，無法還原。"
-        elif old_content == new_content:
-            return
-        else:
-            description = f"修改前：\n{old_content or '（沒有文字內容）'}\n\n修改後：\n{new_content}"
-        author = f"{message.author}（ID：{message.author.id}）" if message is not None else None
-        await self._send_message_log(
-            payload.guild_id,
-            title="✏️ 訊息已編輯",
-            description=description,
-            color=discord.Color.orange(),
-            author=author,
-            channel_id=payload.channel_id,
-            message_id=payload.message_id,
-        )
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
