@@ -67,7 +67,7 @@ def _choose_server_sticker(guild: discord.Guild, *texts: str):
     context = " ".join(str(part or "") for part in texts).lower()
     # Chinese bigrams help match sticker names such as 笑死、傻眼、哭了.
     terms = set(re.findall(r"[a-z0-9]{3,}", context))
-    for chunk in re.findall(r"[\\u3400-\\u9fff]+", context):
+    for chunk in re.findall(r"[\u3400-\u9fff]+", context):
         terms.update(chunk[index:index + 2] for index in range(max(0, len(chunk) - 1)))
 
     ranked = []
