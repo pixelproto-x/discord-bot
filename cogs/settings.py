@@ -634,7 +634,12 @@ class MemberEventsCog(commands.Cog):
     async def on_raw_message_delete(self, payload):
         if payload.guild_id is None:
             return
+        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
+        if log_channel_id and int(log_channel_id) == payload.channel_id:
+            return
         message = payload.cached_message
+        if message is not None and self.bot.user and message.author.id == self.bot.user.id:
+            return
         if message is None:
             description = "訊息已刪除，但 Bot 當時沒有快取原文，因此無法記錄文字內容。"
             author = None
@@ -656,10 +661,15 @@ class MemberEventsCog(commands.Cog):
     async def on_raw_message_edit(self, payload):
         if payload.guild_id is None:
             return
+        log_channel_id = storage.get_setting(payload.guild_id, "message_log_channel_id")
+        if log_channel_id and int(log_channel_id) == payload.channel_id:
+            return
         data = payload.data or {}
         if "content" not in data:
             return
         message = payload.cached_message
+        if message is not None and self.bot.user and message.author.id == self.bot.user.id:
+            return
         old_content = message.content if message is not None else None
         new_content = data.get("content") or "（沒有文字內容）"
         if old_content is None:
