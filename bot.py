@@ -784,6 +784,71 @@ def _schedule_relay_warm(guild: discord.Guild, exclude_channel_id: int | None = 
     )
 
 
+@bot.tree.command(name="relay", description="開啟或關閉伺服器訊息模仿功能")
+@app_commands.describe(action="選擇開啟或關閉")
+@app_commands.choices(action=[
+    app_commands.Choice(name="開啟", value="on"),
+    app_commands.Choice(name="關閉", value="off"),
+])
+async def relay_slash(interaction: discord.Interaction, action: app_commands.Choice[str]):
+    # Slash-command responses are ephemeral: visible only to the person who ran it,
+    # while the actual relayed messages remain in their original server channels.
+    if interaction.user.id != _RELAY_CONTROL_OWNER_ID:
+        await interaction.response.send_message("你沒有權限控制這項功能。", ephemeral=True)
+        return
+    if interaction.guild is None or not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+        await interaction.response.send_message("請在伺服器文字頻道使用這個指令。", ephemeral=True)
+        return
+
+    enabled = action.value == "on"
+    if enabled:
+        me = interaction.guild.me
+        perms = interaction.channel.permissions_for(me) if me else None
+        if (
+            not perms
+            or not perms.view_channel
+            or not perms.send_messages
+            or not perms.manage_webhooks
+            or not perms.manage_messages
+            or not perms.read_message_history
+        ):
+            await interaction.response.send_message(
+                "無法開啟：目前頻道需要查看頻道、傳送訊息、管理 Webhook、管理訊息及讀取訊息歷史權限。",
+                ephemeral=True,
+            )
+            return
+        try:
+            webhook = await _get_relay_webhook(interaction.channel)
+            if webhook is None:
+                await interaction.response.send_message("無法建立轉發 Webhook，請確認頻道類型及 Bot 權限。", ephemeral=True)
+                return
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
+            print(f"[Relay control] webhook setup failed in channel {interaction.channel.id}: {type(exc).__name__}: {exc}")
+            await interaction.response.send_message(
+                f"無法準備轉發服務（{type(exc).__name__}），請確認 Bot 有管理 Webhook 權限。",
+                ephemeral=True,
+            )
+            return
+
+    try:
+        await asyncio.to_thread(
+            storage.set_setting, interaction.guild.id, "owner_message_relay_enabled", enabled
+        )
+        _relay_enabled_cache[interaction.guild.id] = enabled
+        if enabled:
+            _schedule_relay_warm(interaction.guild, exclude_channel_id=interaction.channel.id)
+    except Exception as exc:
+        print(f"[Relay control] setting save failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}")
+        await interaction.response.send_message("設定儲存失敗，請查看 Bot 控制台錯誤紀錄。", ephemeral=True)
+        return
+
+    await interaction.response.send_message(
+        "已在此伺服器開啟訊息模仿功能。轉發訊息會留在各自原本的頻道。" if enabled
+        else "已在此伺服器關閉訊息模仿功能。",
+        ephemeral=True,
+    )
+
+
 @bot.command(name="bot", hidden=True)
 async def server_message_relay(ctx: commands.Context, action: str = ""):
     # Keep the control command and its result out of public channels.
