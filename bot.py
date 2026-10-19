@@ -931,7 +931,7 @@ async def transparent_message_relay(message: discord.Message):
                     wait=False,
                 )
             except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
-                _relay_webhooks.pop(channel.id, None)
+                _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
                 print(
                     f"Webhook relay failed after original was deleted in channel {channel.id}: "
                     f"{type(exc).__name__}: {exc}. Trying a plain-message fallback."
@@ -954,7 +954,7 @@ async def transparent_message_relay(message: discord.Message):
                 except Exception:
                     pass
     except (discord.Forbidden, discord.NotFound) as exc:
-        _relay_webhooks.pop(channel.id, None)
+        _relay_webhooks.pop(webhook_channel.id if webhook_channel else channel.id, None)
         print(f"Transparent relay unavailable in channel {channel.id}: {exc}")
     except discord.HTTPException as exc:
         print(f"Transparent relay failed in channel {channel.id}: {exc}")
