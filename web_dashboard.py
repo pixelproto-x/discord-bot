@@ -434,24 +434,55 @@ async def start_dashboard(bot):
             message_id = int(data.get("message_id", ""))
         except (ValueError, TypeError):
             return _json_error("訊息 ID 或請求格式錯誤。")
+        if message_id <= 0:
+            return _json_error("請輸入有效的 Discord 訊息 ID。")
         if not channel:
             return _json_error("找不到可用的文字頻道。", 404)
+
+        target = None
+        search_channels = [channel]
+        seen = {channel.id}
+        # A copied Discord message ID is globally unique; the selected channel
+        # may not be the message's actual channel. Search every readable channel.
+        for guild in bot.guilds:
+            search_channels.extend(guild.text_channels)
+            search_channels.extend(guild.threads)
+
+        for candidate in search_channels:
+            if candidate.id in seen:
+                continue
+            seen.add(candidate.id)
+            me = candidate.guild.me
+            perms = candidate.permissions_for(me) if me else None
+            if not perms or not perms.view_channel or not perms.read_message_history:
+                continue
+            try:
+                target = await candidate.fetch_message(message_id)
+                channel = candidate
+                break
+            except (discord.NotFound, discord.Forbidden):
+                continue
+            except discord.HTTPException:
+                continue
+
+        if target is None:
+            return _json_error(
+                "找不到這則訊息。請確認訊息 ID 正確、訊息仍存在，而且 Bot 有權查看該頻道及讀取訊息歷史。",
+                404,
+            )
+
         me = channel.guild.me
         perms = channel.permissions_for(me) if me else None
-        if not perms or not perms.view_channel or not perms.read_message_history or not perms.manage_messages:
-            return _json_error("Bot 缺少查看訊息、讀取歷史或管理訊息權限。", 403)
-        try:
-            target = await channel.fetch_message(message_id)
-        except discord.NotFound:
-            return _json_error("找不到這個頻道中的訊息，請確認訊息 ID 與選定頻道。", 404)
-        except discord.Forbidden:
-            return _json_error("Bot 沒有讀取這則訊息的權限。", 403)
-        except discord.HTTPException:
-            return _json_error("Discord 讀取訊息失敗，請稍後再試。", 502)
+        is_own_message = bool(bot.user and target.author.id == bot.user.id)
+        if not perms or not perms.view_channel or not perms.read_message_history:
+            return _json_error("Bot 缺少查看訊息或讀取歷史的權限。", 403)
+        if not is_own_message and not perms.manage_messages:
+            return _json_error("刪除其他成員的訊息需要 Bot 的「管理訊息」權限。", 403)
+
         try:
             await target.delete()
         except discord.Forbidden:
-            return _json_error("Discord 拒絕刪除。請確認 Bot 的管理訊息權限及頻道權限。", 403)
+            return _json_error("Discord 拒絕刪除。請確認 Bot 的頻道權限。", 403)
         except discord.HTTPException:
             return _json_error("Discord 刪除訊息失敗，請稍後再試。", 502)
         return web.json_response({"message": "已刪除 #" + channel.name + " 中的指定訊息。"})
