@@ -1127,7 +1127,7 @@ class SearchCog(commands.Cog):
         except Exception as exc:
             self._log_ai_error("Discord casual chat", exc)
 
-    @search.command(name=app_commands.locale_str("youtube", zh_TW="YouTube搜尋"), description=app_commands.locale_str("搜尋 YouTube 並列出幾個結果", zh_TW="搜尋 YouTube 並列出幾個結果"))
+    @search.command(name=app_commands.locale_str("youtube", zh_TW="影片搜尋"), description=app_commands.locale_str("搜尋 YouTube 並列出幾個結果", zh_TW="搜尋 YouTube 並列出幾個結果"))
     @app_commands.describe(query="關鍵字")
     async def youtube(self, interaction, query: str):
         query = query.strip()
@@ -1208,7 +1208,7 @@ class SearchCog(commands.Cog):
             print(f"Wikipedia search error: {exc}")
             await interaction.followup.send("Wikipedia 現在沒回應。")
 
-    @search.command(name=app_commands.locale_str("github", zh_TW="GitHub搜尋"), description=app_commands.locale_str("搜尋 GitHub 公開專案", zh_TW="搜尋 GitHub 公開專案"))
+    @search.command(name=app_commands.locale_str("github", zh_TW="專案搜尋"), description=app_commands.locale_str("搜尋 GitHub 公開專案", zh_TW="搜尋 GitHub 公開專案"))
     @app_commands.describe(query="關鍵字")
     async def github(self, interaction, query: str):
         query = query.strip()
@@ -1594,7 +1594,7 @@ class SearchCog(commands.Cog):
 
 
 
-    @ai.command(name=app_commands.locale_str("ask", zh_TW="詢問AI"), description=app_commands.locale_str("使用 FreeMind AI 優先回答問題、協助解題與除錯", zh_TW="使用 FreeMind AI 優先回答問題、協助解題與除錯"))
+    @ai.command(name=app_commands.locale_str("ask", zh_TW="詢問"), description=app_commands.locale_str("使用 FreeMind AI 優先回答問題、協助解題與除錯", zh_TW="使用 FreeMind AI 優先回答問題、協助解題與除錯"))
     @app_commands.describe(question="想詢問或需要協助解決的問題")
     async def ai_ask(self, interaction: discord.Interaction, question: str):
         question = question.strip()
@@ -1650,7 +1650,7 @@ class SearchCog(commands.Cog):
                 "AI 回覆失敗。請稍後再試；若持續發生，請檢查 Bot 終端機中的 AI 錯誤紀錄。"
             )
 
-    @ai.command(name=app_commands.locale_str("freemind-test", zh_TW="測試AI服務"), description=app_commands.locale_str("實際測試 Discord Bot 是否連得上 FreeMind AI", zh_TW="實際測試 Discord Bot 是否連得上 FreeMind AI"))
+    @ai.command(name=app_commands.locale_str("freemind-test", zh_TW="測試智慧服務"), description=app_commands.locale_str("實際測試 Discord Bot 是否連得上 FreeMind AI", zh_TW="實際測試 Discord Bot 是否連得上 FreeMind AI"))
     async def ai_freemind_test(self, interaction: discord.Interaction):
         if not self.freemind_base_url:
             await interaction.response.send_message(
@@ -1676,7 +1676,7 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
 
-    @ai.command(name=app_commands.locale_str("groq-test", zh_TW="測試Groq"), description=app_commands.locale_str("實際測試 Groq API 與模型是否可用", zh_TW="實際測試 Groq API 與模型是否可用"))
+    @ai.command(name=app_commands.locale_str("groq-test", zh_TW="測試模型"), description=app_commands.locale_str("實際測試 Groq API 與模型是否可用", zh_TW="實際測試 Groq API 與模型是否可用"))
     async def ai_groq_test(self, interaction: discord.Interaction):
         if not self.groq_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
