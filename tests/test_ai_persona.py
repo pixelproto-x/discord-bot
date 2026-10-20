@@ -15,15 +15,24 @@ class ChatPersonaTests(unittest.TestCase):
         self.assertIn("不得因模型切換", CHAT_PERSONA_CONTRACT)
         self.assertIn("台灣繁體中文口語", CHAT_PERSONA_CONTRACT)
 
-    def test_removes_unicode_emoji_and_preserves_discord_custom_emoji(self):
+    def test_keeps_unicode_emoji_and_removes_large_custom_emoji_tokens(self):
         self.assertEqual(
-            normalize_chat_reply("LogRelay：欸這真的很扯 😂"),
+            normalize_chat_reply("一條魚：欸這真的很扯 😂😭💀"),
+            "欸這真的很扯 😂😭💀",
+        )
+        self.assertEqual(
+            normalize_chat_reply("一條魚：欸這真的很扯 <:fish:123456789012345678>"),
             "欸這真的很扯",
         )
         self.assertEqual(
-            normalize_chat_reply("LogRelay：欸這真的很扯 <:fish:123456789012345678>"),
-            "欸這真的很扯 <:fish:123456789012345678>",
+            normalize_chat_reply("一條魚：<a:fishdance:123456789012345678> 笑死 😂"),
+            "笑死 😂",
         )
+
+    def test_persona_forbids_discord_stickers_and_prefers_inline_unicode_emoji(self):
+        self.assertIn("Unicode emoji", CHAT_PERSONA_CONTRACT)
+        self.assertIn("不准送出 Discord 貼圖", CHAT_PERSONA_CONTRACT)
+        self.assertIn("不准使用 Discord 自訂表情代碼", CHAT_PERSONA_CONTRACT)
 
     def test_truncates_fabricated_multi_speaker_dialogue(self):
         self.assertEqual(
