@@ -210,14 +210,14 @@ class AutoReplyCog(commands.Cog):
     def admin(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_guild)
 
-    @autoreply.command(name="add", description="用表單新增一組觸發文字與回覆")
+    @autoreply.command(name="新增", description="用表單新增一組觸發文字與回覆")
     async def add(self, interaction: discord.Interaction):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有有管理伺服器權限的人可以改。", ephemeral=True)
             return
         await interaction.response.send_modal(AutoReplyAddModal())
 
-    @autoreply.command(name="remove", description="刪掉一組自動回覆")
+    @autoreply.command(name="移除", description="刪掉一組自動回覆")
     @app_commands.describe(rule_id="自動回覆編號")
     async def remove(self, interaction: discord.Interaction, rule_id: int):
         if not self.admin(interaction):
@@ -226,7 +226,7 @@ class AutoReplyCog(commands.Cog):
         ok = storage.delete_autoreply(interaction.guild.id, rule_id)
         await interaction.response.send_message("刪掉了。" if ok else "找不到這個編號。", ephemeral=True)
 
-    @autoreply.command(name="list", description="看看目前設定了哪些自動回覆")
+    @autoreply.command(name="列表", description="看看目前設定了哪些自動回覆")
     async def list_rules(self, interaction: discord.Interaction):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有管理人員可以看。", ephemeral=True)
@@ -242,7 +242,7 @@ class AutoReplyCog(commands.Cog):
             lines.append(f"{r['id']}｜{r['trigger']} → {r['response'][:60]}｜{channel}｜{state}")
         await interaction.response.send_message("\n".join(lines[:12]), ephemeral=True)
 
-    @autoreply.command(name="edit", description="修改既有自動回覆")
+    @autoreply.command(name="編輯", description="修改既有自動回覆")
     @app_commands.describe(rule_id="編號", trigger="新的觸發文字", response="新的回覆", exact="新的匹配方式")
     async def edit(self, interaction: discord.Interaction, rule_id: int, trigger: str | None = None, response: str | None = None, exact: bool | None = None):
         if not self.admin(interaction):
@@ -263,7 +263,7 @@ class AutoReplyCog(commands.Cog):
         await interaction.response.send_message("改好了。" if ok else "找不到這個編號。", ephemeral=True)
 
 
-    @autoreply.command(name="on", description="重新開啟一組已經關掉的自動回覆")
+    @autoreply.command(name="開啟", description="重新開啟一組已經關掉的自動回覆")
     @app_commands.describe(rule_id="自動回覆編號")
     async def enable(self, interaction: discord.Interaction, rule_id: int):
         if not self.admin(interaction):
@@ -272,7 +272,7 @@ class AutoReplyCog(commands.Cog):
         ok = storage.update_autoreply(interaction.guild.id, rule_id, enabled=1)
         await interaction.response.send_message("開回來了。" if ok else "找不到這個編號。", ephemeral=True)
 
-    @autoreply.command(name="off", description="暫時關掉一組自動回覆，不用刪除")
+    @autoreply.command(name="關閉", description="暫時關掉一組自動回覆，不用刪除")
     @app_commands.describe(rule_id="自動回覆編號")
     async def disable(self, interaction: discord.Interaction, rule_id: int):
         if not self.admin(interaction):
@@ -333,7 +333,7 @@ class RolePanelCog(commands.Cog):
     def admin(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild and isinstance(interaction.user, discord.Member) and interaction.user.guild_permissions.manage_roles)
 
-    @rolepanel.command(name="create", description="建立一個身分組領取面板")
+    @rolepanel.command(name="建立", description="建立一個身分組領取面板")
     @app_commands.describe(title="面板標題", description="面板說明", mode="按鈕或下拉選單", roles="身分組 ID 或 @身分組，用逗號分隔")
     @app_commands.choices(mode=[
         app_commands.Choice(name="按鈕", value="buttons"),
@@ -387,7 +387,7 @@ class RolePanelCog(commands.Cog):
             storage.delete_role_panel(interaction.guild.id, panel_id)
             raise
 
-    @rolepanel.command(name="list", description="看看這個伺服器有哪些身分組面板")
+    @rolepanel.command(name="列表", description="看看這個伺服器有哪些身分組面板")
     async def list_panels(self, interaction: discord.Interaction):
         if not self.admin(interaction):
             await interaction.response.send_message("只有管理人員可以看這個。", ephemeral=True)
@@ -398,7 +398,7 @@ class RolePanelCog(commands.Cog):
             return
         await interaction.response.send_message("\n".join(f"{r['id']}｜{r['title'][:60]}｜{r['mode']}｜<#{r['channel_id']}>" for r in rows[:15]), ephemeral=True)
 
-    @rolepanel.command(name="delete", description="刪掉一個身分組面板紀錄")
+    @rolepanel.command(name="刪除", description="刪掉一個身分組面板紀錄")
     @app_commands.describe(panel_id="面板編號")
     async def delete(self, interaction: discord.Interaction, panel_id: int):
         if not self.admin(interaction):
@@ -493,7 +493,7 @@ class PollCog(commands.Cog):
         embed.set_footer(text=(f"共 {total} 份選擇" if row["multiple"] else f"共 {total} 票"))
         return embed
 
-    @poll.command(name="create", description="建立一個下拉選單投票")
+    @poll.command(name="建立", description="建立一個下拉選單投票")
     @app_commands.describe(question="投票問題", options="選項用逗號分隔，2～10 個", multiple="可以選多個嗎", anonymous="是否不顯示投票者", minutes="幾分鐘後結束，0 代表不設時間")
     async def create(self, interaction: discord.Interaction, question: str, options: str, multiple: bool = False, anonymous: bool = False, minutes: app_commands.Range[int,0,10080] = 0):
         if not interaction.guild:
@@ -523,7 +523,7 @@ class PollCog(commands.Cog):
             raise
         await interaction.followup.send(f"投票開好了，編號 {poll_id}。", ephemeral=True)
 
-    @poll.command(name="end", description="提前結束一個投票")
+    @poll.command(name="結束", description="提前結束一個投票")
     @app_commands.describe(poll_id="投票編號")
     async def end(self, interaction: discord.Interaction, poll_id: int):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_messages:
@@ -630,7 +630,7 @@ class ImitateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="代言", description="用 Webhook 做標示清楚的成員模仿訊息")
+    @app_commands.command(name="告白", description="用 Webhook 做標示清楚的成員模仿訊息")
     @app_commands.describe(member="要模仿顯示名稱與頭像的成員", message="要顯示的文字，最多 4000 字")
     async def imitate(self, interaction: discord.Interaction, member: discord.Member, message: str):
         if not interaction.guild or not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
