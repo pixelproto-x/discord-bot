@@ -22,7 +22,7 @@ class WebToolsCog(commands.Cog):
         self.openai_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1").strip() or "gpt-image-1"
         self.client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
 
-    @app_commands.command(name="websearch", description="搜尋公開網頁並整理結果")
+    @app_commands.command(name="websearch", name_localizations={"zh-TW": "網路搜尋"}, description="搜尋公開網頁並整理結果", description_localizations={"zh-TW": "搜尋公開網頁並整理結果"})
     @app_commands.describe(query="要搜尋的問題或關鍵字")
     async def websearch(self, interaction: discord.Interaction, query: str):
         query = query.strip()
@@ -73,7 +73,7 @@ class WebToolsCog(commands.Cog):
             print(f"[WebSearch] {type(exc).__name__}: {exc}")
             await interaction.followup.send("目前無法完成網路搜尋，請稍後再試。")
 
-    @app_commands.command(name="generate_image", description="使用 OpenAI 依文字描述生成圖片")
+    @app_commands.command(name="generate_image", name_localizations={"zh-TW": "生成圖片"}, description="使用 OpenAI 依文字描述生成圖片", description_localizations={"zh-TW": "使用 OpenAI 依文字描述生成圖片"})
     @app_commands.describe(prompt="想生成的圖片內容")
     async def generate_image(self, interaction: discord.Interaction, prompt: str):
         prompt = prompt.strip()
