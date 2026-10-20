@@ -14,8 +14,8 @@ INVITE_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg/|discord(?:app)?
 
 
 class ModerationCog(commands.Cog):
-    security = app_commands.Group(name="安全管理", description="防刷、防大量標記與連結濫用")
-    modlog = app_commands.Group(name="管理紀錄", description="設定管理紀錄要發去哪裡")
+    security = app_commands.Group(name="security", description="防刷、防大量標記與連結濫用")
+    modlog = app_commands.Group(name="modlog", description="設定管理紀錄要發去哪裡")
 
     def __init__(self, bot):
         self.bot = bot
@@ -199,7 +199,7 @@ class ModerationCog(commands.Cog):
                 await self.punish_message(message, f"短時間連續發送 {len(q)} 則")
                 q.clear()
 
-    @security.command(name="提及限制", description="設定一則訊息最多能標記幾個人")
+    @security.command(name="mention-limit", description="設定一則訊息最多能標記幾個人")
     @app_commands.describe(limit="例如 5；0 可關閉，最多 50")
     async def mention_limit(self, interaction, limit: app_commands.Range[int, 0, 50]):
         if not self.can_manage(interaction):
@@ -231,7 +231,7 @@ class ModerationCog(commands.Cog):
                 ephemeral=True,
             )
 
-    @security.command(name="防洗版", description="開關短時間訊息刷屏防護")
+    @security.command(name="antispam", description="開關短時間訊息刷屏防護")
     @app_commands.describe(enabled="是否開啟", limit="幾則訊息算刷屏")
     async def antispam(self, interaction, enabled: bool, limit: app_commands.Range[int, 3, 30] = 8):
         if not self.can_manage(interaction):
@@ -243,7 +243,7 @@ class ModerationCog(commands.Cog):
             ephemeral=True,
         )
 
-    @security.command(name="邀請連結管理", description="開關 Discord 邀請連結防護")
+    @security.command(name="invites", description="開關 Discord 邀請連結防護")
     async def invites(self, interaction, enabled: bool):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -251,7 +251,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "block_invites", enabled)
         await interaction.response.send_message(f"邀請連結防護已{'開啟' if enabled else '關閉'}。", ephemeral=True)
 
-    @security.command(name="大寫字限制", description="開關大量大寫字母防護")
+    @security.command(name="caps", description="開關大量大寫字母防護")
     async def caps(self, interaction, enabled: bool):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -259,7 +259,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "block_caps", enabled)
         await interaction.response.send_message(f"大寫刷屏防護已{'開啟' if enabled else '關閉'}。", ephemeral=True)
 
-    @modlog.command(name="設定", description="把管理紀錄送到指定頻道")
+    @modlog.command(name="set", description="把管理紀錄送到指定頻道")
     @app_commands.describe(channel="紀錄頻道")
     async def modlog_set(self, interaction, channel: discord.TextChannel):
         if not self.can_manage(interaction):
@@ -268,7 +268,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "log_channel_id", channel.id)
         await interaction.response.send_message(f"好，以後管理紀錄會丟到 {channel.mention}。", ephemeral=True)
 
-    @modlog.command(name="停用", description="關閉管理紀錄")
+    @modlog.command(name="disable", description="關閉管理紀錄")
     async def modlog_disable(self, interaction):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -276,7 +276,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "log_channel_id", None)
         await interaction.response.send_message("管理紀錄關掉了。", ephemeral=True)
 
-    @app_commands.command(name="清空", description="清掉目前頻道最近的一批訊息")
+    @app_commands.command(name="clear", description="清掉目前頻道最近的一批訊息")
     @app_commands.describe(amount="1 到 100")
     async def clear(self, interaction, amount: app_commands.Range[int, 1, 100]):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_messages:
@@ -289,7 +289,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("Discord 不讓我刪，檢查 Bot 的管理訊息權限。", ephemeral=True)
 
-    @app_commands.command(name="慢速模式", description="設定目前頻道慢速模式")
+    @app_commands.command(name="slowmode", description="設定目前頻道慢速模式")
     @app_commands.describe(seconds="0 代表關閉，最多 21600 秒")
     async def slowmode(self, interaction, seconds: app_commands.Range[int, 0, 21600]):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
@@ -301,7 +301,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.response.send_message("我沒權限改這個頻道。", ephemeral=True)
 
-    @app_commands.command(name="鎖定頻道", description="暫時鎖住目前頻道，不讓一般成員發言")
+    @app_commands.command(name="lock", description="暫時鎖住目前頻道，不讓一般成員發言")
     async def lock(self, interaction):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
@@ -323,7 +323,7 @@ class ModerationCog(commands.Cog):
         except discord.HTTPException:
             await interaction.response.send_message("Discord 這次沒有成功鎖頻道，請稍後重試。", ephemeral=True)
 
-    @app_commands.command(name="解除鎖定", description="解除目前頻道的鎖定")
+    @app_commands.command(name="unlock", description="解除目前頻道的鎖定")
     async def unlock(self, interaction):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
@@ -348,7 +348,7 @@ class ModerationCog(commands.Cog):
             await interaction.response.send_message("我沒辦法改這個頻道權限。", ephemeral=True)
         except discord.HTTPException:
             await interaction.response.send_message("Discord 這次沒有成功解鎖頻道，請稍後重試。", ephemeral=True)
-    @app_commands.command(name="警告成員", description="給成員一個警告並留下紀錄")
+    @app_commands.command(name="warn", description="給成員一個警告並留下紀錄")
     @app_commands.describe(member="要警告的人", reason="原因")
     async def warn(self, interaction, member: discord.Member, reason: str):
         if not self.can_mod(interaction):
@@ -360,7 +360,7 @@ class ModerationCog(commands.Cog):
         await self.log_event(interaction.guild, "⚠️ 成員警告", f"{member.mention} 被 {interaction.user.mention} 警告。\n原因：{reason}")
         await interaction.followup.send(f"記下來了。{member.mention} 這次是警告，編號 {wid}。", ephemeral=True)
 
-    @app_commands.command(name="警告紀錄", description="查看某位成員的警告紀錄")
+    @app_commands.command(name="warnings", description="查看某位成員的警告紀錄")
     @app_commands.describe(member="要查看的人")
     async def warnings(self, interaction, member: discord.Member):
         if not self.can_mod(interaction):
@@ -373,7 +373,7 @@ class ModerationCog(commands.Cog):
         lines = [f"{i+1}. {row['reason'][:160]}" for i, row in enumerate(rows[:10])]
         await interaction.response.send_message(f"{member.mention} 的警告：\n" + "\n".join(lines), ephemeral=True)
 
-    @app_commands.command(name="禁言成員", description="暫時讓成員不能聊天")
+    @app_commands.command(name="timeout", description="暫時讓成員不能聊天")
     @app_commands.describe(member="要處理的人", minutes="分鐘（最多 28 天）", reason="原因")
     async def timeout(self, interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: str = "沒有寫原因"):
         guild = interaction.guild
@@ -415,7 +415,7 @@ class ModerationCog(commands.Cog):
         except discord.HTTPException:
             await interaction.followup.send("Discord 暫時無法執行禁言，請稍後再試。", ephemeral=True)
 
-    @app_commands.command(name="踢出成員", description="把成員踢出伺服器")
+    @app_commands.command(name="kick", description="把成員踢出伺服器")
     async def kick(self, interaction, member: discord.Member, reason: str = "沒有寫原因"):
         if not self.can_kick(interaction):
             await interaction.response.send_message("你需要踢出成員權限。", ephemeral=True)
@@ -432,7 +432,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("我沒有權限踢這個人。", ephemeral=True)
 
-    @app_commands.command(name="封鎖成員", description="把成員封鎖並踢出伺服器")
+    @app_commands.command(name="ban", description="把成員封鎖並踢出伺服器")
     async def ban(self, interaction, member: discord.Member, reason: str = "沒有寫原因"):
         if not self.can_ban(interaction):
             await interaction.response.send_message("你需要封鎖成員權限。", ephemeral=True)
@@ -449,7 +449,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("我沒有權限封鎖這個人。", ephemeral=True)
 
-    @app_commands.command(name="解除封鎖", description="用使用者 ID 解除封鎖")
+    @app_commands.command(name="unban", description="用使用者 ID 解除封鎖")
     @app_commands.describe(user_id="Discord 使用者 ID")
     async def unban(self, interaction, user_id: str):
         if not self.can_ban(interaction):
