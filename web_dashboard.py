@@ -26,6 +26,7 @@ PAGE = r"""<!doctype html>
 <title>LogRelay Control</title>
 <style>
 :root{color-scheme:dark;--bg:#0b1020;--panel:#131b2e;--line:#26334e;--text:#edf2ff;--muted:#94a3bd;--accent:#8b9cff;--good:#45d6a1;--bad:#ff8290}
+.voice-card{position:relative;overflow:hidden;background:radial-gradient(ellipse at 100% 0,rgba(139,156,255,.15),transparent 48%),rgba(19,27,46,.96)}.voice-card-head{display:flex;gap:13px;align-items:flex-start;margin-bottom:17px}.voice-card-head h2{margin:0 0 5px}.voice-icon{display:grid;place-items:center;flex:0 0 44px;height:44px;border-radius:14px;background:rgba(139,156,255,.13);border:1px solid rgba(139,156,255,.28);color:#b9c5ff;font-weight:800}.voice-desc{margin:0;color:var(--muted);font-size:13px;line-height:1.65}.voice-room-meta{margin-top:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(12,20,38,.75);font-size:12px;color:var(--muted)}.voice-card textarea{min-height:128px}.voice-actions{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}.voice-actions button{width:auto;min-width:150px;background:linear-gradient(135deg,#a9b7ff,#788cff);color:#10172b;border-color:transparent}.voice-limit{font-size:11px;color:var(--muted)}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#172343,#0b1020 58%);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:1050px;margin:auto;padding:28px 18px 60px}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
 h1{font-size:28px;margin:0;letter-spacing:.3px}.sub{color:var(--muted);margin-top:4px}.pill{border:1px solid var(--line);border-radius:999px;padding:7px 12px;color:var(--good);font-size:13px}
@@ -45,7 +46,7 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 <section class="card wide"><div class="toolbar" style="justify-content:space-between"><h2>Bot 狀態</h2><button class="secondary" id="refresh" style="width:auto">重新整理</button></div><div class="stats"><div class="stat"><b id="botName">—</b><span>登入帳號</span></div><div class="stat"><b id="guildCount">—</b><span>已加入伺服器</span></div><div class="stat"><b id="latency">—</b><span>Gateway 延遲</span></div></div><div class="message" id="statusMsg"></div></section>
 <section class="card"><h2>選擇伺服器與頻道</h2><label for="guild">伺服器</label><select id="guild"></select><label for="channel">文字頻道</label><select id="channel"></select><button id="selectTarget" style="margin-top:12px">設為目前控制頻道</button><div class="note" id="selectedInfo">尚未選擇</div><div class="message" id="selectMsg"></div></section>
 <section class="card"><h2>傳送文字頻道訊息</h2><label for="sendText">要讓 LogRelay 發送的內容</label><textarea id="sendText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="sendBtn" style="margin-top:12px">傳送到選定文字頻道</button><div class="message" id="sendMsg"></div></section>
-<section class="card"><h2>語音頻道聊天</h2><label for="voiceChannel">語音頻道</label><select id="voiceChannel"></select><label for="voiceText">要傳送到語音頻道聊天的內容</label><textarea id="voiceText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="voiceSendBtn" style="margin-top:12px">傳送到語音頻道</button><div class="note">這是語音頻道內的文字聊天，不會讓 Bot 自動加入語音通話。</div><div class="message" id="voiceSendMsg"></div></section>
+<section class="card voice-card"><div class="voice-card-head"><div class="voice-icon">◖))</div><div><h2>即時語音朗讀</h2><p class="voice-desc">選擇語音房間，輸入文字，LogRelay 就會加入語音並唸出來。</p></div></div><label for="voiceChannel">目標語音房間</label><select id="voiceChannel"></select><div class="voice-room-meta" id="voiceRoomMeta">先選擇伺服器，再選擇要朗讀的語音房間。</div><label for="voiceText">朗讀內容</label><textarea id="voiceText" maxlength="500" placeholder="例如：大家好，我現在可以直接在語音裡說話了。"></textarea><div class="voice-actions"><span class="voice-limit">最多 500 字 · 繁體中文語音</span><button id="voiceSendBtn">▶ 開始朗讀</button></div><div class="note">如果 Bot 正在播放音樂或其他音訊，會先拒絕朗讀，避免打斷播放。</div><div class="message" id="voiceSendMsg"></div></section>
 <section class="card wide"><h2>引用指定訊息回覆</h2><div class="row"><div><label for="messageId">Discord 訊息 ID</label><input id="messageId" inputmode="numeric" placeholder="右鍵訊息 → 複製訊息 ID"></div><div><label for="replyText">LogRelay 的回覆內容</label><textarea id="replyText" maxlength="2000" placeholder="輸入要回覆的內容"></textarea></div></div><button id="replyBtn" style="margin-top:12px">引用該訊息並回覆</button><div class="note">必須先選擇該訊息所在的伺服器與頻道；LogRelay 需要能查看頻道及訊息歷史。</div><div class="message" id="replyMsg"></div></section>
 <section class="card"><h2>刪除指定訊息</h2><label for="deleteMessageId">Discord 訊息 ID</label><input id="deleteMessageId" inputmode="numeric" placeholder="右鍵目標訊息 → 複製訊息 ID"><button id="deleteBtn" style="margin-top:12px">刪除指定訊息</button><div class="note">刪除目前選定頻道中的訊息；Bot 必須有管理訊息權限。刪除後無法復原。</div><div class="message" id="deleteMsg"></div></section>
 <section class="card"><h2>私下模仿整個伺服器的群聊語氣</h2><label for="mimicPrompt">要讓 AI 模仿著表達的內容</label><textarea id="mimicPrompt" maxlength="2000" placeholder="輸入一句話或要改寫的內容"></textarea><button id="mimicBtn" style="margin-top:12px">模仿訊息（結果只有你看得到）</button><label for="mimicResult">模仿結果</label><textarea id="mimicResult" readonly placeholder="結果會顯示在這裡"></textarea><div class="message" id="mimicMsg"></div></section>
@@ -84,8 +85,8 @@ async function loadVoiceChannels(){
  const select=$("voiceChannel");select.replaceChildren();
  if(!$("guild").value)return;
  const data=await api("/api/voice-channels?guild_id="+encodeURIComponent($("guild").value));
- for(const channel of data.channels){const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;select.append(o)}
- if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可傳送訊息的語音頻道";select.append(o);select.disabled=true}else{select.disabled=false}
+ const groups=new Map();for(const channel of data.channels){const category=channel.category||"未分類";if(!groups.has(category)){const group=document.createElement("optgroup");group.label="▰ "+category;groups.set(category,group);select.append(group)}const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;groups.get(category).append(o)}
+ if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可朗讀的語音房間";select.append(o);select.disabled=true}else{select.disabled=false;$("voiceRoomMeta").textContent="已載入 "+select.options.length+" 個可用語音房間；選好房間後輸入文字即可朗讀。";}
 }
 async function connect(){
  token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
@@ -102,7 +103,7 @@ $("sendBtn").onclick=async()=>{try{const d=await api("/api/send",{channel_id:$("
 $("replyBtn").onclick=async()=>{try{const d=await api("/api/reply",{channel_id:$("channel").value,message_id:$("messageId").value.trim(),content:$("replyText").value});message("replyMsg",d.message);$("replyText").value=""}catch(e){message("replyMsg",e.message,true)}};
 $("deleteBtn").onclick=async()=>{if(!confirm("確定刪除目前選定頻道中的這則訊息？此操作無法復原。"))return;try{const d=await api("/api/delete",{channel_id:$("channel").value,message_id:$("deleteMessageId").value.trim()});message("deleteMsg",d.message);$("deleteMessageId").value=""}catch(e){message("deleteMsg",e.message,true)}};
 $("mimicBtn").onclick=async()=>{const prompt=$("mimicPrompt").value.trim();if(!prompt){message("mimicMsg","請先輸入要模仿著表達的內容。",true);return}const btn=$("mimicBtn");btn.disabled=true;message("mimicMsg","正在讀取群聊樣本並產生結果…");try{const d=await api("/api/mimic",{channel_id:$("channel").value,prompt});$("mimicResult").value=d.answer;message("mimicMsg","完成。結果只有目前控制台使用者看得到。")}catch(e){message("mimicMsg",e.message,true)}finally{btn.disabled=false}};
-$("voiceSendBtn").onclick=async()=>{try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content:$("voiceText").value});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}};
+$("voiceChannel").onchange=()=>{const o=$("voiceChannel").selectedOptions[0];$("voiceRoomMeta").textContent=o&&o.value?"目標房間："+o.textContent+" · 按下朗讀後 Bot 會自動加入或切換到此房間。":"目前伺服器沒有可用語音房間。"}; $("voiceSendBtn").onclick=async()=>{const content=$("voiceText").value.trim();if(!content){message("voiceSendMsg","先輸入要唸的文字。",true);return}const btn=$("voiceSendBtn");btn.disabled=true;btn.textContent="正在產生語音…";try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}finally{btn.disabled=false;btn.textContent="▶ 開始朗讀"}};
 </script></body></html>"""
 
 def _json_error(message, status=400):
@@ -288,9 +289,13 @@ async def start_dashboard(bot):
         items = []
         for channel in guild.voice_channels:
             perms = channel.permissions_for(me) if me else None
-            if perms and perms.view_channel and perms.send_messages:
-                items.append({"id": str(channel.id), "name": channel.name})
-        return web.json_response({"channels": sorted(items, key=lambda item: item["name"].casefold())})
+            if perms and perms.view_channel and perms.connect and perms.speak:
+                items.append({
+                    "id": str(channel.id),
+                    "name": channel.name,
+                    "category": channel.category.name if channel.category else "未分類",
+                })
+        return web.json_response({"channels": sorted(items, key=lambda item: (item["category"].casefold(), item["name"].casefold()))})
 
     async def send_voice_message(request):
         try:
@@ -298,23 +303,23 @@ async def start_dashboard(bot):
             channel_id = int(data.get("channel_id", ""))
             content = str(data.get("content", "")).strip()
         except (ValueError, TypeError):
-            return _json_error("語音頻道或訊息格式錯誤。")
+            return _json_error("語音房間或文字格式錯誤。")
         channel = bot.get_channel(channel_id)
         if not isinstance(channel, discord.VoiceChannel):
-            return _json_error("找不到可用的語音頻道。", 404)
-        if not content or len(content) > 2000:
-            return _json_error("訊息不能空白，且最多 2000 字。")
+            return _json_error("找不到指定的語音房間。", 404)
+        if not content or len(content) > 500:
+            return _json_error("朗讀內容不能空白，且最多 500 字。")
         me = channel.guild.me
         perms = channel.permissions_for(me) if me else None
-        if not perms or not perms.view_channel or not perms.send_messages:
-            return _json_error("Bot 沒有在這個語音頻道聊天的權限。", 403)
-        try:
-            await channel.send(content, allowed_mentions=discord.AllowedMentions.none())
-        except discord.Forbidden:
-            return _json_error("Bot 沒有在這個語音頻道聊天的權限。", 403)
-        except discord.HTTPException:
-            return _json_error("Discord 傳送失敗，請稍後再試。", 502)
-        return web.json_response({"message": "已傳送訊息到語音頻道「" + channel.name + "」的聊天區。"})
+        if not perms or not perms.view_channel or not perms.connect or not perms.speak:
+            return _json_error("Bot 在這個語音房間需要「查看頻道」、「連線」和「說話」權限。", 403)
+        speech = bot.get_cog("SpeechControlCog")
+        if not speech:
+            return _json_error("語音朗讀模組尚未載入。", 503)
+        ok, result = await speech.speak_to_channel(channel, content)
+        if not ok:
+            return _json_error(result, 409)
+        return web.json_response({"message": result})
 
     async def select_target(request):
         try:
