@@ -188,7 +188,7 @@ class MusicControlView(ui.View):
 
 
 class MusicCog(commands.Cog):
-    music = app_commands.Group(name="music", description="在語音頻道搜尋並播放音樂")
+    music = app_commands.Group(name="音樂", description="在語音頻道搜尋並播放音樂")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
