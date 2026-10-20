@@ -83,11 +83,14 @@ async function loadChannels(){
  await loadVoiceChannels();
 }
 async function loadVoiceChannels(){
- const select=$("voiceChannel");select.replaceChildren();
  if(!$("guild").value)return;
  const data=await api("/api/voice-channels?guild_id="+encodeURIComponent($("guild").value));
- const groups=new Map();for(const channel of data.channels){const category=channel.category||"未分類";if(!groups.has(category)){const group=document.createElement("optgroup");group.label="▰ "+category;groups.set(category,group);select.append(group)}const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;groups.get(category).append(o)}
- if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可朗讀的語音房間";select.append(o);select.disabled=true}else{select.disabled=false;$("voiceRoomMeta").textContent="已載入 "+select.options.length+" 個可用語音房間；選好房間後輸入文字即可朗讀。";}
+ for(const id of ["voiceChannel","micChannel"]){
+  const select=$(id);select.replaceChildren();const groups=new Map();
+  for(const channel of data.channels){const category=channel.category||"未分類";if(!groups.has(category)){const group=document.createElement("optgroup");group.label="▰ "+category;groups.set(category,group);select.append(group)}const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;groups.get(category).append(o)}
+  if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可用語音房間";select.append(o);select.disabled=true}else{select.disabled=false}
+ }
+ if($("voiceChannel").options.length)$("voiceRoomMeta").textContent="已載入 "+$("voiceChannel").options.length+" 個可用語音房間；選好房間後輸入文字即可朗讀。";
 }
 async function connect(){
  token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
