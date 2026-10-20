@@ -265,7 +265,7 @@ class SpeechControlCog(commands.Cog):
             return "我正在播放音訊；為避免打斷音樂或上一句，請先輸入 /stop。"
         filename = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(prefix="yitiaoyu_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
             if not voice_client or not voice_client.is_connected():
@@ -286,7 +286,7 @@ class SpeechControlCog(commands.Cog):
                 discord.FFmpegPCMAudio(filename, executable=ffmpeg, options="-vn"),
                 after=after_playback,
             )
-            return f"LogRelay 正在語音頻道唸出：{text}"
+            return f"一條魚 正在語音頻道唸出：{text}"
         except Exception as exc:
             print(f"[Speech] terminal playback failed: {type(exc).__name__}: {exc}")
             await self._cleanup(guild.id, filename)
