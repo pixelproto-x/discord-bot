@@ -62,7 +62,7 @@ def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
     # Remove ordinary Unicode emoji; these are not the server's custom emoji style.
     answer = "".join(
         ch for ch in answer
-        if not (unicodedata.category(ch) == "So" and ord(ch) > 0x2300)
+        if not ((unicodedata.category(ch) == "So" and ord(ch) > 0x2300) or ord(ch) in (0xFE0E, 0xFE0F))
     )
     custom_emoji_tokens = re.findall(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", answer)
     answer = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", " ZZZCUSTOMEMOJITOKENZZZ ", answer)
