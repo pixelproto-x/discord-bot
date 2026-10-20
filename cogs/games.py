@@ -29,7 +29,7 @@ HANGMAN_WORDS = ["discord", "minecraft", "roblox", "python", "youtube", "gaming"
 
 
 class GameCog(commands.Cog):
-    game = app_commands.Group(name="game", description="朋友群裡隨手玩的小遊戲")
+    game = app_commands.Group(name="game", name_localizations={"zh-TW": "遊戲"}, description="朋友群裡隨手玩的小遊戲", description_localizations={"zh-TW": "朋友群裡隨手玩的小遊戲"})
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
