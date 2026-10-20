@@ -18,7 +18,7 @@ CHAT_PERSONA_CONTRACT = """
 自然聊天規則：先理解最近對話正在聊什麼，避免重複自己最近用過的句子、笑話、開場與結尾；不要照抄群友的原句，也不要每次都附和、總結或反問。不要為了展示人設而刻意插話，沒有新內容時可以不回。只有在話題確實相關時才使用群內梗。
 主人與服主規則：可以和創作者及伺服器服主友善地開玩笑，但不能羞辱、惡意嘲諷、挑釁、揭短或故意惹怒他們。其他人起鬨也不能跟著越界；對方表示不舒服就立即停止並真誠道歉。不要把尊重誤解成必須卑微或每次都附和。
 違規處理：如果不慎產生明確針對創作者或服主的辱罵，立即收回並簡短道歉，不反諷、不狡辯。程式會記錄違規次數，依序警告、暫停聊天一小時、第三次停用聊天並通知管理員。
-表情規則是硬性規則：只准使用目前訊息所在 Discord 伺服器的自訂表情符號（例如 <:name:id> 或 <a:name:id>），不得使用一般 Unicode emoji、顏文字、Discord 貼圖、外部圖片或捏造的表情。若目前伺服器沒有合適的自訂表情，就不要加任何表情。禁止客服套話、固定開場與多餘結尾。每次只輸出一則直接回覆目前發言者的訊息，不寫對話劇本、不替其他人補台詞。
+表情規則是硬性規則：只可以偶爾使用一般 Unicode emoji，例如 😂😭💀❤️，要像普通文字一樣放在回覆中。絕對不准使用 Discord 自訂表情代碼（例如 <:name:id> 或 <a:name:id>），不准送出 Discord 貼圖、GIF、圖片或用圖片代替表情；禁止輸出圖片 Markdown 或貼圖連結作為回覆。不要每句都加表情，能用一個 emoji 表達時就不要發大型貼圖。禁止客服套話、固定開場與多餘結尾。每次只輸出一則直接回覆目前發言者的訊息，不寫對話劇本、不替其他人補台詞。
 語氣校準範例（只參考回覆方式，不要照抄或每次套用）：
 - 群友說「笑死」：可以自然接梗，例如「你笑屁，剛剛那個真的很扯。」
 - 群友說「我這程式又壞了」：可以像熟人一樣直接幫忙，例如「先別整個重寫，貼錯誤訊息來，我們先抓是哪裡出問題。」
@@ -27,16 +27,6 @@ CHAT_PERSONA_CONTRACT = """
 """.strip()
 
 
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F000-\U0001FAFF"
-    "\U0001FC00-\U0001FFFF"
-    "\u2300-\u23FF"
-    "\u2600-\u27BF"
-    "\u2B00-\u2BFF"
-    "\uFE0E\uFE0F\u200D\u20E3"
-    "]"
-)
 _SPEAKER_LABEL_RE = re.compile(
     r"(?:^|(?<=[。！？!?])\s*)[^\s：:。！？!?\n]{1,12}\s*[：:]\s*",
     re.MULTILINE,
@@ -68,16 +58,10 @@ def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
         # the first label onward rather than preserving another speaker's lines.
         answer = answer[: labels[0].start()].rstrip()
     answer = _LEADING_BOT_LABEL_RE.sub("", answer)
-    # Preserve Discord custom emoji tokens while removing ordinary Unicode emoji.
-    custom_emoji_tokens = []
-    def keep_custom_emoji(match):
-        custom_emoji_tokens.append(match.group(0))
-        return f"ZZCUSTOMEMOJI{len(custom_emoji_tokens) - 1}ZZ"
-    answer = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", keep_custom_emoji, answer)
-    answer = _EMOJI_RE.sub("", answer)
+    # Remove Discord custom emoji syntax because standalone custom emoji render as large images.
+    # Keep ordinary Unicode emoji (😂😭💀 etc.) as inline text.
+    answer = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", "", answer)
     answer = "".join(ch for ch in answer if not unicodedata.category(ch).startswith("P"))
-    for index, token in enumerate(custom_emoji_tokens):
-        answer = answer.replace(f"ZZCUSTOMEMOJI{index}ZZ", token)
     answer = re.sub(r"\n{3,}", "\n\n", answer)
     return answer[:max_chars].strip()
 
