@@ -33,6 +33,7 @@ from cogs import (
     hacks,
     history,
     browser_mic,
+    marriage,
 )
 
 
@@ -139,6 +140,7 @@ class Bot(commands.Bot):
             hacks,
             history,
             browser_mic,
+            marriage,
         ]
         failed_modules = []
         for module in modules:
