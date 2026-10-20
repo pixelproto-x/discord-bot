@@ -800,6 +800,35 @@ class MemberEventsCog(commands.Cog):
         new_content = data.get("content", old_content or "") or ""
         attachment_data = self._attachment_data(data.get("attachments")) if "attachments" in data else None
 
+        # Discord can emit repeated raw edit events for the same message, including
+        # later attachment/metadata updates. Compare the actual attachment identity
+        # as well as text before deciding whether this is a real new edit.
+        old_attachments = (
+            self._attachment_data(json.loads(snapshot["attachments_json"] or "[]"))
+            if snapshot is not None else (
+                self._attachment_data(cached_message.attachments)
+                if cached_message is not None else []
+            )
+        )
+
+        def attachment_signature(items):
+            return sorted(
+                (
+                    str(item.get("id") or ""),
+                    str(item.get("filename") or ""),
+                    int(item.get("size") or 0),
+                    str(item.get("content_type") or ""),
+                )
+                for item in (items or [])
+            )
+
+        attachments_unchanged = (
+            attachment_data is None
+            or attachment_signature(old_attachments) == attachment_signature(attachment_data)
+        )
+        if old_content is not None and old_content == new_content and attachments_unchanged:
+            return
+
         if snapshot is not None:
             storage.update_message_snapshot_content(payload.message_id, new_content, attachment_data)
         elif cached_message is not None:
@@ -815,9 +844,6 @@ class MemberEventsCog(commands.Cog):
                 attachments=attachment_data if attachment_data is not None else self._attachment_data(cached_message.attachments),
                 created_at=cached_message.created_at.timestamp(),
             )
-
-        if old_content is not None and old_content == new_content and attachment_data is None:
-            return
         author = (
             f"{getattr(cached_message.author, 'display_name', str(cached_message.author))}（ID：{cached_message.author.id}）"
             if cached_message is not None else
