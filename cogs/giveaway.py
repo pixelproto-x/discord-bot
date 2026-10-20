@@ -32,7 +32,7 @@ class GiveawayView(ui.View):
 
 
 class GiveawayCog(commands.Cog):
-    giveaway = app_commands.Group(name="giveaway", description="辦個簡單又好玩的抽獎")
+    giveaway = app_commands.Group(name="giveaway", name_localizations={"zh-TW": "抽獎"}, description="辦個簡單又好玩的抽獎", description_localizations={"zh-TW": "辦個簡單又好玩的抽獎"})
 
     def __init__(self, bot):
         self.bot = bot
