@@ -182,7 +182,7 @@ class LocalBanterCog(commands.Cog):
             return
         await self._reply(message, content)
 
-    @app_commands.command(name="local-ai", name_localizations={"zh-TW": "本機AI"}, description_localizations={"zh-TW": "測試本機幹話 AI 是否正常"}, description="測試本機幹話 AI 是否正常")
+    @app_commands.command(name=app_commands.locale_str("local-ai", zh_TW="本機AI"), description=app_commands.locale_str("測試本機幹話 AI 是否正常", zh_TW="測試本機幹話 AI 是否正常"))
     @app_commands.describe(message="想讓 AI 接的話")
     async def localai(self, interaction: discord.Interaction, message: str = "講一句有梗的幹話"):
         await interaction.response.defer(thinking=True)
