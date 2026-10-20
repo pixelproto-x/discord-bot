@@ -546,7 +546,72 @@ class PollCog(commands.Cog):
         await interaction.followup.send("投票關掉了。", ephemeral=True)
 
 
+class ImitateCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="代言", description="用 Webhook 做標示清楚的成員模仿訊息")
+    @app_commands.describe(member="要模仿顯示名稱與頭像的成員", message="要顯示的文字，最多 4000 字")
+    async def imitate(self, interaction: discord.Interaction, member: discord.Member, message: str):
+        if not interaction.guild or not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            await interaction.response.send_message("這個指令只能在伺服器文字頻道或討論串使用。", ephemeral=True)
+            return
+        if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("為了避免冒充或拿來騷擾別人，這個指令需要「管理訊息」權限。", ephemeral=True)
+            return
+        message = message.strip()
+        if not message:
+            await interaction.response.send_message("文字不能空白。", ephemeral=True)
+            return
+        if len(message) > 4000:
+            await interaction.response.send_message("文字最多 4000 字。", ephemeral=True)
+            return
+
+        channel = interaction.channel
+        parent = channel.parent if isinstance(channel, discord.Thread) else channel
+        if not isinstance(parent, discord.TextChannel):
+            await interaction.response.send_message("這個頻道不能建立 Webhook。", ephemeral=True)
+            return
+        bot_member = interaction.guild.me
+        perms = parent.permissions_for(bot_member) if bot_member else None
+        if not perms or not perms.manage_webhooks or not perms.send_messages:
+            await interaction.response.send_message(
+                "我需要在這個頻道有「管理 Webhook」和「傳送訊息」權限。", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        webhook = None
+        try:
+            webhook = await parent.create_webhook(name="成員模仿訊息")
+            avatar_bytes = await member.display_avatar.read()
+            chunks = [message[i:i + 1900] for i in range(0, len(message), 1900)]
+            for index, chunk in enumerate(chunks):
+                body = ("【Webhook 模仿訊息｜非本人發言】\n" if index == 0 else "") + chunk
+                await webhook.send(
+                    content=body,
+                    username=f"{member.display_name}（模仿）",
+                    avatar=avatar_bytes,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                    thread=channel if isinstance(channel, discord.Thread) else None,
+                    wait=True,
+                )
+            await interaction.followup.send("已發送模仿訊息，名稱和頭像會參考你選的成員，內容會標示為模仿。", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("Discord 拒絕建立或使用 Webhook，請檢查頻道權限。", ephemeral=True)
+        except discord.HTTPException as exc:
+            await interaction.followup.send(f"發送失敗：Discord 回報 HTTP {exc.status}。", ephemeral=True)
+        finally:
+            if webhook:
+                try:
+                    await webhook.delete(reason="一次性成員模仿訊息，發送後清理 Webhook")
+                except discord.HTTPException:
+                    pass
+
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(AutoReplyCog(bot))
     await bot.add_cog(RolePanelCog(bot))
     await bot.add_cog(PollCog(bot))
+    await bot.add_cog(ImitateCog(bot))
