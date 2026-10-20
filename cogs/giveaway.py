@@ -32,7 +32,7 @@ class GiveawayView(ui.View):
 
 
 class GiveawayCog(commands.Cog):
-    giveaway = app_commands.Group(name="抽獎", description="辦個簡單又好玩的抽獎")
+    giveaway = app_commands.Group(name="giveaway", description="辦個簡單又好玩的抽獎")
 
     def __init__(self, bot):
         self.bot = bot
@@ -69,7 +69,7 @@ class GiveawayCog(commands.Cog):
             f"點下面按鈕參加，最後我會直接抽。"
         )
 
-    @giveaway.command(name="建立", description="建立一個限時抽獎")
+    @giveaway.command(name="create", description="建立一個限時抽獎")
     @app_commands.describe(prize="獎品", duration="例如 10m、1h、1d", winners="得獎人數")
     async def create(self, interaction, prize: str, duration: str, winners: app_commands.Range[int,1,20] = 1):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
@@ -99,7 +99,7 @@ class GiveawayCog(commands.Cog):
             raise
         await interaction.followup.send(f"抽獎開了，編號 {gid}。", ephemeral=True)
 
-    @giveaway.command(name="重新抽獎", description="重新抽一位新的得獎者")
+    @giveaway.command(name="reroll", description="重新抽一位新的得獎者")
     @app_commands.describe(giveaway_id="抽獎編號")
     async def reroll(self, interaction, giveaway_id: int):
         if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
@@ -125,7 +125,7 @@ class GiveawayCog(commands.Cog):
         storage.record_giveaway_winners(giveaway_id, winners)
         await interaction.response.send_message("🎉 重新抽到：" + " ".join(f"<@{uid}>" for uid in winners))
 
-    @giveaway.command(name="結束", description="提前結束抽獎並抽出得獎者")
+    @giveaway.command(name="end", description="提前結束抽獎並抽出得獎者")
     @app_commands.describe(giveaway_id="抽獎編號")
     async def end(self, interaction, giveaway_id: int):
         if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
