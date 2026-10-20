@@ -32,7 +32,7 @@ _SPEAKER_LABEL_RE = re.compile(
     re.MULTILINE,
 )
 _LEADING_BOT_LABEL_RE = re.compile(
-    r"^\s*(?:LogRelay|assistant|bot)\s*[：:]\s*",
+    r"^\s*(?:一條魚|LogRelay|assistant|bot)\s*[：:]\s*",
     re.IGNORECASE,
 )
 
