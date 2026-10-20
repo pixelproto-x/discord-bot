@@ -484,7 +484,7 @@ class SettingsCog(commands.Cog):
             and (interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild)
         )
 
-    @settings.command(name="show", description="開啟互動式伺服器設定中心")
+    @settings.command(name="show", name_localizations={"zh-TW": "查看設定"}, description="開啟互動式伺服器設定中心", description_localizations={"zh-TW": "開啟互動式伺服器設定中心"})
     async def show(self, interaction):
         if not self.admin(interaction):
             await interaction.response.send_message("這個只有管理人員能操作。", ephemeral=True)
@@ -496,7 +496,7 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @settings.command(name="autorole", description="設定新人加入後自動拿到的身分組")
+    @settings.command(name="autorole", name_localizations={"zh-TW": "自動身分組"}, description="設定新人加入後自動拿到的身分組", description_localizations={"zh-TW": "設定新人加入後自動拿到的身分組"})
     @app_commands.describe(role="新人要拿的身分組")
     async def autorole(self, interaction, role: discord.Role | None = None):
         if not self.admin(interaction):
@@ -510,7 +510,7 @@ class SettingsCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "autorole_id", role.id if role else 0)
         await interaction.response.send_message(f"新人身分組已{'設成 ' + role.mention if role else '關閉'}。", ephemeral=True)
 
-    @settings.command(name="welcome", description="設定新人加入時的歡迎訊息")
+    @settings.command(name="welcome", name_localizations={"zh-TW": "歡迎訊息"}, description="設定新人加入時的歡迎訊息", description_localizations={"zh-TW": "設定新人加入時的歡迎訊息"})
     @app_commands.describe(channel="歡迎頻道", message="訊息，可用 {user} 和 {server}")
     async def welcome(self, interaction, channel: discord.TextChannel | None = None, message: str = "歡迎 {user} 來到 {server}！"):
         if not self.admin(interaction):
@@ -532,7 +532,7 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @settings.command(name="goodbye", description="設定成員離開時的通知")
+    @settings.command(name="goodbye", name_localizations={"zh-TW": "離開訊息"}, description="設定成員離開時的通知", description_localizations={"zh-TW": "設定成員離開時的通知"})
     @app_commands.describe(channel="離開通知頻道", message="訊息，可用 {user} 和 {server}")
     async def goodbye(self, interaction, channel: discord.TextChannel | None = None, message: str = "{user} 離開了，掰。"):
         if not self.admin(interaction):
@@ -554,7 +554,7 @@ class SettingsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @note.command(name="add", description="存一筆只有自己看得到的筆記")
+    @note.command(name="add", name_localizations={"zh-TW": "新增"}, description="存一筆只有自己看得到的筆記", description_localizations={"zh-TW": "存一筆只有自己看得到的筆記"})
     @app_commands.describe(title="筆記標題", content="筆記內容")
     async def note_add(self, interaction, title: str, content: str):
         if not interaction.guild:
@@ -566,7 +566,7 @@ class SettingsCog(commands.Cog):
         nid = storage.add_note(interaction.guild.id, interaction.user.id, title.strip()[:100], content.strip()[:1800])
         await interaction.response.send_message(f"記好了，筆記編號 {nid}。", ephemeral=True)
 
-    @note.command(name="list", description="看看自己存過哪些筆記")
+    @note.command(name="list", name_localizations={"zh-TW": "列表"}, description="看看自己存過哪些筆記", description_localizations={"zh-TW": "看看自己存過哪些筆記"})
     async def note_list(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
@@ -578,7 +578,7 @@ class SettingsCog(commands.Cog):
         text = "\n".join(f"{r['id']}｜{r['title'][:80]}" for r in rows[:15])
         await interaction.response.send_message(text, ephemeral=True)
 
-    @note.command(name="show", description="查看自己的指定筆記")
+    @note.command(name="show", name_localizations={"zh-TW": "查看設定"}, description="查看自己的指定筆記", description_localizations={"zh-TW": "查看自己的指定筆記"})
     @app_commands.describe(note_id="筆記編號")
     async def note_show(self, interaction, note_id: int):
         if not interaction.guild:
@@ -590,7 +590,7 @@ class SettingsCog(commands.Cog):
             return
         await interaction.response.send_message(f"📝 **{row['title']}**\n{row['content'][:1800]}", ephemeral=True)
 
-    @note.command(name="delete", description="刪掉自己的指定筆記")
+    @note.command(name="delete", name_localizations={"zh-TW": "刪除"}, description="刪掉自己的指定筆記", description_localizations={"zh-TW": "刪掉自己的指定筆記"})
     @app_commands.describe(note_id="筆記編號")
     async def note_delete(self, interaction, note_id: int):
         if not interaction.guild:
