@@ -105,6 +105,51 @@ $("replyBtn").onclick=async()=>{try{const d=await api("/api/reply",{channel_id:$
 $("deleteBtn").onclick=async()=>{if(!confirm("確定刪除目前選定頻道中的這則訊息？此操作無法復原。"))return;try{const d=await api("/api/delete",{channel_id:$("channel").value,message_id:$("deleteMessageId").value.trim()});message("deleteMsg",d.message);$("deleteMessageId").value=""}catch(e){message("deleteMsg",e.message,true)}};
 $("mimicBtn").onclick=async()=>{const prompt=$("mimicPrompt").value.trim();if(!prompt){message("mimicMsg","請先輸入要模仿著表達的內容。",true);return}const btn=$("mimicBtn");btn.disabled=true;message("mimicMsg","正在讀取群聊樣本並產生結果…");try{const d=await api("/api/mimic",{channel_id:$("channel").value,prompt});$("mimicResult").value=d.answer;message("mimicMsg","完成。結果只有目前控制台使用者看得到。")}catch(e){message("mimicMsg",e.message,true)}finally{btn.disabled=false}};
 $("voiceChannel").onchange=()=>{const o=$("voiceChannel").selectedOptions[0];$("voiceRoomMeta").textContent=o&&o.value?"目標房間："+o.textContent+" · 按下朗讀後 Bot 會自動加入或切換到此房間。":"目前伺服器沒有可用語音房間。"}; $("voiceSendBtn").onclick=async()=>{const content=$("voiceText").value.trim();if(!content){message("voiceSendMsg","先輸入要唸的文字。",true);return}const btn=$("voiceSendBtn");btn.disabled=true;btn.textContent="正在產生語音…";try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}finally{btn.disabled=false;btn.textContent="▶ 開始朗讀"}};
+
+let micStream=null,micContext=null,micSocket=null,micProcessor=null,micSourceNode=null,micGain=null,micBuffer=new Float32Array(0),micActive=false;
+function closeBrowserMic(){
+ micActive=false;if(micProcessor)micProcessor.onaudioprocess=null;
+ try{if(micSocket&&micSocket.readyState===WebSocket.OPEN)micSocket.close()}catch(e){}
+ try{if(micStream)micStream.getTracks().forEach(t=>t.stop())}catch(e){}
+ try{if(micContext)micContext.close()}catch(e){}
+ micStream=null;micContext=null;micSocket=null;micProcessor=null;micSourceNode=null;micGain=null;micBuffer=new Float32Array(0);
+ $("micStartBtn").disabled=false;$("micStopBtn").disabled=true;
+}
+$("micStartBtn").onclick=async()=>{
+ if(micActive)return;
+ const channelId=$("micChannel").value;if(!channelId){message("micMsg","先選擇語音房間。",true);return}
+ const btn=$("micStartBtn");btn.disabled=true;message("micMsg","正在連接 Discord 語音並要求麥克風權限…");
+ try{
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error("此頁面無法使用麥克風；請使用 HTTPS 網址或 localhost。");
+  const ticketData=await api("/api/mic/start",{channel_id:channelId});
+  const wsProto=location.protocol==="https:"?"wss:":"ws:";
+  micSocket=new WebSocket(wsProto+"//"+location.host+"/api/mic/stream?ticket="+encodeURIComponent(ticketData.ticket));
+  micSocket.binaryType="arraybuffer";
+  await new Promise((resolve,reject)=>{micSocket.onopen=resolve;micSocket.onerror=()=>reject(new Error("麥克風串流連線失敗。"))});
+  micStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+  micContext=new (window.AudioContext||window.webkitAudioContext)({sampleRate:48000});await micContext.resume();
+  micSourceNode=micContext.createMediaStreamSource(micStream);micProcessor=micContext.createScriptProcessor(4096,1,1);
+  micGain=micContext.createGain();micGain.gain.value=0;
+  micProcessor.onaudioprocess=event=>{
+   if(!micActive||!micSocket||micSocket.readyState!==WebSocket.OPEN)return;
+   const input=event.inputBuffer.getChannelData(0),ratio=micContext.sampleRate/48000;
+   const outLen=Math.floor(input.length/ratio),resampled=new Float32Array(outLen);
+   for(let i=0;i<outLen;i++){const pos=i*ratio,lo=Math.floor(pos),hi=Math.min(lo+1,input.length-1),frac=pos-lo;resampled[i]=input[lo]*(1-frac)+input[hi]*frac}
+   const combined=new Float32Array(micBuffer.length+resampled.length);combined.set(micBuffer);combined.set(resampled,micBuffer.length);
+   let offset=0;
+   while(combined.length-offset>=960&&micSocket.readyState===WebSocket.OPEN){
+    const pcm=new Int16Array(960);for(let i=0;i<960;i++){const v=Math.max(-1,Math.min(1,combined[offset+i]));pcm[i]=v<0?v*32768:v*32767}
+    micSocket.send(pcm.buffer);offset+=960;
+   }
+   micBuffer=combined.slice(offset);
+  };
+  micSourceNode.connect(micProcessor);micProcessor.connect(micGain);micGain.connect(micContext.destination);
+  micActive=true;btn.disabled=true;$("micStopBtn").disabled=false;message("micMsg","正在即時傳送麥克風聲音到 Discord。");
+ }catch(e){closeBrowserMic();try{await api("/api/mic/stop",{channel_id:channelId})}catch(err){}message("micMsg",e.message||"啟動麥克風失敗。",true)}
+};
+$("micStopBtn").onclick=async()=>{
+ const channelId=$("micChannel").value;closeBrowserMic();try{const d=await api("/api/mic/stop",{channel_id:channelId});message("micMsg",d.message||"已停止麥克風傳聲。")}catch(e){message("micMsg",e.message,true)}
+};
 </script></body></html>"""
 
 def _json_error(message, status=400):
