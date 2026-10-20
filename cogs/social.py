@@ -5,7 +5,7 @@ import random
 
 import discord
 from discord import app_commands, ui
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import storage
 
@@ -546,6 +546,86 @@ class PollCog(commands.Cog):
         await interaction.followup.send("投票關掉了。", ephemeral=True)
 
 
+
+
+class BirthdayCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.birthday_worker.start()
+
+    def cog_unload(self):
+        self.birthday_worker.cancel()
+
+    @app_commands.command(name="設定生日", description="記錄自己的生日，Bot 會在生日當天祝福你")
+    @app_commands.describe(month="出生月份", day="出生日期")
+    async def set_birthday(self, interaction: discord.Interaction, month: app_commands.Range[int, 1, 12], day: app_commands.Range[int, 1, 31]):
+        import calendar
+        if not interaction.guild:
+            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
+            return
+        if day > calendar.monthrange(2024, month)[1]:
+            await interaction.response.send_message("這個日期不存在，請重新輸入。", ephemeral=True)
+            return
+        key = f"birthdays_{interaction.guild.id}"
+        birthdays = storage.get_setting(interaction.guild.id, key, {})
+        birthdays[str(interaction.user.id)] = {"month": month, "day": day}
+        storage.set_setting(interaction.guild.id, key, birthdays)
+        await interaction.response.send_message(f"記好了！每年 {month} 月 {day} 日，我會在生日頻道祝你生日快樂。", ephemeral=True)
+
+    @app_commands.command(name="生日頻道", description="設定 Bot 發送生日祝福的頻道")
+    @app_commands.describe(channel="要發送生日祝福的文字頻道")
+    async def set_birthday_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("需要「管理伺服器」權限才能設定。", ephemeral=True)
+            return
+        storage.set_setting(interaction.guild.id, "birthday_channel_id", channel.id)
+        await interaction.response.send_message(f"生日祝福會發在 {channel.mention}。", ephemeral=True)
+
+    @tasks.loop(minutes=1)
+    async def birthday_worker(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("Asia/Taipei"))
+        day_key = today.strftime("%Y-%m-%d")
+        for guild in list(self.bot.guilds):
+            birthdays = storage.get_setting(guild.id, f"birthdays_{guild.id}", {})
+            if not birthdays:
+                continue
+            if storage.get_setting(guild.id, "birthday_last_announced", "") == day_key:
+                continue
+            birthday_ids = [
+                int(user_id) for user_id, value in birthdays.items()
+                if value.get("month") == today.month and value.get("day") == today.day
+            ]
+            if not birthday_ids:
+                storage.set_setting(guild.id, "birthday_last_announced", day_key)
+                continue
+            channel_id = storage.get_setting(guild.id, "birthday_channel_id")
+            channel = guild.get_channel(int(channel_id)) if channel_id else guild.system_channel
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            names = []
+            for user_id in birthday_ids:
+                member = guild.get_member(user_id)
+                if member and not member.bot:
+                    names.append(member.mention)
+            if not names:
+                storage.set_setting(guild.id, "birthday_last_announced", day_key)
+                continue
+            try:
+                await channel.send(
+                    "生日快樂 " + "、".join(names) + "！祝你今天過得開心！",
+                    allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+                )
+                storage.set_setting(guild.id, "birthday_last_announced", day_key)
+            except discord.HTTPException:
+                pass
+
+    @birthday_worker.before_loop
+    async def before_birthday_worker(self):
+        await self.bot.wait_until_ready()
+
+
 class ImitateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -615,3 +695,4 @@ async def setup(bot: commands.Bot):
     await bot.add_cog(RolePanelCog(bot))
     await bot.add_cog(PollCog(bot))
     await bot.add_cog(ImitateCog(bot))
+    await bot.add_cog(BirthdayCog(bot))
