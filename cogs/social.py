@@ -202,7 +202,7 @@ class AutoReplyAddModal(ui.Modal, title="新增觸發文字回覆"):
 
 
 class AutoReplyCog(commands.Cog):
-    autoreply = app_commands.Group(name="autoreply", description="自己設定一句話，Bot 回什麼都由你決定")
+    autoreply = app_commands.Group(name="autoreply", name_localizations={"zh-TW": "自動回覆"}, description="自己設定一句話，Bot 回什麼都由你決定", description_localizations={"zh-TW": "自己設定一句話，Bot 回什麼都由你決定"})
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -306,7 +306,7 @@ class AutoReplyCog(commands.Cog):
 
 
 class RolePanelCog(commands.Cog):
-    rolepanel = app_commands.Group(name="rolepanel", description="建立按鈕或下拉選單讓大家自己領身分組")
+    rolepanel = app_commands.Group(name="rolepanel", name_localizations={"zh-TW": "身分組面板"}, description="建立按鈕或下拉選單讓大家自己領身分組", description_localizations={"zh-TW": "建立按鈕或下拉選單讓大家自己領身分組"})
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -455,7 +455,7 @@ class PollView(ui.View):
 
 
 class PollCog(commands.Cog):
-    poll = app_commands.Group(name="poll", description="建立好玩的群組投票")
+    poll = app_commands.Group(name="poll", name_localizations={"zh-TW": "投票"}, description="建立好玩的群組投票", description_localizations={"zh-TW": "建立好玩的群組投票"})
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
