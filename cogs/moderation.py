@@ -243,7 +243,7 @@ class ModerationCog(commands.Cog):
             ephemeral=True,
         )
 
-    @security.command(name="invites", description="開關 Discord 邀請連結防護")
+    @security.command(name="invites", name_localizations={"zh-TW": "邀請連結管理"}, description="開關 Discord 邀請連結防護")
     async def invites(self, interaction, enabled: bool):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -251,7 +251,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "block_invites", enabled)
         await interaction.response.send_message(f"邀請連結防護已{'開啟' if enabled else '關閉'}。", ephemeral=True)
 
-    @security.command(name="caps", description="開關大量大寫字母防護")
+    @security.command(name="caps", name_localizations={"zh-TW": "大寫字限制"}, description="開關大量大寫字母防護")
     async def caps(self, interaction, enabled: bool):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -268,7 +268,7 @@ class ModerationCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "log_channel_id", channel.id)
         await interaction.response.send_message(f"好，以後管理紀錄會丟到 {channel.mention}。", ephemeral=True)
 
-    @modlog.command(name="disable", description="關閉管理紀錄")
+    @modlog.command(name="disable", name_localizations={"zh-TW": "停用"}, description="關閉管理紀錄")
     async def modlog_disable(self, interaction):
         if not self.can_manage(interaction):
             await interaction.response.send_message("這個設定要管理權限。", ephemeral=True)
@@ -301,7 +301,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.response.send_message("我沒權限改這個頻道。", ephemeral=True)
 
-    @app_commands.command(name="lock", description="暫時鎖住目前頻道，不讓一般成員發言")
+    @app_commands.command(name="lock", name_localizations={"zh-TW": "鎖定頻道"}, description="暫時鎖住目前頻道，不讓一般成員發言")
     async def lock(self, interaction):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
@@ -323,7 +323,7 @@ class ModerationCog(commands.Cog):
         except discord.HTTPException:
             await interaction.response.send_message("Discord 這次沒有成功鎖頻道，請稍後重試。", ephemeral=True)
 
-    @app_commands.command(name="unlock", description="解除目前頻道的鎖定")
+    @app_commands.command(name="unlock", name_localizations={"zh-TW": "解除鎖定"}, description="解除目前頻道的鎖定")
     async def unlock(self, interaction):
         if not isinstance(interaction.channel, discord.TextChannel) or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("你需要管理頻道權限。", ephemeral=True)
@@ -415,7 +415,7 @@ class ModerationCog(commands.Cog):
         except discord.HTTPException:
             await interaction.followup.send("Discord 暫時無法執行禁言，請稍後再試。", ephemeral=True)
 
-    @app_commands.command(name="kick", description="把成員踢出伺服器")
+    @app_commands.command(name="kick", name_localizations={"zh-TW": "踢出成員"}, description="把成員踢出伺服器")
     async def kick(self, interaction, member: discord.Member, reason: str = "沒有寫原因"):
         if not self.can_kick(interaction):
             await interaction.response.send_message("你需要踢出成員權限。", ephemeral=True)
@@ -432,7 +432,7 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             await interaction.followup.send("我沒有權限踢這個人。", ephemeral=True)
 
-    @app_commands.command(name="ban", description="把成員封鎖並踢出伺服器")
+    @app_commands.command(name="ban", name_localizations={"zh-TW": "封鎖成員"}, description="把成員封鎖並踢出伺服器")
     async def ban(self, interaction, member: discord.Member, reason: str = "沒有寫原因"):
         if not self.can_ban(interaction):
             await interaction.response.send_message("你需要封鎖成員權限。", ephemeral=True)
