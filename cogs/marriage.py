@@ -136,7 +136,7 @@ class MarriageCog(commands.Cog):
         self.bot = bot
         init_marriage_tables()
 
-    @app_commands.command(name="propose", name_localizations={"zh-TW": "求婚"}, description="向伺服器裡的成員求婚，對方可以選同意或拒絕")
+    @app_commands.command(name="propose", name_localizations={"zh-TW": "求婚"}, description_localizations={"zh-TW": "向伺服器裡的成員求婚，對方可以選同意或拒絕"}, description="向伺服器裡的成員求婚，對方可以選同意或拒絕")
     @app_commands.describe(member="你要求婚的成員", message="你想對他說的話")
     async def propose(self, interaction: discord.Interaction, member: discord.Member, message: str):
         if not interaction.guild:
@@ -191,7 +191,7 @@ class MarriageCog(commands.Cog):
             allowed_mentions=discord.AllowedMentions(users=[member]),
         )
 
-    @app_commands.command(name="marriage", name_localizations={"zh-TW": "婚姻狀態"}, description="查看你或其他成員的遊戲婚姻狀態")
+    @app_commands.command(name="marriage", name_localizations={"zh-TW": "婚姻狀態"}, description_localizations={"zh-TW": "查看你或其他成員的遊戲婚姻狀態"}, description="查看你或其他成員的遊戲婚姻狀態")
     @app_commands.describe(member="想查看的成員，不填就是自己")
     async def marriage_status(self, interaction: discord.Interaction, member: discord.Member | None = None):
         if not interaction.guild:
@@ -213,7 +213,7 @@ class MarriageCog(commands.Cog):
         embed.set_thumbnail(url=subject.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="divorce", name_localizations={"zh-TW": "離婚"}, description="結束目前的遊戲婚姻關係")
+    @app_commands.command(name="divorce", name_localizations={"zh-TW": "離婚"}, description_localizations={"zh-TW": "結束目前的遊戲婚姻關係"}, description="結束目前的遊戲婚姻關係")
     async def divorce(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個指令只能在伺服器裡使用。", ephemeral=True)
