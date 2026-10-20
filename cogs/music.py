@@ -443,7 +443,7 @@ class MusicCog(commands.Cog):
                 player.queue.clear()
                 player.skip_current = False
 
-    @music.command(name=app_commands.locale_str("search", zh_TW="搜尋歌曲"), description_localizations={"zh-TW": "直接搜尋 YouTube 歌曲並選一首"}, description="直接搜尋 YouTube 歌曲並選一首")
+    @music.command(name=app_commands.locale_str("search", zh_TW="搜尋歌曲"), description=app_commands.locale_str("直接搜尋 YouTube 歌曲並選一首", zh_TW="直接搜尋 YouTube 歌曲並選一首"))
     @app_commands.describe(query="歌名、歌手或關鍵字")
     async def search(self, interaction: discord.Interaction, query: str):
         if not interaction.guild:
