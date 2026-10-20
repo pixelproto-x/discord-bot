@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Optional
 
 import discord
@@ -37,6 +38,12 @@ def _message_line(message: discord.Message, bot_id: Optional[int]) -> Optional[s
         return None
 
     content = " ".join((message.clean_content or "").split()).strip()
+    # clean_content may replace custom emoji IDs with names; preserve original tokens
+    # so the AI can reuse real server emoji rather than inventing one.
+    raw_emoji_tokens = re.findall(r"<a?:[A-Za-z0-9_]{2,32}:\\d{15,22}>", getattr(message, "content", "") or "")
+    for token in raw_emoji_tokens:
+        if token not in content:
+            content = f"{content} {token}".strip()
     if not content or (not message.author.bot and content.startswith("!")):
         return None
 
