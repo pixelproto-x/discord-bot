@@ -85,8 +85,8 @@ async function loadVoiceChannels(){
  const select=$("voiceChannel");select.replaceChildren();
  if(!$("guild").value)return;
  const data=await api("/api/voice-channels?guild_id="+encodeURIComponent($("guild").value));
- for(const channel of data.channels){const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;select.append(o)}
- if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可傳送訊息的語音頻道";select.append(o);select.disabled=true}else{select.disabled=false}
+ const groups=new Map();for(const channel of data.channels){const category=channel.category||"未分類";if(!groups.has(category)){const group=document.createElement("optgroup");group.label="▰ "+category;groups.set(category,group);select.append(group)}const o=document.createElement("option");o.value=channel.id;o.textContent="🔊 "+channel.name;groups.get(category).append(o)}
+ if(!select.options.length){const o=document.createElement("option");o.value="";o.textContent="沒有可朗讀的語音房間";select.append(o);select.disabled=true}else{select.disabled=false;$("voiceRoomMeta").textContent="已載入 "+select.options.length+" 個可用語音房間；選好房間後輸入文字即可朗讀。";}
 }
 async function connect(){
  token=$("token").value.trim();if(!token){message("authMsg","請先輸入本機控制 Token。",true);return}
@@ -289,9 +289,13 @@ async def start_dashboard(bot):
         items = []
         for channel in guild.voice_channels:
             perms = channel.permissions_for(me) if me else None
-            if perms and perms.view_channel and perms.send_messages:
-                items.append({"id": str(channel.id), "name": channel.name})
-        return web.json_response({"channels": sorted(items, key=lambda item: item["name"].casefold())})
+            if perms and perms.view_channel and perms.connect and perms.speak:
+                items.append({
+                    "id": str(channel.id),
+                    "name": channel.name,
+                    "category": channel.category.name if channel.category else "未分類",
+                })
+        return web.json_response({"channels": sorted(items, key=lambda item: (item["category"].casefold(), item["name"].casefold()))})
 
     async def send_voice_message(request):
         try:
