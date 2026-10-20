@@ -84,7 +84,7 @@ def safe_calculate(expression: str) -> int | float:
     return visit(tree.body)
 
 class UtilityCog(commands.Cog):
-    remind = app_commands.Group(name="remind", description="設定與管理提醒")
+    remind = app_commands.Group(name="提醒", description="設定與管理提醒")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
