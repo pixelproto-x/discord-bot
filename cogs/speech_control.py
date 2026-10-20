@@ -196,6 +196,58 @@ class SpeechControlCog(commands.Cog):
                 return guild, member, member.voice.channel
         return None, None, None
 
+    async def speak_to_channel(self, channel: discord.VoiceChannel, text: str) -> tuple[bool, str]:
+        """Generate TTS and play it in the explicitly selected dashboard voice channel."""
+        text = normalize_spoken_digits(text.strip())
+        if not text:
+            return False, "請先輸入要唸的文字。"
+        if len(text) > 500:
+            return False, "一次最多唸 500 個字。"
+        ffmpeg = self.ffmpeg_executable()
+        if not ffmpeg:
+            return False, "找不到 FFmpeg，暫時無法播放語音。"
+
+        guild = channel.guild
+        voice_client = guild.voice_client
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            return False, "Bot 正在播放音樂或其他音訊；為避免打斷播放，請先停止目前音訊再朗讀。"
+
+        me = guild.me
+        perms = channel.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.connect or not perms.speak:
+            return False, "Bot 在這個語音房間需要查看頻道、連線和說話權限。"
+
+        filename = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="logrelay_dashboard_tts_", suffix=".mp3", delete=False) as tmp:
+                filename = tmp.name
+            await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
+
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await channel.connect()
+            elif voice_client.channel != channel:
+                await voice_client.move_to(channel)
+
+            self.active_guilds.add(guild.id)
+            self.temp_files[guild.id] = filename
+            loop = asyncio.get_running_loop()
+
+            def after_playback(error):
+                if error:
+                    print(f"[Dashboard TTS] playback error: {type(error).__name__}")
+                if not loop.is_closed():
+                    asyncio.run_coroutine_threadsafe(self._cleanup(guild.id, filename), loop)
+
+            voice_client.play(discord.FFmpegPCMAudio(filename, executable=ffmpeg, options="-vn"), after=after_playback)
+            return True, f"LogRelay 已加入「{channel.name}」，正在朗讀：{text[:120]}"
+        except discord.Forbidden:
+            await self._cleanup(guild.id, filename)
+            return False, "Discord 拒絕 Bot 連線或說話，請檢查語音房間權限。"
+        except Exception as exc:
+            print(f"[Dashboard TTS] failed: {type(exc).__name__}: {exc}")
+            await self._cleanup(guild.id, filename)
+            return False, "語音播放失敗。請確認網路、FFmpeg，以及 Bot 的連線和說話權限。"
+
     async def speak_from_terminal(self, text: str):
         text = normalize_spoken_digits(text.strip())
         if not text:
