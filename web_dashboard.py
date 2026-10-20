@@ -213,6 +213,9 @@ async def start_dashboard(bot):
 
     @web.middleware
     async def auth_middleware(request, handler):
+        # The WebSocket uses a short-lived, single-use ticket issued by the authenticated POST endpoint.
+        if request.path == "/api/mic/stream":
+            return await handler(request)
         if request.path in ("/", "/login", "/oauth/callback", "/logout") and request.method == "GET":
             return await handler(request)
         session_uid = _verify_session(request.cookies.get("dashboard_session", ""))
@@ -370,6 +373,61 @@ async def start_dashboard(bot):
             return _json_error(result, 409)
         return web.json_response({"message": result})
 
+    async def start_browser_mic(request):
+        try:
+            data = await request.json()
+            channel_id = int(data.get("channel_id", ""))
+        except (ValueError, TypeError):
+            return _json_error("請先選擇語音房間。")
+        channel = bot.get_channel(channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            return _json_error("找不到指定的語音房間。", 404)
+        speech = bot.get_cog("BrowserMicCog")
+        if not speech:
+            return _json_error("瀏覽器麥克風模組尚未載入，請重新啟動 Bot。", 503)
+        ok, message_text, ticket = await speech.start_stream(channel)
+        if not ok:
+            return _json_error(message_text, 409)
+        return web.json_response({"message": message_text, "ticket": ticket})
+
+    async def stop_browser_mic(request):
+        try:
+            data = await request.json()
+            channel_id = int(data.get("channel_id", ""))
+        except (ValueError, TypeError):
+            return _json_error("語音房間 ID 格式錯誤。")
+        channel = bot.get_channel(channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            return _json_error("找不到指定的語音房間。", 404)
+        speech = bot.get_cog("BrowserMicCog")
+        if not speech:
+            return _json_error("瀏覽器麥克風模組尚未載入。", 503)
+        stopped = await speech.stop_stream(channel.guild.id)
+        return web.json_response({"message": "已停止麥克風傳聲。" if stopped else "目前沒有啟動中的瀏覽器麥克風。"})
+
+    async def browser_mic_stream(request):
+        ticket = request.query.get("ticket", "")
+        speech = bot.get_cog("BrowserMicCog")
+        guild_id = speech.consume_ticket(ticket) if speech and ticket else None
+        if guild_id is None:
+            return _json_error("麥克風串流票證無效或已過期，請重新按開始。", 401)
+        ws = web.WebSocketResponse(max_msg_size=4096, heartbeat=20)
+        await ws.prepare(request)
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.BINARY:
+                    if len(msg.data) != 1920:
+                        await ws.close(code=1003, message=b"expected 20ms mono PCM16 frame")
+                        break
+                    if not speech.feed_frame(guild_id, msg.data):
+                        await ws.close(code=1011, message=b"audio source is no longer active")
+                        break
+                elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
+                    break
+        finally:
+            await speech.stop_stream(guild_id)
+        return ws
+
     async def select_target(request):
         try:
             data = await request.json()
@@ -479,6 +537,9 @@ async def start_dashboard(bot):
     app.router.add_get("/api/channels", channels)
     app.router.add_get("/api/voice-channels", voice_channels)
     app.router.add_post("/api/send-voice", send_voice_message)
+    app.router.add_post("/api/mic/start", start_browser_mic)
+    app.router.add_post("/api/mic/stop", stop_browser_mic)
+    app.router.add_get("/api/mic/stream", browser_mic_stream)
     app.router.add_post("/api/select", select_target)
     app.router.add_post("/api/send", send_message)
     async def delete_message(request):
