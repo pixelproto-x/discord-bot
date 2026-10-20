@@ -14,8 +14,8 @@ INVITE_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg/|discord(?:app)?
 
 
 class ModerationCog(commands.Cog):
-    security = app_commands.Group(name="security", description="防刷、防大量標記與連結濫用")
-    modlog = app_commands.Group(name="modlog", description="設定管理紀錄要發去哪裡")
+    security = app_commands.Group(name="security", name_localizations={"zh-TW": "安全管理"}, description="防刷、防大量標記與連結濫用", description_localizations={"zh-TW": "防刷、防大量標記與連結濫用"})
+    modlog = app_commands.Group(name="modlog", name_localizations={"zh-TW": "管理紀錄"}, description="設定管理紀錄要發去哪裡", description_localizations={"zh-TW": "設定管理紀錄要發去哪裡"})
 
     def __init__(self, bot):
         self.bot = bot
