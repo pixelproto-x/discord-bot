@@ -9,7 +9,7 @@ import storage
 
 
 class VoiceCog(commands.Cog):
-    voice = app_commands.Group(name="voice", description="語音頻道小工具與臨時語音")
+    voice = app_commands.Group(name="語音控制", description="語音頻道小工具與臨時語音")
 
     def __init__(self, bot):
         self.bot = bot
