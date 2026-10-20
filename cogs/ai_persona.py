@@ -65,10 +65,10 @@ def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
         if not (unicodedata.category(ch) == "So" and ord(ch) > 0x2300)
     )
     custom_emoji_tokens = re.findall(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", answer)
-    answer = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", " __CUSTOM_EMOJI_TOKEN__ ", answer)
+    answer = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", " ZZZCUSTOMEMOJITOKENZZZ ", answer)
     answer = "".join(ch for ch in answer if not unicodedata.category(ch).startswith("P"))
     for token in custom_emoji_tokens:
-        answer = answer.replace("__CUSTOM_EMOJI_TOKEN__", token, 1)
+        answer = answer.replace("ZZZCUSTOMEMOJITOKENZZZ", token, 1)
     answer = re.sub(r"\n{3,}", "\n\n", answer)
     return answer[:max_chars].strip()
 
