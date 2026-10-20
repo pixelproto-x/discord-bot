@@ -89,7 +89,7 @@ class UtilityCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @remind.command(name="add", description="設定一個到時間會提醒你的提醒")
+    @remind.command(name="新增", description="設定一個到時間會提醒你的提醒")
     @app_commands.describe(after="例如 10m、2h、1d", message="要提醒你的內容")
     async def remind_add(self, interaction: discord.Interaction, after: str, message: str):
         if not interaction.guild:
@@ -115,7 +115,7 @@ class UtilityCog(commands.Cog):
             ephemeral=True,
         )
 
-    @remind.command(name="list", description="看看自己現在有哪些提醒")
+    @remind.command(name="列表", description="看看自己現在有哪些提醒")
     async def remind_list(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用喔。", ephemeral=True)
@@ -132,7 +132,7 @@ class UtilityCog(commands.Cog):
             lines.append(f"{row['id']} · {eta}後 · {row['message']}")
         await interaction.response.send_message("你現在的提醒：\n" + "\n".join(lines), ephemeral=True)
 
-    @remind.command(name="cancel", description="取消自己的一個提醒")
+    @remind.command(name="取消", description="取消自己的一個提醒")
     @app_commands.describe(reminder_id="提醒編號")
     async def remind_cancel(self, interaction: discord.Interaction, reminder_id: int):
         if not interaction.guild:
@@ -143,7 +143,7 @@ class UtilityCog(commands.Cog):
         else:
             await interaction.response.send_message("找不到這個提醒，可能已經到時間或被取消了。", ephemeral=True)
 
-    @app_commands.command(name="timer", description="跑一個到時間會通知的倒數")
+    @app_commands.command(name="計時器", description="跑一個到時間會通知的倒數")
     @app_commands.describe(duration="例如 30s、5m、1h")
     async def timer(self, interaction: discord.Interaction, duration: str):
         if not interaction.guild:
@@ -171,7 +171,7 @@ class UtilityCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="countdown", description="建立一個短倒數")
+    @app_commands.command(name="倒數", description="建立一個短倒數")
     @app_commands.describe(seconds="倒數秒數，1 到 3600")
     async def countdown(self, interaction: discord.Interaction, seconds: app_commands.Range[int, 1, 3600]):
         if not interaction.guild:
@@ -195,7 +195,7 @@ class UtilityCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="calc", description="算數學，直接輸入一般算式")
+    @app_commands.command(name="計算", description="算數學，直接輸入一般算式")
     @app_commands.describe(expression="例如 123*45+6")
     async def calc(self, interaction: discord.Interaction, expression: str):
         if len(expression) > 80 or not re.fullmatch(r"[0-9+\-*/().% \^]+", expression):
@@ -207,7 +207,7 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message(f"{expression} = **{formatted}**")
         except Exception:
             await interaction.response.send_message("這題算不出來或數值太大，檢查一下算式吧。", ephemeral=True)
-    @app_commands.command(name="convert", description="常用單位換算")
+    @app_commands.command(name="單位換算", description="常用單位換算")
     @app_commands.describe(value="數值", from_unit="原單位", to_unit="目標單位")
     async def convert(self, interaction: discord.Interaction, value: float, from_unit: str, to_unit: str):
         if not math.isfinite(value):
@@ -230,16 +230,16 @@ class UtilityCog(commands.Cog):
         result = op(value) if callable(op) else value * op
         await interaction.response.send_message(f"換算好了：**{value:g} {from_unit} = {result:g} {to_unit}**")
 
-    @app_commands.command(name="coin", description="丟硬幣看正面還是反面")
+    @app_commands.command(name="丟硬幣", description="丟硬幣看正面還是反面")
     async def coin(self, interaction: discord.Interaction):
         await interaction.response.send_message(random.choice(["🪙 正面！", "🪙 反面！"]))
 
-    @app_commands.command(name="dice", description="丟骰子，預設六面")
+    @app_commands.command(name="擲骰子", description="丟骰子，預設六面")
     @app_commands.describe(sides="骰子面數，2 到 100")
     async def dice(self, interaction: discord.Interaction, sides: app_commands.Range[int, 2, 100] = 6):
         await interaction.response.send_message(f"🎲 擲出了 **{random.randint(1, sides)}**（D{sides}）")
 
-    @app_commands.command(name="roll", description="自訂骰子，例如 2d20+3")
+    @app_commands.command(name="隨機數", description="自訂骰子，例如 2d20+3")
     @app_commands.describe(formula="例如 2d20+3")
     async def roll(self, interaction: discord.Interaction, formula: str):
         m = re.fullmatch(r"(\d+)d(\d+)([+-]\d+)?", formula.lower().strip())
@@ -250,7 +250,7 @@ class UtilityCog(commands.Cog):
         values = [random.randint(1, sides) for _ in range(count)]
         await interaction.response.send_message(f"🎲 {formula} → {values}，總和 **{sum(values)+extra}**")
 
-    @app_commands.command(name="choose", description="從多個選項裡隨機挑一個")
+    @app_commands.command(name="幫我選", description="從多個選項裡隨機挑一個")
     @app_commands.describe(options="用逗號分隔，例如 A,B,C")
     async def choose(self, interaction: discord.Interaction, options: str):
         if len(options) > 1500:
@@ -264,7 +264,7 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message("單一選項最多 1800 字。", ephemeral=True)
             return
         await interaction.response.send_message(f"我幫你選：**{random.choice(items)}** 😎")
-    @app_commands.command(name="password", description="產生一組隨機密碼")
+    @app_commands.command(name="產生密碼", description="產生一組隨機密碼")
     @app_commands.describe(length="長度 8 到 64")
     async def password(self, interaction: discord.Interaction, length: app_commands.Range[int, 8, 64] = 16):
         chars = string.ascii_letters + string.digits + "!@#$%^&*_-"
@@ -274,7 +274,7 @@ class UtilityCog(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="translate", description="把一句話翻成指定語言")
+    @app_commands.command(name="翻譯", description="把一句話翻成指定語言")
     @app_commands.describe(text="要翻的內容", target="例如 zh-TW、en、ja")
     async def translate(self, interaction: discord.Interaction, text: str, target: str = "zh-TW"):
         await interaction.response.defer()
@@ -290,7 +290,7 @@ class UtilityCog(commands.Cog):
         except Exception:
             await interaction.followup.send("這次翻譯服務沒回應，再試一次。")
 
-    @app_commands.command(name="weather", description="查指定城市現在的天氣")
+    @app_commands.command(name="天氣", description="查指定城市現在的天氣")
     @app_commands.describe(city="例如 Taipei、Taichung、Changhua")
     async def weather(self, interaction: discord.Interaction, city: str):
         await interaction.response.defer()
@@ -308,7 +308,7 @@ class UtilityCog(commands.Cog):
         except Exception:
             await interaction.followup.send("天氣服務現在沒回應，過一下再查。")
 
-    @app_commands.command(name="age", description="用生日算你現在幾歲")
+    @app_commands.command(name="年齡計算", description="用生日算你現在幾歲")
     @app_commands.describe(birthday="格式 YYYY-MM-DD")
     async def age(self, interaction: discord.Interaction, birthday: str):
         try:
@@ -321,7 +321,7 @@ class UtilityCog(commands.Cog):
         except Exception:
             await interaction.response.send_message("生日格式用 YYYY-MM-DD，例如 2010-08-20。", ephemeral=True)
 
-    @app_commands.command(name="days", description="算兩個日期相差幾天")
+    @app_commands.command(name="日期差", description="算兩個日期相差幾天")
     @app_commands.describe(start="YYYY-MM-DD", end="YYYY-MM-DD")
     async def days(self, interaction: discord.Interaction, start: str, end: str):
         try:
@@ -331,7 +331,7 @@ class UtilityCog(commands.Cog):
         except Exception:
             await interaction.response.send_message("日期格式用 YYYY-MM-DD。", ephemeral=True)
 
-    @app_commands.command(name="qr", description="把文字或網址做成 QR Code")
+    @app_commands.command(name="產生二維碼", description="把文字或網址做成 QR Code")
     @app_commands.describe(text="要放進 QR Code 的文字或網址")
     async def qr(self, interaction: discord.Interaction, text: str):
         if len(text) > 1500:
@@ -346,7 +346,7 @@ class UtilityCog(commands.Cog):
         buf.seek(0)
         await interaction.response.send_message("好了，QR Code 在這。", file=discord.File(buf, "qrcode.png"))
 
-    @app_commands.command(name="time", description="看看現在台灣時間")
+    @app_commands.command(name="現在時間", description="看看現在台灣時間")
     async def time_cmd(self, interaction: discord.Interaction):
         from zoneinfo import ZoneInfo
         now = datetime.now(ZoneInfo("Asia/Taipei"))
