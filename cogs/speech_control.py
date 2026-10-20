@@ -127,7 +127,7 @@ class SpeechControlCog(commands.Cog):
             return False
         return True
 
-    @app_commands.command(name="speak", name_localizations={"zh-TW": "語音朗讀"}, description="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）", description_localizations={"zh-TW": "讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）"})
+    @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）", zh_TW="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）"))
     @app_commands.describe(text="要讓機器人唸出的內容")
     async def speak(self, interaction: discord.Interaction, text: str):
         if not await self.owner_check(interaction):
@@ -409,7 +409,7 @@ class SpeechControlCog(commands.Cog):
                 except OSError:
                     break
 
-    @app_commands.command(name="speech-stop", name_localizations={"zh-TW": "停止朗讀"}, description="停止 LogRelay 正在唸的語音（主人專用）", description_localizations={"zh-TW": "停止 LogRelay 正在唸的語音（主人專用）"})
+    @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止 LogRelay 正在唸的語音（主人專用）", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
     async def speech_stop(self, interaction: discord.Interaction):
         if not await self.owner_check(interaction):
             return
@@ -426,7 +426,7 @@ class SpeechControlCog(commands.Cog):
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
         await interaction.response.send_message("好，停止了。", ephemeral=True)
 
-    @app_commands.command(name="speech-leave", name_localizations={"zh-TW": "離開語音頻道"}, description="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）", description_localizations={"zh-TW": "讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）"})
+    @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）", zh_TW="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）"))
     async def speech_leave(self, interaction: discord.Interaction):
         if not await self.owner_check(interaction):
             return
