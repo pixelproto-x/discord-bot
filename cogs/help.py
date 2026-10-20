@@ -197,7 +197,7 @@ class HelpView(discord.ui.View):
 
 
 class HelpCog(commands.Cog):
-    @app_commands.command(name="指令說明", description="查看 Bot 功能和每個功能在做什麼")
+    @app_commands.command(name="help", description="查看 Bot 功能和每個功能在做什麼")
     async def help_command(self, interaction):
         await interaction.response.send_message(
             embed=help_embed(),
