@@ -142,9 +142,9 @@ def _sanitize_chat_reply(text: str) -> str:
 
 
 class SearchCog(commands.Cog):
-    search = app_commands.Group(name="search", name_localizations={"zh-TW": "搜尋"}, description="在 YouTube、Wikipedia、GitHub 找東西", description_localizations={"zh-TW": "在 YouTube、Wikipedia、GitHub 找東西"})
-    image = app_commands.Group(name="image", name_localizations={"zh-TW": "圖片"}, description="簡單的圖片處理工具", description_localizations={"zh-TW": "簡單的圖片處理工具"})
-    ai = app_commands.Group(name="ai", name_localizations={"zh-TW": "人工智慧"}, description="聊天、問答、翻譯與摘要工具", description_localizations={"zh-TW": "聊天、問答、翻譯與摘要工具"})
+    search = app_commands.Group(name=app_commands.locale_str("search", zh_TW="搜尋"), description=app_commands.locale_str("在 YouTube、Wikipedia、GitHub 找東西", zh_TW="在 YouTube、Wikipedia、GitHub 找東西"))
+    image = app_commands.Group(name=app_commands.locale_str("image", zh_TW="圖片"), description=app_commands.locale_str("簡單的圖片處理工具", zh_TW="簡單的圖片處理工具"))
+    ai = app_commands.Group(name=app_commands.locale_str("ai", zh_TW="人工智慧"), description=app_commands.locale_str("聊天、問答、翻譯與摘要工具", zh_TW="聊天、問答、翻譯與摘要工具"))
 
     def __init__(self, bot):
         self.bot = bot
@@ -1127,7 +1127,7 @@ class SearchCog(commands.Cog):
         except Exception as exc:
             self._log_ai_error("Discord casual chat", exc)
 
-    @search.command(name="youtube", name_localizations={"zh-TW": "YouTube搜尋"}, description="搜尋 YouTube 並列出幾個結果", description_localizations={"zh-TW": "搜尋 YouTube 並列出幾個結果"})
+    @search.command(name=app_commands.locale_str("youtube", zh_TW="YouTube搜尋"), description=app_commands.locale_str("搜尋 YouTube 並列出幾個結果", zh_TW="搜尋 YouTube 並列出幾個結果"))
     @app_commands.describe(query="關鍵字")
     async def youtube(self, interaction, query: str):
         query = query.strip()
@@ -1170,7 +1170,7 @@ class SearchCog(commands.Cog):
             print(f"YouTube search error: {exc}")
             await interaction.followup.send("YouTube 搜尋這次沒回來。")
 
-    @search.command(name="wikipedia", name_localizations={"zh-TW": "維基百科"}, description="搜尋 Wikipedia", description_localizations={"zh-TW": "搜尋 Wikipedia"})
+    @search.command(name=app_commands.locale_str("wikipedia", zh_TW="維基百科"), description=app_commands.locale_str("搜尋 Wikipedia", zh_TW="搜尋 Wikipedia"))
     @app_commands.describe(query="想查的東西")
     async def wikipedia(self, interaction, query: str):
         query = query.strip()
@@ -1208,7 +1208,7 @@ class SearchCog(commands.Cog):
             print(f"Wikipedia search error: {exc}")
             await interaction.followup.send("Wikipedia 現在沒回應。")
 
-    @search.command(name="github", name_localizations={"zh-TW": "GitHub搜尋"}, description="搜尋 GitHub 公開專案", description_localizations={"zh-TW": "搜尋 GitHub 公開專案"})
+    @search.command(name=app_commands.locale_str("github", zh_TW="GitHub搜尋"), description=app_commands.locale_str("搜尋 GitHub 公開專案", zh_TW="搜尋 GitHub 公開專案"))
     @app_commands.describe(query="關鍵字")
     async def github(self, interaction, query: str):
         query = query.strip()
@@ -1249,7 +1249,7 @@ class SearchCog(commands.Cog):
             print(f"GitHub search error: {exc}")
             await interaction.followup.send("GitHub 搜尋這次失敗了。")
 
-    @image.command(name="resize", name_localizations={"zh-TW": "調整圖片尺寸"}, description="把圖片縮到指定寬度", description_localizations={"zh-TW": "把圖片縮到指定寬度"})
+    @image.command(name=app_commands.locale_str("resize", zh_TW="調整圖片尺寸"), description=app_commands.locale_str("把圖片縮到指定寬度", zh_TW="把圖片縮到指定寬度"))
     @app_commands.describe(image="要處理的圖片", width="寬度 64 到 2048")
     async def resize(
         self,
@@ -1291,7 +1291,7 @@ class SearchCog(commands.Cog):
             print(f"Image resize error: {exc}")
             await interaction.followup.send("這張圖處理失敗了。")
 
-    @image.command(name="color", name_localizations={"zh-TW": "顏色資訊"}, description="抓一張圖片的平均顏色", description_localizations={"zh-TW": "抓一張圖片的平均顏色"})
+    @image.command(name=app_commands.locale_str("color", zh_TW="顏色資訊"), description=app_commands.locale_str("抓一張圖片的平均顏色", zh_TW="抓一張圖片的平均顏色"))
     @app_commands.describe(image="要分析的圖片")
     async def color(self, interaction, image: discord.Attachment):
         if not image.content_type or not image.content_type.startswith("image/"):
@@ -1318,7 +1318,7 @@ class SearchCog(commands.Cog):
             print(f"Image color error: {exc}")
             await interaction.followup.send("這張圖分析失敗了。")
 
-    @image.command(name="ocr", name_localizations={"zh-TW": "圖片文字辨識"}, description="從圖片抓文字，需要設定 OCR_SPACE_API_KEY", description_localizations={"zh-TW": "從圖片抓文字，需要設定 OCR_SPACE_API_KEY"})
+    @image.command(name=app_commands.locale_str("ocr", zh_TW="圖片文字辨識"), description=app_commands.locale_str("從圖片抓文字，需要設定 OCR_SPACE_API_KEY", zh_TW="從圖片抓文字，需要設定 OCR_SPACE_API_KEY"))
     @app_commands.describe(image="有文字的圖片")
     async def ocr(self, interaction, image: discord.Attachment):
         if not image.content_type or not image.content_type.startswith("image/"):
@@ -1383,7 +1383,7 @@ class SearchCog(commands.Cog):
             print(f"OCR error: {exc}")
             await interaction.followup.send("OCR 這次失敗了，再試一次。")
 
-    @ai.command(name="persona-reset", name_localizations={"zh-TW": "重設聊天人格"}, description="重置一條魚的人設違規處分", description_localizations={"zh-TW": "重置一條魚的人設違規處分"})
+    @ai.command(name=app_commands.locale_str("persona-reset", zh_TW="重設聊天人格"), description=app_commands.locale_str("重置一條魚的人設違規處分", zh_TW="重置一條魚的人設違規處分"))
     async def persona_reset(self, interaction: discord.Interaction):
         member = interaction.user
         if (
@@ -1399,7 +1399,7 @@ class SearchCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "fish_persona_disabled", False)
         await interaction.response.send_message("一條魚的違規紀錄與處分已重置", ephemeral=True)
 
-    @ai.command(name="chat", name_localizations={"zh-TW": "聊天"}, description="和 Gemini 幹話聊天、吐槽與接梗", description_localizations={"zh-TW": "和 Gemini 幹話聊天、吐槽與接梗"})
+    @ai.command(name=app_commands.locale_str("chat", zh_TW="聊天"), description=app_commands.locale_str("和 Gemini 幹話聊天、吐槽與接梗", zh_TW="和 Gemini 幹話聊天、吐槽與接梗"))
     @app_commands.describe(prompt="想聊的內容")
     async def ask(self, interaction, prompt: str):
         prompt = prompt.strip()
@@ -1459,7 +1459,7 @@ class SearchCog(commands.Cog):
             "Gemini 這次沒接到梗，再試一次。",
         )
 
-    @ai.command(name="mimic", name_localizations={"zh-TW": "模仿語氣"}, description="私下模仿整個伺服器所有成員的聊天語氣", description_localizations={"zh-TW": "私下模仿整個伺服器所有成員的聊天語氣"})
+    @ai.command(name=app_commands.locale_str("mimic", zh_TW="模仿語氣"), description=app_commands.locale_str("私下模仿整個伺服器所有成員的聊天語氣", zh_TW="私下模仿整個伺服器所有成員的聊天語氣"))
     @app_commands.describe(prompt="輸入要讓一條魚模仿群聊語氣說的內容")
     async def ai_mimic(self, interaction: discord.Interaction, prompt: str):
         prompt = prompt.strip()
@@ -1500,7 +1500,7 @@ class SearchCog(commands.Cog):
         answer = answer[:1900]
         await interaction.followup.send(answer, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
-    @ai.command(name="translate", name_localizations={"zh-TW": "翻譯"}, description="讓 Gemini 幫你翻譯並順一下語氣", description_localizations={"zh-TW": "讓 Gemini 幫你翻譯並順一下語氣"})
+    @ai.command(name=app_commands.locale_str("translate", zh_TW="翻譯"), description=app_commands.locale_str("讓 Gemini 幫你翻譯並順一下語氣", zh_TW="讓 Gemini 幫你翻譯並順一下語氣"))
     @app_commands.describe(text="原文", target="目標語言")
     async def ai_translate(
         self,
@@ -1549,7 +1549,7 @@ class SearchCog(commands.Cog):
             "Gemini 翻譯這次沒回來。",
         )
 
-    @ai.command(name="summarize", name_localizations={"zh-TW": "摘要"}, description="讓 Gemini 幫你整理重點", description_localizations={"zh-TW": "讓 Gemini 幫你整理重點"})
+    @ai.command(name=app_commands.locale_str("summarize", zh_TW="摘要"), description=app_commands.locale_str("讓 Gemini 幫你整理重點", zh_TW="讓 Gemini 幫你整理重點"))
     @app_commands.describe(text="要整理的內容")
     async def summarize(self, interaction, text: str):
         text = text.strip()
@@ -1594,7 +1594,7 @@ class SearchCog(commands.Cog):
 
 
 
-    @ai.command(name="ask", name_localizations={"zh-TW": "詢問AI"}, description="使用 FreeMind AI 優先回答問題、協助解題與除錯", description_localizations={"zh-TW": "使用 FreeMind AI 優先回答問題、協助解題與除錯"})
+    @ai.command(name=app_commands.locale_str("ask", zh_TW="詢問AI"), description=app_commands.locale_str("使用 FreeMind AI 優先回答問題、協助解題與除錯", zh_TW="使用 FreeMind AI 優先回答問題、協助解題與除錯"))
     @app_commands.describe(question="想詢問或需要協助解決的問題")
     async def ai_ask(self, interaction: discord.Interaction, question: str):
         question = question.strip()
@@ -1650,7 +1650,7 @@ class SearchCog(commands.Cog):
                 "AI 回覆失敗。請稍後再試；若持續發生，請檢查 Bot 終端機中的 AI 錯誤紀錄。"
             )
 
-    @ai.command(name="freemind-test", name_localizations={"zh-TW": "測試AI服務"}, description="實際測試 Discord Bot 是否連得上 FreeMind AI", description_localizations={"zh-TW": "實際測試 Discord Bot 是否連得上 FreeMind AI"})
+    @ai.command(name=app_commands.locale_str("freemind-test", zh_TW="測試AI服務"), description=app_commands.locale_str("實際測試 Discord Bot 是否連得上 FreeMind AI", zh_TW="實際測試 Discord Bot 是否連得上 FreeMind AI"))
     async def ai_freemind_test(self, interaction: discord.Interaction):
         if not self.freemind_base_url:
             await interaction.response.send_message(
@@ -1676,7 +1676,7 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
 
-    @ai.command(name="groq-test", name_localizations={"zh-TW": "測試Groq"}, description="實際測試 Groq API 與模型是否可用", description_localizations={"zh-TW": "實際測試 Groq API 與模型是否可用"})
+    @ai.command(name=app_commands.locale_str("groq-test", zh_TW="測試Groq"), description=app_commands.locale_str("實際測試 Groq API 與模型是否可用", zh_TW="實際測試 Groq API 與模型是否可用"))
     async def ai_groq_test(self, interaction: discord.Interaction):
         if not self.groq_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
@@ -1718,7 +1718,7 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
 
-    @ai.command(name="test", name_localizations={"zh-TW": "測試"}, description="實際測試 Gemini API 與模型是否可用", description_localizations={"zh-TW": "實際測試 Gemini API 與模型是否可用"})
+    @ai.command(name=app_commands.locale_str("test", zh_TW="測試"), description=app_commands.locale_str("實際測試 Gemini API 與模型是否可用", zh_TW="實際測試 Gemini API 與模型是否可用"))
     async def ai_test(self, interaction: discord.Interaction):
         if not self.gemini_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
