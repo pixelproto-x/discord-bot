@@ -69,6 +69,7 @@ def normalize_chat_reply(text: str, *, max_chars: int = 900) -> str:
     answer = "".join(ch for ch in answer if not unicodedata.category(ch).startswith("P"))
     for token in custom_emoji_tokens:
         answer = answer.replace("ZZZCUSTOMEMOJITOKENZZZ", token, 1)
+    answer = re.sub(r"\s{2,}", " ", answer)
     answer = re.sub(r"\n{3,}", "\n\n", answer)
     return answer[:max_chars].strip()
 
