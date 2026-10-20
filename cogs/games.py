@@ -122,7 +122,7 @@ class GameCog(commands.Cog):
         else:
             await interaction.response.send_message("太大了。" if number > target else "太小了。")
 
-    @game.command(name="trivia", description="來一題小常識")
+    @game.command(name="trivia", name_localizations={"zh-TW": "知識問答"}, description="來一題小常識")
     async def trivia(self, interaction: discord.Interaction):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
@@ -152,7 +152,7 @@ class GameCog(commands.Cog):
         finally:
             self.answer_sessions.discard(key)
 
-    @game.command(name="blackjack", description="抽兩張牌，比比看誰比較接近 21")
+    @game.command(name="blackjack", name_localizations={"zh-TW": "二十一點"}, description="抽兩張牌，比比看誰比較接近 21")
     async def blackjack(self, interaction: discord.Interaction):
         deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10] * 4
         player = random.sample(deck, 2)
@@ -307,7 +307,7 @@ class GameCog(commands.Cog):
         else:
             await interaction.response.send_message(f"**{display}**\n失誤：{state['wrong']}/6")
 
-    @game.command(name="reaction", description="測你的反應速度")
+    @game.command(name="reaction", name_localizations={"zh-TW": "反應力"}, description="測你的反應速度")
     async def reaction(self, interaction: discord.Interaction):
         await interaction.response.send_message("準備……")
         await asyncio.sleep(random.uniform(1.5, 4))
@@ -361,7 +361,7 @@ class GameCog(commands.Cog):
         finally:
             self.answer_sessions.discard(key)
 
-    @game.command(name="typing", description="測測看你的打字速度")
+    @game.command(name="typing", name_localizations={"zh-TW": "打字挑戰"}, description="測測看你的打字速度")
     async def typing(self, interaction: discord.Interaction):
         phrase = random.choice(["discord 朋友群", "今天晚上開黑", "這局不要雷我", "Bot 又有新功能了"])
         started = time.perf_counter()
@@ -386,7 +386,7 @@ class GameCog(commands.Cog):
         finally:
             self.answer_sessions.discard(key)
 
-    @game.command(name="memory", description="短暫記住一串圖案")
+    @game.command(name="memory", name_localizations={"zh-TW": "記憶力"}, description="短暫記住一串圖案")
     async def memory(self, interaction: discord.Interaction):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
@@ -415,7 +415,7 @@ class GameCog(commands.Cog):
         finally:
             self.answer_sessions.discard(key)
 
-    @game.command(name="math", description="算一道隨機心算題")
+    @game.command(name="math", name_localizations={"zh-TW": "數學挑戰"}, description="算一道隨機心算題")
     async def math_game(self, interaction: discord.Interaction):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
@@ -444,25 +444,25 @@ class GameCog(commands.Cog):
         finally:
             self.answer_sessions.discard(key)
 
-    @game.command(name="8ball", description="問我一個問題，我隨便回你")
+    @game.command(name="8ball", name_localizations={"zh-TW": "水晶球"}, description="問我一個問題，我隨便回你")
     async def eightball(self, interaction: discord.Interaction, question: str):
         answers = ["可以。", "大概可以吧。", "我覺得不行。", "等等再決定。", "看運氣。", "很有機會。", "不要問，做就對了。"]
         await interaction.response.send_message(f"🎱 {random.choice(answers)}")
 
-    @game.command(name="truth", description="隨機抽一題真心話")
+    @game.command(name="truth", name_localizations={"zh-TW": "真心話"}, description="隨機抽一題真心話")
     async def truth(self, interaction: discord.Interaction):
         await interaction.response.send_message(f"🗣️ 真心話：{random.choice(TRUTH)}")
 
-    @game.command(name="dare", description="隨機抽一個大冒險")
+    @game.command(name="dare", name_localizations={"zh-TW": "大冒險"}, description="隨機抽一個大冒險")
     async def dare(self, interaction: discord.Interaction):
         await interaction.response.send_message(f"😈 大冒險：{random.choice(DARE)}")
 
-    @game.command(name="wouldyourather", description="二選一，看你選哪個")
+    @game.command(name="wouldyourather", name_localizations={"zh-TW": "二選一"}, description="二選一，看你選哪個")
     async def wouldyourather(self, interaction: discord.Interaction):
         a, b = random.choice(WOULD)
         await interaction.response.send_message(f"你選哪個？\n🅰️ {a}\n🅱️ {b}")
 
-    @game.command(name="neverhaveiever", description="從沒做過這件事嗎")
+    @game.command(name="neverhaveiever", name_localizations={"zh-TW": "我從來沒有"}, description="從沒做過這件事嗎")
     async def neverhaveiever(self, interaction: discord.Interaction):
         items = ["沒熬夜到天亮過", "沒上課偷玩手機過", "沒把訊息傳錯人過", "沒玩遊戲玩到忘記時間過"]
         await interaction.response.send_message(f"🙅 從來沒有… **{random.choice(items)}**")
