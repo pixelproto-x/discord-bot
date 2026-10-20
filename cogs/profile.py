@@ -35,7 +35,7 @@ class ProfileCog(commands.Cog):
             except Exception:
                 pass
 
-    @app_commands.command(name="個人檔案", description="看看自己的等級、聊天、語音和遊戲資料")
+    @app_commands.command(name="profile", description="看看自己的等級、聊天、語音和遊戲資料")
     @app_commands.describe(member="不填就是看自己")
     async def profile(self, interaction: discord.Interaction, member: discord.Member | None = None):
         if not interaction.guild:
@@ -61,7 +61,7 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="成就", value="、".join(achievements[-6:]) if achievements else "還沒解鎖，再玩玩看。", inline=True)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="排行榜", description="看看伺服器目前的各種排行榜")
+    @app_commands.command(name="leaderboard", description="看看伺服器目前的各種排行榜")
     @app_commands.describe(kind="排行類型")
     @app_commands.choices(kind=[
         app_commands.Choice(name="XP", value="xp"),
@@ -90,7 +90,7 @@ class ProfileCog(commands.Cog):
         title = {"xp":"XP 排行", "msg_count":"聊天排行", "voice_seconds":"語音排行", "games_won":"遊戲勝場排行", "games_played":"遊戲場次排行"}[field]
         await interaction.response.send_message("🏆 **" + title + "**\n" + "\n".join(lines))
 
-    @app_commands.command(name="成員資訊", description="查看一位成員的基本 Discord 資訊")
+    @app_commands.command(name="userinfo", description="查看一位成員的基本 Discord 資訊")
     async def userinfo(self, interaction, member: discord.Member | None = None):
         if not interaction.guild:
             await interaction.response.send_message("成員資訊只能在伺服器裡查看。", ephemeral=True)
@@ -104,7 +104,7 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="身分組", value=" ".join(roles) if roles else "沒有額外身分組", inline=False)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="伺服器資訊", description="看看這個伺服器的基本資訊")
+    @app_commands.command(name="serverinfo", description="看看這個伺服器的基本資訊")
     async def serverinfo(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
@@ -120,14 +120,14 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="建立時間", value=discord.utils.format_dt(guild.created_at, "D"), inline=True)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="查看頭像", description="查看自己或別人的大圖頭像")
+    @app_commands.command(name="avatar", description="查看自己或別人的大圖頭像")
     async def avatar(self, interaction, member: discord.Member | None = None):
         target = member or interaction.user
         embed = discord.Embed(title=f"{target.display_name} 的頭像", color=0x5865F2)
         embed.set_image(url=target.display_avatar.with_size(1024).url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="查看橫幅", description="查看成員的 Discord Banner")
+    @app_commands.command(name="banner", description="查看成員的 Discord Banner")
     async def banner(self, interaction, member: discord.Member | None = None):
         target = member or interaction.user
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -142,7 +142,7 @@ class ProfileCog(commands.Cog):
         except Exception as exc:
             print(f"Banner fetch error: {exc}")
             await interaction.followup.send("Banner 這次沒抓到，再試一次。", ephemeral=True)
-    @app_commands.command(name="成就", description="看看自己目前解鎖了哪些成就")
+    @app_commands.command(name="achievements", description="看看自己目前解鎖了哪些成就")
     async def achievements(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
@@ -165,7 +165,7 @@ class ProfileCog(commands.Cog):
             text += "\n\n還沒解鎖：\n" + "\n".join(locked)
         await interaction.response.send_message(text)
 
-    @app_commands.command(name="成員數量", description="看看伺服器現在有多少成員")
+    @app_commands.command(name="membercount", description="看看伺服器現在有多少成員")
     async def membercount(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
