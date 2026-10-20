@@ -559,7 +559,7 @@ class History(commands.Cog):
         except Exception:
             logger.exception("記錄 Raw 刪除訊息失敗：%s", payload.message_id)
 
-    @app_commands.command(name="訊息紀錄",
+    @app_commands.command(name="history", name_localizations={"zh-TW": "訊息紀錄"},
         description="查詢已刪除的訊息歷史紀錄",
     )
     async def history(self, interaction: discord.Interaction) -> None:
