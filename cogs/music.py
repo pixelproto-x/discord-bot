@@ -188,7 +188,7 @@ class MusicControlView(ui.View):
 
 
 class MusicCog(commands.Cog):
-    music = app_commands.Group(name="music", name_localizations={"zh-TW": "音樂"}, description="在語音頻道搜尋並播放音樂", description_localizations={"zh-TW": "在語音頻道搜尋並播放音樂"})
+    music = app_commands.Group(name=app_commands.locale_str("music", zh_TW="音樂"), description=app_commands.locale_str("在語音頻道搜尋並播放音樂", zh_TW="在語音頻道搜尋並播放音樂"))
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -443,7 +443,7 @@ class MusicCog(commands.Cog):
                 player.queue.clear()
                 player.skip_current = False
 
-    @music.command(name="search", name_localizations={"zh-TW": "搜尋歌曲"}, description_localizations={"zh-TW": "直接搜尋 YouTube 歌曲並選一首"}, description="直接搜尋 YouTube 歌曲並選一首")
+    @music.command(name=app_commands.locale_str("search", zh_TW="搜尋歌曲"), description_localizations={"zh-TW": "直接搜尋 YouTube 歌曲並選一首"}, description="直接搜尋 YouTube 歌曲並選一首")
     @app_commands.describe(query="歌名、歌手或關鍵字")
     async def search(self, interaction: discord.Interaction, query: str):
         if not interaction.guild:
@@ -466,7 +466,7 @@ class MusicCog(commands.Cog):
         view = MusicSearchView(self, interaction, results)
         await interaction.followup.send("🎵 找到這些：\n" + "\n".join(lines) + "\n點下面選你要的。", view=view)
 
-    @app_commands.command(name="join", name_localizations={"zh-TW": "加入語音"}, description="讓 LogRelay 加入你目前所在的語音頻道", description_localizations={"zh-TW": "讓 LogRelay 加入你目前所在的語音頻道"})
+    @app_commands.command(name=app_commands.locale_str("join", zh_TW="加入語音"), description=app_commands.locale_str("讓 LogRelay 加入你目前所在的語音頻道", zh_TW="讓 LogRelay 加入你目前所在的語音頻道"))
     async def join_voice(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
@@ -527,7 +527,7 @@ class MusicCog(commands.Cog):
                 return
         await interaction.response.send_message(f"我加入了 {channel.mention}。")
 
-    @music.command(name="play", name_localizations={"zh-TW": "播放音樂"}, description="搜尋歌曲，選一首後直接播放", description_localizations={"zh-TW": "搜尋歌曲，選一首後直接播放"})
+    @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲，選一首後直接播放", zh_TW="搜尋歌曲，選一首後直接播放"))
     @app_commands.describe(query="歌名、歌手或關鍵字")
     async def play(self, interaction: discord.Interaction, query: str):
         if not interaction.guild:
@@ -560,7 +560,7 @@ class MusicCog(commands.Cog):
             view=view,
         )
 
-    @music.command(name="queue", name_localizations={"zh-TW": "播放清單"}, description="看看現在音樂佇列", description_localizations={"zh-TW": "看看現在音樂佇列"})
+    @music.command(name=app_commands.locale_str("queue", zh_TW="播放清單"), description=app_commands.locale_str("看看現在音樂佇列", zh_TW="看看現在音樂佇列"))
     async def queue(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
@@ -575,7 +575,7 @@ class MusicCog(commands.Cog):
             lines.extend(f"{i+1}. {song.title}" for i, song in enumerate(player.queue[:20]))
         await interaction.response.send_message("\n".join(lines))
 
-    @music.command(name="nowplaying", name_localizations={"zh-TW": "正在播放"}, description="看看現在正在播什麼", description_localizations={"zh-TW": "看看現在正在播什麼"})
+    @music.command(name=app_commands.locale_str("nowplaying", zh_TW="正在播放"), description=app_commands.locale_str("看看現在正在播什麼", zh_TW="看看現在正在播什麼"))
     async def nowplaying(self, interaction: discord.Interaction):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
         if not player or not player.current:
@@ -583,7 +583,7 @@ class MusicCog(commands.Cog):
             return
         await interaction.response.send_message(f"🎵 現在是 **{player.current.title}**\n🔁 循環：{player.loop_mode}")
 
-    @music.command(name="pause", name_localizations={"zh-TW": "暫停音樂"}, description="暫停目前歌曲", description_localizations={"zh-TW": "暫停目前歌曲"})
+    @music.command(name=app_commands.locale_str("pause", zh_TW="暫停音樂"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
     async def pause(self, interaction: discord.Interaction):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
         if player and player.voice and player.voice.is_playing():
@@ -592,7 +592,7 @@ class MusicCog(commands.Cog):
         else:
             await interaction.response.send_message("現在沒有正在播放的歌。", ephemeral=True)
 
-    @music.command(name="resume", name_localizations={"zh-TW": "繼續播放"}, description="繼續播放", description_localizations={"zh-TW": "繼續播放"})
+    @music.command(name=app_commands.locale_str("resume", zh_TW="繼續播放"), description=app_commands.locale_str("繼續播放", zh_TW="繼續播放"))
     async def resume(self, interaction: discord.Interaction):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
         if player and player.voice and player.voice.is_paused():
@@ -601,7 +601,7 @@ class MusicCog(commands.Cog):
         else:
             await interaction.response.send_message("現在沒有暫停中的歌。", ephemeral=True)
 
-    @music.command(name="skip", name_localizations={"zh-TW": "跳過歌曲"}, description="跳到下一首", description_localizations={"zh-TW": "跳到下一首"})
+    @music.command(name=app_commands.locale_str("skip", zh_TW="跳過歌曲"), description=app_commands.locale_str("跳到下一首", zh_TW="跳到下一首"))
     async def skip(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
@@ -614,7 +614,7 @@ class MusicCog(commands.Cog):
             player.skip_current = True
             player.voice.stop()
         await interaction.response.send_message("好，下一首。")
-    @music.command(name="volume", name_localizations={"zh-TW": "音量"}, description="調整音量 0 到 100", description_localizations={"zh-TW": "調整音量 0 到 100"})
+    @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("調整音量 0 到 100", zh_TW="調整音量 0 到 100"))
     @app_commands.describe(value="音量百分比")
     async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
@@ -627,7 +627,7 @@ class MusicCog(commands.Cog):
                 player.voice.source.volume = player.volume
         await interaction.response.send_message(f"音量調成 **{value}%**。")
 
-    @music.command(name="shuffle", name_localizations={"zh-TW": "隨機排序"}, description="把目前佇列打亂", description_localizations={"zh-TW": "把目前佇列打亂"})
+    @music.command(name=app_commands.locale_str("shuffle", zh_TW="隨機排序"), description=app_commands.locale_str("把目前佇列打亂", zh_TW="把目前佇列打亂"))
     async def shuffle(self, interaction: discord.Interaction):
         import random
         player = self.players.get(interaction.guild.id) if interaction.guild else None
@@ -638,7 +638,7 @@ class MusicCog(commands.Cog):
             random.shuffle(player.queue)
         await interaction.response.send_message("好了，順序打亂。")
 
-    @music.command(name="loop", name_localizations={"zh-TW": "循環播放"}, description="切換單曲、全部或關閉循環", description_localizations={"zh-TW": "切換單曲、全部或關閉循環"})
+    @music.command(name=app_commands.locale_str("loop", zh_TW="循環播放"), description=app_commands.locale_str("切換單曲、全部或關閉循環", zh_TW="切換單曲、全部或關閉循環"))
     async def loop(self, interaction: discord.Interaction):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
         if not player:
@@ -648,7 +648,7 @@ class MusicCog(commands.Cog):
             player.loop_mode = {"off":"one", "one":"all", "all":"off"}[player.loop_mode]
         await interaction.response.send_message(f"現在是 **{player.loop_mode}** 循環。")
 
-    @music.command(name="remove", name_localizations={"zh-TW": "移除"}, description="移除佇列裡指定編號的歌曲", description_localizations={"zh-TW": "移除佇列裡指定編號的歌曲"})
+    @music.command(name=app_commands.locale_str("remove", zh_TW="移除"), description=app_commands.locale_str("移除佇列裡指定編號的歌曲", zh_TW="移除佇列裡指定編號的歌曲"))
     @app_commands.describe(index="歌曲編號")
     async def remove(self, interaction: discord.Interaction, index: app_commands.Range[int, 1, 50]):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
@@ -662,7 +662,7 @@ class MusicCog(commands.Cog):
             removed = player.queue.pop(index - 1)
         await interaction.response.send_message(f"拿掉了：**{removed.title}**")
 
-    @music.command(name="clear", name_localizations={"zh-TW": "清空"}, description="清空等待中的歌曲", description_localizations={"zh-TW": "清空等待中的歌曲"})
+    @music.command(name=app_commands.locale_str("clear", zh_TW="清空"), description=app_commands.locale_str("清空等待中的歌曲", zh_TW="清空等待中的歌曲"))
     async def clear(self, interaction: discord.Interaction):
         player = self.players.get(interaction.guild.id) if interaction.guild else None
         if not player:
@@ -673,7 +673,7 @@ class MusicCog(commands.Cog):
             player.queue.clear()
         await interaction.response.send_message(f"清掉 {count} 首等待中的歌。")
 
-    @music.command(name="leave", name_localizations={"zh-TW": "離開語音"}, description="讓 Bot 離開語音", description_localizations={"zh-TW": "讓 Bot 離開語音"})
+    @music.command(name=app_commands.locale_str("leave", zh_TW="離開語音"), description=app_commands.locale_str("讓 Bot 離開語音", zh_TW="讓 Bot 離開語音"))
     async def leave(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
