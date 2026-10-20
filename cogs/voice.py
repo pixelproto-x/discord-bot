@@ -31,7 +31,7 @@ class VoiceCog(commands.Cog):
         self.temp_channels.discard(channel.id)
         return True
 
-    @voice.command(name="temp", description="在你目前的語音位置建立一個臨時語音頻道")
+    @voice.command(name="臨時語音", description="在你目前的語音位置建立一個臨時語音頻道")
     @app_commands.describe(name="頻道名稱")
     async def temp(self, interaction, name: str = "臨時語音"):
         if not interaction.guild or not interaction.user.voice or not interaction.user.voice.channel:
@@ -64,7 +64,7 @@ class VoiceCog(commands.Cog):
                 except discord.HTTPException:
                     pass
             await interaction.followup.send("Discord 這次建立語音頻道失敗了，再試一次。", ephemeral=True)
-    @voice.command(name="join", description="讓 Bot 加入指定的語音頻道")
+    @voice.command(name="加入語音", description="讓 Bot 加入指定的語音頻道")
     @app_commands.describe(channel="要讓 Bot 加入的語音頻道")
     async def join(self, interaction: discord.Interaction, channel: discord.VoiceChannel):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -105,7 +105,7 @@ class VoiceCog(commands.Cog):
         except discord.HTTPException:
             await interaction.followup.send("Discord 連線失敗，請稍後再試。", ephemeral=True)
 
-    @voice.command(name="notice", description="設定誰進出語音時要在哪個文字頻道通知")
+    @voice.command(name="語音通知", description="設定誰進出語音時要在哪個文字頻道通知")
     @app_commands.describe(channel="通知頻道")
     async def notice(self, interaction, channel: discord.TextChannel):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
@@ -114,7 +114,7 @@ class VoiceCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "voice_notice_channel_id", channel.id)
         await interaction.response.send_message(f"好，以後語音進出會通知到 {channel.mention}。", ephemeral=True)
 
-    @voice.command(name="noticeoff", description="關閉語音進出通知")
+    @voice.command(name="關閉語音通知", description="關閉語音進出通知")
     async def noticeoff(self, interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
@@ -122,7 +122,7 @@ class VoiceCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "voice_notice_channel_id", 0)
         await interaction.response.send_message("語音通知關掉了。", ephemeral=True)
 
-    @voice.command(name="stats", description="看看自己累積待在語音多久")
+    @voice.command(name="語音統計", description="看看自己累積待在語音多久")
     async def stats(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
