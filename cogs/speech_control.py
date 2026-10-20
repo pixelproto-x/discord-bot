@@ -127,7 +127,7 @@ class SpeechControlCog(commands.Cog):
             return False
         return True
 
-    @app_commands.command(name="語音朗讀", description="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）")
+    @app_commands.command(name="speak", description="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）")
     @app_commands.describe(text="要讓機器人唸出的內容")
     async def speak(self, interaction: discord.Interaction, text: str):
         if not await self.owner_check(interaction):
@@ -409,7 +409,7 @@ class SpeechControlCog(commands.Cog):
                 except OSError:
                     break
 
-    @app_commands.command(name="停止朗讀", description="停止 LogRelay 正在唸的語音（主人專用）")
+    @app_commands.command(name="speech-stop", description="停止 LogRelay 正在唸的語音（主人專用）")
     async def speech_stop(self, interaction: discord.Interaction):
         if not await self.owner_check(interaction):
             return
@@ -426,7 +426,7 @@ class SpeechControlCog(commands.Cog):
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
         await interaction.response.send_message("好，停止了。", ephemeral=True)
 
-    @app_commands.command(name="離開語音頻道", description="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）")
+    @app_commands.command(name="speech-leave", description="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）")
     async def speech_leave(self, interaction: discord.Interaction):
         if not await self.owner_check(interaction):
             return
