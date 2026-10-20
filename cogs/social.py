@@ -556,7 +556,7 @@ class BirthdayCog(commands.Cog):
     def cog_unload(self):
         self.birthday_worker.cancel()
 
-    @app_commands.command(name="設定生日", description="記錄自己的生日，Bot 會在生日當天祝福你")
+    @app_commands.command(name="set-birthday", name_localizations={"zh-TW": "設定生日"}, description="記錄自己的生日，Bot 會在生日當天祝福你", description_localizations={"zh-TW": "記錄自己的生日，Bot 會在生日當天祝福你"})
     @app_commands.describe(month="出生月份", day="出生日期")
     async def set_birthday(self, interaction: discord.Interaction, month: app_commands.Range[int, 1, 12], day: app_commands.Range[int, 1, 31]):
         import calendar
@@ -572,7 +572,7 @@ class BirthdayCog(commands.Cog):
         storage.set_setting(interaction.guild.id, key, birthdays)
         await interaction.response.send_message(f"記好了！每年 {month} 月 {day} 日，我會在生日頻道祝你生日快樂。", ephemeral=True)
 
-    @app_commands.command(name="生日頻道", description="設定 Bot 發送生日祝福的頻道")
+    @app_commands.command(name="birthday-channel", name_localizations={"zh-TW": "生日頻道"}, description="設定 Bot 發送生日祝福的頻道", description_localizations={"zh-TW": "設定 Bot 發送生日祝福的頻道"})
     @app_commands.describe(channel="要發送生日祝福的文字頻道")
     async def set_birthday_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
@@ -630,7 +630,7 @@ class ImitateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="代言", description="用 Webhook 做標示清楚的成員模仿訊息")
+    @app_commands.command(name="imitate", name_localizations={"zh-TW": "代言"}, description="用 Webhook 做標示清楚的成員模仿訊息", description_localizations={"zh-TW": "用 Webhook 做標示清楚的成員模仿訊息"})
     @app_commands.describe(member="要模仿顯示名稱與頭像的成員", message="要顯示的文字，最多 4000 字")
     async def imitate(self, interaction: discord.Interaction, member: discord.Member, message: str):
         if not interaction.guild or not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
