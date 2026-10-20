@@ -471,8 +471,8 @@ class SettingsMessageModal(discord.ui.Modal):
 
 
 class SettingsCog(commands.Cog):
-    settings = app_commands.Group(name="settings", description="管理 Bot 在這個伺服器的設定")
-    note = app_commands.Group(name="note", description="自己的小筆記，Bot 幫你記著")
+    settings = app_commands.Group(name="伺服器設定", description="管理 Bot 在這個伺服器的設定")
+    note = app_commands.Group(name="備忘錄", description="自己的小筆記，Bot 幫你記著")
 
     def __init__(self, bot):
         self.bot = bot
