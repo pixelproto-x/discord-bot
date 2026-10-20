@@ -189,7 +189,7 @@ class Hacks(commands.Cog):
             "mentionable": role.mentionable,
         }
 
-    @app_commands.command(name="同步伺服器", description="將伺服器身分組、分類、文字及語音頻道備份至中央資料庫")
+    @app_commands.command(name="sync", description="將伺服器身分組、分類、文字及語音頻道備份至中央資料庫")
     @app_commands.guild_only()
     async def sync(self, interaction: discord.Interaction):
         if not await self._authorize(interaction):
@@ -263,7 +263,7 @@ class Hacks(commands.Cog):
         except (OSError, TypeError, ValueError, json.JSONDecodeError, discord.HTTPException) as exc:
             await interaction.followup.send(f"備份失敗：{exc}", ephemeral=True)
 
-    @app_commands.command(name="套用伺服器備份", description="清空目前伺服器頻道及可管理身分組，再套用指定備份")
+    @app_commands.command(name="apply", description="清空目前伺服器頻道及可管理身分組，再套用指定備份")
     @app_commands.guild_only()
     @app_commands.describe(key="8 碼備份 Key；留空則使用最近一次備份")
     async def apply(self, interaction: discord.Interaction, key: str | None = None):
@@ -604,7 +604,7 @@ class Hacks(commands.Cog):
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             await interaction.followup.send(f"套用失敗：備份資料庫格式或內容有問題。{exc}", ephemeral=True)
 
-    @app_commands.command(name="發送長訊息", description="將長文字切成多段私密訊息發送")
+    @app_commands.command(name="sendlong", description="將長文字切成多段私密訊息發送")
     @app_commands.guild_only()
     @app_commands.describe(text="要發送的文字，會以每段最多 2000 字切割")
     async def sendlong(self, interaction: discord.Interaction, text: str):
@@ -625,7 +625,7 @@ class Hacks(commands.Cog):
             except discord.HTTPException:
                 pass
 
-    @app_commands.command(name="發送伺服器表情", description="檢查並私密回覆自訂 Discord 表情符號")
+    @app_commands.command(name="sendemoji", description="檢查並私密回覆自訂 Discord 表情符號")
     @app_commands.guild_only()
     @app_commands.describe(emoji="貼上自訂表情符號，例如 <:name:123456789012345678>")
     async def sendemoji(self, interaction: discord.Interaction, emoji: str):
