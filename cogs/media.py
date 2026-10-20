@@ -142,9 +142,9 @@ def _sanitize_chat_reply(text: str) -> str:
 
 
 class SearchCog(commands.Cog):
-    search = app_commands.Group(name="search", description="在 YouTube、Wikipedia、GitHub 找東西")
-    image = app_commands.Group(name="image", description="簡單的圖片處理工具")
-    ai = app_commands.Group(name="ai", description="聊天、問答、翻譯與摘要工具")
+    search = app_commands.Group(name="搜尋", description="在 YouTube、Wikipedia、GitHub 找東西")
+    image = app_commands.Group(name="圖片", description="簡單的圖片處理工具")
+    ai = app_commands.Group(name="人工智慧", description="聊天、問答、翻譯與摘要工具")
 
     def __init__(self, bot):
         self.bot = bot
