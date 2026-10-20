@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from web_dashboard import start_dashboard
+from localization import TraditionalChineseTranslator
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
 
@@ -153,6 +154,8 @@ class Bot(commands.Bot):
 
         if failed_modules:
             raise RuntimeError("Cog 載入失敗: " + ", ".join(failed_modules))
+
+        await self.tree.set_translator(TraditionalChineseTranslator())
 
         global_commands = list(self.tree.get_commands())
         for attempt in range(3):
@@ -798,7 +801,7 @@ def _schedule_relay_warm(guild: discord.Guild, exclude_channel_id: int | None = 
     )
 
 
-@bot.tree.command(name="relay", name_localizations={"zh-TW": "訊息轉發"}, description="開啟或關閉伺服器訊息模仿功能", description_localizations={"zh-TW": "開啟或關閉伺服器訊息模仿功能"})
+@bot.tree.command(name=app_commands.locale_str("relay", zh_TW="訊息轉發"), description=app_commands.locale_str("開啟或關閉伺服器訊息模仿功能", zh_TW="開啟或關閉伺服器訊息模仿功能"))
 @app_commands.describe(action="選擇開啟或關閉")
 @app_commands.choices(action=[
     app_commands.Choice(name="開啟", value="on"),
@@ -1148,7 +1151,7 @@ def can_spam(interaction: discord.Interaction) -> bool:
     )
 
 
-@bot.tree.command(name="spam", name_localizations={"zh-TW": "多頻道發送"}, description="在多個頻道快速發送同一句訊息", description_localizations={"zh-TW": "在多個頻道快速發送同一句訊息"})
+@bot.tree.command(name=app_commands.locale_str("spam", zh_TW="多頻道發送"), description=app_commands.locale_str("在多個頻道快速發送同一句訊息", zh_TW="在多個頻道快速發送同一句訊息"))
 @app_commands.describe(content="要發的內容", count="發送次數")
 async def spam(interaction: discord.Interaction, content: str, count: int):
     if not interaction.guild:
@@ -1243,7 +1246,7 @@ async def spam(interaction: discord.Interaction, content: str, count: int):
     active_spam[job_key]["task"] = task
 
 
-@bot.tree.command(name="stopspam", name_localizations={"zh-TW": "停止發送"}, description="停止自己或有權限時停止別人的發送工作", description_localizations={"zh-TW": "停止自己或有權限時停止別人的發送工作"})
+@bot.tree.command(name=app_commands.locale_str("stopspam", zh_TW="停止發送"), description=app_commands.locale_str("停止自己或有權限時停止別人的發送工作", zh_TW="停止自己或有權限時停止別人的發送工作"))
 @app_commands.describe(member="要停止誰，不填就是自己")
 async def stopspam(interaction: discord.Interaction, member: discord.Member | None = None):
     target = member or interaction.user
@@ -1279,7 +1282,7 @@ async def stopspam(interaction: discord.Interaction, member: discord.Member | No
         await interaction.response.send_message("他現在沒有正在跑的發送工作。", ephemeral=True)
 
 
-@bot.tree.command(name="history_cleanup", name_localizations={"zh-TW": "清理歷史訊息"}, description="搜尋並清掉歷史訊息", description_localizations={"zh-TW": "搜尋並清掉歷史訊息"})
+@bot.tree.command(name=app_commands.locale_str("history_cleanup", zh_TW="清理歷史訊息"), description=app_commands.locale_str("搜尋並清掉歷史訊息", zh_TW="搜尋並清掉歷史訊息"))
 @app_commands.describe(
     count="搜尋範圍 1 到 1000",
     member="只處理這位成員",
