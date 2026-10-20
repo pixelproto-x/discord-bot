@@ -204,7 +204,7 @@ class MarriageCog(commands.Cog):
             return
         spouse_id = row["user2_id"] if row["user1_id"] == subject.id else row["user1_id"]
         spouse = interaction.guild.get_member(spouse_id)
-        married_at = discord.utils.format_dt(discord.utils.utcnow().fromtimestamp(row["married_at"]), style="D")
+        married_at = f"<t:{int(row['married_at'])}:D>"
         embed = discord.Embed(
             title="💍 遊戲婚姻狀態",
             description=f"{subject.mention} 的遊戲配偶是 {spouse.mention if spouse else f'<@{spouse_id}>'}\n結婚紀念日：{married_at}",
