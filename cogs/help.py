@@ -153,7 +153,7 @@ CATEGORIES = [
 def help_embed(index=None):
     if index is None:
         embed = discord.Embed(
-            title="🤖 朋友群 Bot",
+            title="🤖 一條魚",
             description="這顆就是放朋友群裡一起玩的。下面每一類都有實際在幹嘛的說明。",
             color=discord.Color.blurple(),
         )
@@ -197,7 +197,7 @@ class HelpView(discord.ui.View):
 
 
 class HelpCog(commands.Cog):
-    @app_commands.command(name="help", description="查看 Bot 功能和每個功能在做什麼")
+    @app_commands.command(name="help", description="查看 一條魚的功能和每個功能在做什麼")
     async def help_command(self, interaction):
         await interaction.response.send_message(
             embed=help_embed(),
