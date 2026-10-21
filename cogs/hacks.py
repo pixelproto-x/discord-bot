@@ -329,7 +329,7 @@ class Hacks(commands.Cog):
             if existing_backup:
                 saved_key, saved_payload = existing_backup
                 await interaction.followup.send(
-                    f"這個伺服器已經備份過了，為避免重複備份不會再次儲存。現有密鑰：{saved_key}",
+                    f"這個伺服器已經備份過了，為避免重複備份不會再次儲存。現有密鑰：\n```{saved_key}```",
                     ephemeral=True,
                 )
                 return
@@ -367,7 +367,7 @@ class Hacks(commands.Cog):
             database["last_backup_key"] = key
             self._write_database(database)
             await interaction.followup.send(
-                f"{guild.name}：（{key}）",
+                f"{guild.name}：\n備份密鑰（長按即可複製）：\n```{key}```",
                 ephemeral=True,
             )
         except (OSError, TypeError, ValueError, json.JSONDecodeError, discord.HTTPException) as exc:
