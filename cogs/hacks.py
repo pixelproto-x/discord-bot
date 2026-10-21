@@ -323,6 +323,42 @@ class Hacks(commands.Cog):
             "icon_base64": await cls._asset_base64(getattr(role, "icon", None)),
         }
 
+    @commands.Cog.listener()
+    async def on_message_emoji_alias(self, message: discord.Message):
+        """Show a clearly bot-attributed preview for custom emoji aliases."""
+        if not message.guild or message.author.bot or message.webhook_id or not message.content:
+            return
+        matches = list(dict.fromkeys(re.findall(r"(?<!\\w):([A-Za-z0-9_]{2,32}):(?!\\w)", message.content)))
+        if not matches:
+            return
+        guild_emojis = {emoji.name.casefold(): emoji for emoji in message.guild.emojis}
+        found = []
+        for name in matches[:3]:
+            emoji = guild_emojis.get(name.casefold())
+            if emoji:
+                found.append(emoji)
+        if not found:
+            return
+        # This is intentionally a visible Bot preview: no user impersonation and no deletion.
+        embeds = []
+        for emoji in found:
+            embed = discord.Embed(
+                title=f"表情預覽：:{emoji.name}:",
+                description=f"由 {message.author.mention} 的訊息觸發",
+                color=discord.Color.blurple(),
+            )
+            embed.set_image(url=str(emoji.url))
+            embeds.append(embed)
+        try:
+            await message.channel.send(
+                embeds=embeds,
+                allowed_mentions=discord.AllowedMentions.none(),
+                reference=message,
+                mention_author=False,
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Emoji alias preview] channel={message.channel.id}: {type(exc).__name__}: {exc}")
+
     @app_commands.command(name=app_commands.locale_str("backup-keys", zh_TW="查看備份密鑰"), description=app_commands.locale_str("查看已保存的伺服器備份密鑰", zh_TW="查看已保存的伺服器備份密鑰"))
     @app_commands.guild_only()
     async def backup_keys(self, interaction: discord.Interaction):
