@@ -970,6 +970,25 @@ async def server_message_relay(ctx: commands.Context, action: str = ""):
     # /relay is the supported control and returns a server-only ephemeral response.
 
 
+@bot.listen("on_reaction_add")
+async def mirror_member_reaction(reaction: discord.Reaction, user: discord.User | discord.Member):
+    """Mirror a member's emoji reaction on the same message once."""
+    if user.bot or reaction.message.guild is None:
+        return
+    try:
+        await reaction.message.add_reaction(reaction.emoji)
+        print(
+            f"[Reaction mirror] guild={reaction.message.guild.id} "
+            f"channel={reaction.message.channel.id} message={reaction.message.id}"
+        )
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+        print(
+            f"[Reaction mirror failed] guild={reaction.message.guild.id} "
+            f"channel={reaction.message.channel.id} message={reaction.message.id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
 @bot.listen("on_message")
 async def block_sticker_messages(message: discord.Message):
     """Delete every human message containing any Discord sticker, including server stickers."""
