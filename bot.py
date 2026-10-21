@@ -98,11 +98,11 @@ class ChooseVisibilityView(discord.ui.View):
     @discord.ui.button(label="僅自己可見", style=discord.ButtonStyle.secondary)
     async def send_private(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
+            private_kwargs = dict(self.send_kwargs)
+            private_kwargs["ephemeral"] = True
             await ORIGINAL_INTERACTION_SEND_MESSAGE(
                 interaction.response,
-                content=self.content,
-                ephemeral=True,
-                **self.send_kwargs,
+                **private_kwargs,
             )
             self.stop()
         except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
