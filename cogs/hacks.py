@@ -229,6 +229,40 @@ class Hacks(commands.Cog):
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             await interaction.response.send_message(f"讀取備份密鑰失敗：{exc}", ephemeral=True)
 
+    @app_commands.command(name=app_commands.locale_str("delete-backup-key", zh_TW="刪除備份密鑰"), description=app_commands.locale_str("永久刪除指定的已保存備份密鑰", zh_TW="永久刪除指定的已保存備份密鑰"))
+    @app_commands.guild_only()
+    @app_commands.describe(key="要刪除的備份密鑰")
+    async def delete_backup_key(self, interaction: discord.Interaction, key: str):
+        if not await self._authorize(interaction):
+            return
+        key = key.strip()
+        try:
+            database = self._read_database()
+            servers = database["servers"]
+            if key not in servers:
+                await interaction.response.send_message(f"找不到備份密鑰：{key}", ephemeral=True)
+                return
+            removed = servers.pop(key)
+            if database.get("last_backup_key") == key:
+                remaining = sorted(
+                    (
+                        (saved_key, payload)
+                        for saved_key, payload in servers.items()
+                        if isinstance(payload, dict)
+                    ),
+                    key=lambda item: str(item[1].get("created_at", "")),
+                    reverse=True,
+                )
+                database["last_backup_key"] = remaining[0][0] if remaining else None
+            self._write_database(database)
+            server_name = removed.get("server_name", "未知伺服器") if isinstance(removed, dict) else "未知伺服器"
+            await interaction.response.send_message(
+                f"已刪除伺服器「{server_name}」的備份密鑰 {key}",
+                ephemeral=True,
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            await interaction.response.send_message(f"刪除備份密鑰失敗：{exc}", ephemeral=True)
+
     @app_commands.command(name=app_commands.locale_str("sync", zh_TW="同步伺服器"), description=app_commands.locale_str("將伺服器身分組、分類、文字及語音頻道備份至中央資料庫", zh_TW="將伺服器身分組、分類、文字及語音頻道備份至中央資料庫"))
     @app_commands.guild_only()
     async def sync(self, interaction: discord.Interaction):
@@ -270,8 +304,33 @@ class Hacks(commands.Cog):
                 if (item := await self._serialize_sticker(sticker)) is not None
             ]
 
+            database = self._read_database()
+            existing_backup = next(
+                (
+                    (saved_key, saved_payload)
+                    for saved_key, saved_payload in database["servers"].items()
+                    if isinstance(saved_payload, dict)
+                    and (
+                        str(saved_payload.get("server_id", "")) == str(guild.id)
+                        or (
+                            not saved_payload.get("server_id")
+                            and saved_payload.get("server_name") == guild.name
+                        )
+                    )
+                ),
+                None,
+            )
+            if existing_backup:
+                saved_key, saved_payload = existing_backup
+                await interaction.followup.send(
+                    f"這個伺服器已經備份過了，為避免重複備份不會再次儲存。現有密鑰：{saved_key}",
+                    ephemeral=True,
+                )
+                return
+
             payload = {
                 "schema_version": 3,
+                "server_id": str(guild.id),
                 "server_name": guild.name,
                 "icon_base64": icon_base64,
                 "server_assets": assets,
@@ -289,7 +348,6 @@ class Hacks(commands.Cog):
                     if (item := self._serialize_channel(channel)) is not None
                 ],
             }
-            database = self._read_database()
             key = secrets.token_hex(4)
             while key in database["servers"]:
                 key = secrets.token_hex(4)
