@@ -173,7 +173,7 @@ class Hacks(commands.Cog):
             "name": sticker.name,
             "description": sticker.description or "",
             "emoji": sticker.emoji or "🙂",
-            "format": int(sticker.format),
+            "format": sticker.format.value,
             "image_base64": image_base64,
         }
 
@@ -188,6 +188,46 @@ class Hacks(commands.Cog):
             "hoist": role.hoist,
             "mentionable": role.mentionable,
         }
+
+    @app_commands.command(name=app_commands.locale_str("backup-keys", zh_TW="查看備份密鑰"), description=app_commands.locale_str("查看已保存的伺服器備份密鑰", zh_TW="查看已保存的伺服器備份密鑰"))
+    @app_commands.guild_only()
+    async def backup_keys(self, interaction: discord.Interaction):
+        if not await self._authorize(interaction):
+            return
+        try:
+            database = self._read_database()
+            servers = database.get("servers", {})
+            if not servers:
+                await interaction.response.send_message("目前沒有任何備份密鑰，請先執行 /sync。", ephemeral=True)
+                return
+            lines = []
+            for backup_key, payload in sorted(
+                servers.items(),
+                key=lambda item: str(item[1].get("created_at", "")) if isinstance(item[1], dict) else "",
+                reverse=True,
+            ):
+                if not isinstance(payload, dict):
+                    continue
+                name = str(payload.get("server_name") or "未知伺服器")
+                created_at = str(payload.get("created_at") or "未知時間")
+                lines.append(f"伺服器：{name}｜密鑰：\x60{backup_key}\x60｜時間：{created_at}")
+            if not lines:
+                await interaction.response.send_message("備份資料庫內沒有有效的備份。", ephemeral=True)
+                return
+            chunks = []
+            current = "已保存的伺服器備份密鑰（僅你可見）：\\n"
+            for line in lines:
+                if len(current) + len(line) + 1 > 1850:
+                    chunks.append(current)
+                    current = ""
+                current += line + "\\n"
+            if current:
+                chunks.append(current)
+            await interaction.response.send_message(chunks[0], ephemeral=True)
+            for chunk in chunks[1:]:
+                await interaction.followup.send(chunk, ephemeral=True)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            await interaction.response.send_message(f"讀取備份密鑰失敗：{exc}", ephemeral=True)
 
     @app_commands.command(name=app_commands.locale_str("sync", zh_TW="同步伺服器"), description=app_commands.locale_str("將伺服器身分組、分類、文字及語音頻道備份至中央資料庫", zh_TW="將伺服器身分組、分類、文字及語音頻道備份至中央資料庫"))
     @app_commands.guild_only()
