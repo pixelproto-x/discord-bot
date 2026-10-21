@@ -86,7 +86,7 @@ class Hacks(commands.Cog):
             data["type"] = "category"
         elif isinstance(channel, discord.TextChannel):
             data.update({
-                "type": "text",
+                "type": "announcement" if getattr(channel, "is_news", lambda: False)() else "text",
                 "topic": channel.topic,
                 "slowmode_delay": channel.slowmode_delay,
                 "nsfw": channel.nsfw,
@@ -298,6 +298,7 @@ class Hacks(commands.Cog):
                 "preferred_locale": str(guild.preferred_locale),
                 "premium_progress_bar_enabled": guild.premium_progress_bar_enabled,
                 "default_role_permissions": guild.default_role.permissions.value,
+                "system_channel_flags": getattr(guild, "system_channel_flags", None).value if getattr(guild, "system_channel_flags", None) is not None else None,
                 "widget_enabled": getattr(guild, "widget_enabled", None),
             }
             emoji_data = [
@@ -563,12 +564,14 @@ class Hacks(commands.Cog):
                 }
                 try:
                     created = None
-                    if data.get("type") == "text":
+                    if data.get("type") in {"text", "announcement"}:
                         kwargs.update({
                             "topic": data.get("topic"),
                             "slowmode_delay": max(0, min(21600, int(data.get("slowmode_delay", 0)))),
                             "nsfw": bool(data.get("nsfw", False)),
                         })
+                        if data.get("type") == "announcement":
+                            kwargs["news"] = True
                         created = await guild.create_text_channel(**kwargs)
                     elif data.get("type") == "forum" and hasattr(guild, "create_forum"):
                         kwargs.update({
@@ -662,6 +665,14 @@ class Hacks(commands.Cog):
                             reason=f"Restore server backup key {backup_key}",
                         )
                     except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                        pass
+                if guild_settings.get("system_channel_flags") is not None:
+                    try:
+                        await guild.edit(
+                            system_channel_flags=discord.SystemChannelFlags._from_value(int(guild_settings["system_channel_flags"])),
+                            reason=f"Restore server settings from backup {backup_key}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException, AttributeError, TypeError, ValueError):
                         pass
                 channel_settings = (
                     ("afk_channel_id", "afk_channel"),
