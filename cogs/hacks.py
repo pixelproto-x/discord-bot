@@ -215,12 +215,12 @@ class Hacks(commands.Cog):
                 await interaction.response.send_message("備份資料庫內沒有有效的備份。", ephemeral=True)
                 return
             chunks = []
-            current = "已保存的伺服器備份密鑰（僅你可見）：\\n"
+            current = "已保存的伺服器備份密鑰（僅你可見）：\n"
             for line in lines:
                 if len(current) + len(line) + 1 > 1850:
                     chunks.append(current)
                     current = ""
-                current += line + "\\n"
+                current += line + "\n"
             if current:
                 chunks.append(current)
             await interaction.response.send_message(chunks[0], ephemeral=True)
