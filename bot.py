@@ -147,8 +147,8 @@ def install_ephemeral_publish_buttons():
             if kwargs.get("ephemeral", False):
                 content = kwargs.get("content", args[0] if args else None)
                 kwargs["view"] = _add_publish_button(
-                    getattr(getattr(self, "_state", None), "user", None).id
-                    if getattr(getattr(self, "_state", None), "user", None) is not None
+                    getattr(getattr(self, "_parent", None), "user", None).id
+                    if getattr(getattr(self, "_parent", None), "user", None) is not None
                     else 0,
                     content,
                     kwargs.get("embed"),
