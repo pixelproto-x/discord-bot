@@ -177,16 +177,20 @@ class Hacks(commands.Cog):
             "image_base64": image_base64,
         }
 
-    @staticmethod
-    def _serialize_role(role):
+    @classmethod
+    async def _serialize_role(cls, role, creation_order):
         return {
             "id": role.id,
             "name": role.name,
             "color": role.color.value,
             "permissions": role.permissions.value,
             "position": role.position,
+            "creation_order": creation_order,
+            "created_at": role.created_at.isoformat() if role.created_at else None,
             "hoist": role.hoist,
             "mentionable": role.mentionable,
+            "unicode_emoji": getattr(role, "unicode_emoji", None),
+            "icon_base64": await cls._asset_base64(getattr(role, "icon", None)),
         }
 
     @app_commands.command(name=app_commands.locale_str("backup-keys", zh_TW="查看備份密鑰"), description=app_commands.locale_str("查看已保存的伺服器備份密鑰", zh_TW="查看已保存的伺服器備份密鑰"))
@@ -294,6 +298,7 @@ class Hacks(commands.Cog):
                 "preferred_locale": str(guild.preferred_locale),
                 "premium_progress_bar_enabled": guild.premium_progress_bar_enabled,
                 "default_role_permissions": guild.default_role.permissions.value,
+                "widget_enabled": getattr(guild, "widget_enabled", None),
             }
             emoji_data = [
                 item for emoji in guild.emojis
@@ -338,16 +343,22 @@ class Hacks(commands.Cog):
                 "emojis": emoji_data,
                 "stickers": sticker_data,
                 "created_at": discord.utils.utcnow().isoformat(),
-                "roles": [
-                    self._serialize_role(role)
-                    for role in sorted(guild.roles, key=lambda item: item.position)
-                    if not role.is_default() and not role.managed
-                ],
+                "roles": [],
+                "role_order_note": "creation_order follows Discord role creation timestamps; position stores visible hierarchy order.",
                 "channels": [
                     item for channel in sorted(guild.channels, key=lambda item: (item.position, item.id))
                     if (item := self._serialize_channel(channel)) is not None
                 ],
             }
+            eligible_roles = [
+                role for role in guild.roles
+                if not role.is_default() and not role.managed
+            ]
+            eligible_roles.sort(key=lambda item: (item.created_at.timestamp() if item.created_at else 0, item.id))
+            payload["roles"] = [
+                await self._serialize_role(role, index)
+                for index, role in enumerate(eligible_roles)
+            ]
             key = secrets.token_hex(4)
             while key in database["servers"]:
                 key = secrets.token_hex(4)
@@ -449,22 +460,50 @@ class Hacks(commands.Cog):
             created_roles = 0
             created_channels = 0
 
-            for data in sorted(roles_data, key=lambda item: item.get("position", 0)):
+            # Recreate roles by original creation timestamp, then restore their visible positions.
+            created_role_positions = []
+            for data in sorted(
+                roles_data,
+                key=lambda item: (item.get("creation_order", item.get("position", 0)), item.get("position", 0)),
+            ):
                 try:
-                    role = await guild.create_role(
-                        name=str(data["name"])[:100],
-                        permissions=discord.Permissions(int(data.get("permissions", 0))),
-                        colour=discord.Colour(int(data.get("color", 0))),
-                        hoist=bool(data.get("hoist", False)),
-                        mentionable=bool(data.get("mentionable", False)),
-                        reason=f"Restore server backup key {backup_key}",
-                    )
+                    role_kwargs = {
+                        "name": str(data["name"])[:100],
+                        "permissions": discord.Permissions(int(data.get("permissions", 0))),
+                        "colour": discord.Colour(int(data.get("color", 0))),
+                        "hoist": bool(data.get("hoist", False)),
+                        "mentionable": bool(data.get("mentionable", False)),
+                        "reason": f"Restore server backup key {backup_key}",
+                    }
+                    if data.get("unicode_emoji"):
+                        role_kwargs["unicode_emoji"] = data["unicode_emoji"]
+                    if data.get("icon_base64"):
+                        try:
+                            role_kwargs["icon"] = base64.b64decode(data["icon_base64"], validate=True)
+                        except (TypeError, ValueError):
+                            pass
+                    role = await guild.create_role(**role_kwargs)
                     role_map[data.get("id")] = role
                     role_name_map[role.name] = role
+                    created_role_positions.append((role, max(1, int(data.get("position", 1)))))
                     created_roles += 1
                     await asyncio.sleep(CREATE_DELAY)
                 except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
                     continue
+
+            if created_role_positions:
+                try:
+                    position_map = {
+                        role: position for role, position in created_role_positions
+                        if role < bot_member.top_role
+                    }
+                    if position_map:
+                        await guild.edit_role_positions(
+                            positions=position_map,
+                            reason=f"Restore role hierarchy from backup {backup_key}",
+                        )
+                except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    pass
 
             def resolve_overwrites(items):
                 overwrites = {}
@@ -611,7 +650,7 @@ class Hacks(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
                         pass
                 scalar_settings = (
-                    "description", "afk_timeout", "premium_progress_bar_enabled"
+                    "description", "afk_timeout", "premium_progress_bar_enabled", "widget_enabled"
                 )
                 for setting_name in scalar_settings:
                     if setting_name not in guild_settings:
