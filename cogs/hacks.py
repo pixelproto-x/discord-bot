@@ -328,7 +328,7 @@ class Hacks(commands.Cog):
         """Show a clearly bot-attributed preview for custom emoji aliases."""
         if not message.guild or message.author.bot or message.webhook_id or not message.content:
             return
-        matches = list(dict.fromkeys(re.findall(r"(?<!\\w):([A-Za-z0-9_]{2,32}):(?!\\w)", message.content)))
+        matches = list(dict.fromkeys(re.findall(r"(?<!\w):([A-Za-z0-9_]{2,32}):(?!\w)", message.content)))
         if not matches:
             return
         guild_emojis = {emoji.name.casefold(): emoji for emoji in message.guild.emojis}
