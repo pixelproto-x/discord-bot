@@ -42,7 +42,122 @@ OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "1509577038443319416"))
 MAX_COUNT = 100
 MAX_TOTAL_SPAM_MESSAGES = 100
+
 MAX_CONTENT_LEN = 2000
+
+
+class PublishEphemeralView(discord.ui.View):
+    def __init__(self, owner_id: int, content: str | None, embeds: list[discord.Embed]):
+        super().__init__(timeout=900)
+        self.owner_id = owner_id
+        self.content = content
+        self.embeds = embeds
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.owner_id:
+            return True
+        await interaction.response.send_message("只有這則私密回覆的使用者可以公開它。", ephemeral=True)
+        return False
+
+    @discord.ui.button(label="公開這則訊息", style=discord.ButtonStyle.primary, emoji="📢")
+    async def publish_message(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.channel is None:
+            await interaction.response.send_message("找不到原本的頻道，無法公開。", ephemeral=True)
+            return
+        content = self.content or "（原私密回覆沒有可公開的文字內容）"
+        try:
+            await interaction.channel.send(
+                content=content,
+                embeds=self.embeds or [],
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            button.disabled = True
+            button.label = "已公開"
+            await interaction.response.edit_message(view=self)
+        except discord.HTTPException:
+            await interaction.response.send_message("公開失敗，請確認機器人仍有在原頻道發送訊息的權限。", ephemeral=True)
+
+
+def _add_publish_button(owner_id, content, embed, embeds, view):
+    import copy
+
+    copied_embeds = [copy.deepcopy(item) for item in (embeds or [])]
+    if embed is not None:
+        copied_embeds.insert(0, copy.deepcopy(embed))
+    if view is None:
+        return PublishEphemeralView(owner_id, content, copied_embeds)
+    button = discord.ui.Button(label="公開這則訊息", style=discord.ButtonStyle.primary, emoji="📢")
+    async def publish_callback(interaction: discord.Interaction):
+        if interaction.user.id != owner_id:
+            await interaction.response.send_message("只有這則私密回覆的使用者可以公開它。", ephemeral=True)
+            return
+        if interaction.channel is None:
+            await interaction.response.send_message("找不到原本的頻道，無法公開。", ephemeral=True)
+            return
+        try:
+            await interaction.channel.send(
+                content=content or "（原私密回覆沒有可公開的文字內容）",
+                embeds=copied_embeds,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            button.disabled = True
+            button.label = "已公開"
+            await interaction.response.edit_message(view=view)
+        except discord.HTTPException:
+            await interaction.response.send_message("公開失敗，請確認機器人仍有在原頻道發送訊息的權限。", ephemeral=True)
+    button.callback = publish_callback
+    occupied = {row: 0 for row in range(5)}
+    for child in view.children:
+        row = child.row if child.row is not None else 0
+        occupied[row] = occupied.get(row, 0) + (5 if isinstance(child, discord.ui.Select) else 1)
+    available_row = next((row for row, count in occupied.items() if count < 5), None)
+    if available_row is None:
+        return view
+    button.row = available_row
+    try:
+        view.add_item(button)
+    except (ValueError, TypeError):
+        return view
+    return view
+
+
+def install_ephemeral_publish_buttons():
+    # Catch both initial interaction replies and follow-up webhook replies.
+    response_cls = discord.InteractionResponse
+    if not getattr(response_cls, "_publish_button_wrapped", False):
+        original_send_message = response_cls.send_message
+        async def send_message_with_publish_button(self, *args, **kwargs):
+            if kwargs.get("ephemeral", False):
+                content = kwargs.get("content", args[0] if args else None)
+                kwargs["view"] = _add_publish_button(
+                    self._parent.user.id,
+                    content,
+                    kwargs.get("embed"),
+                    kwargs.get("embeds"),
+                    kwargs.get("view"),
+                )
+            return await original_send_message(self, *args, **kwargs)
+        response_cls.send_message = send_message_with_publish_button
+        response_cls._publish_button_wrapped = True
+
+    webhook_cls = discord.Webhook
+    if not getattr(webhook_cls, "_publish_button_wrapped", False):
+        original_webhook_send = webhook_cls.send
+        async def webhook_send_with_publish_button(self, *args, **kwargs):
+            if kwargs.get("ephemeral", False):
+                content = kwargs.get("content", args[0] if args else None)
+                kwargs["view"] = _add_publish_button(
+                    getattr(getattr(self, "_state", None), "user", None).id
+                    if getattr(getattr(self, "_state", None), "user", None) is not None
+                    else 0,
+                    content,
+                    kwargs.get("embed"),
+                    kwargs.get("embeds"),
+                    kwargs.get("view"),
+                )
+            return await original_webhook_send(self, *args, **kwargs)
+        webhook_cls.send = webhook_send_with_publish_button
+        webhook_cls._publish_button_wrapped = True
 
 def parse_guild_ids(raw: str) -> set[int]:
     ids: set[int] = set()
@@ -111,6 +226,7 @@ class Bot(commands.Bot):
         self._terminal_channel_id: int | None = None
 
     async def setup_hook(self):
+        install_ephemeral_publish_buttons()
         storage.init_db()
         modules = [
             utility,
