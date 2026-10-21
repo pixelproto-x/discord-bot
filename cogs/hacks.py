@@ -5,6 +5,11 @@ import io
 import re
 import secrets
 import aiohttp
+import os
+import tempfile
+import time
+import edge_tts
+import imageio_ffmpeg
 from pathlib import Path
 
 import discord
@@ -21,6 +26,131 @@ CREATE_DELAY = 0.4
 class Hacks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._tts_last_spoken: dict[tuple[int, int], float] = {}
+        self._tts_locks: dict[int, asyncio.Lock] = {}
+
+    TTS_SETTINGS_PATH = Path(__file__).resolve().parent.parent / "hacks_tts_settings.json"
+
+    @classmethod
+    def _read_tts_settings(cls):
+        if not cls.TTS_SETTINGS_PATH.exists():
+            return {}
+        try:
+            data = json.loads(cls.TTS_SETTINGS_PATH.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    @classmethod
+    def _write_tts_settings(cls, data):
+        cls.TTS_SETTINGS_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @app_commands.command(name=app_commands.locale_str("tts_setup", zh_TW="設定文字朗讀"), description=app_commands.locale_str("指定文字頻道與要朗讀的成員", zh_TW="指定文字頻道與要朗讀的成員"))
+    @app_commands.guild_only()
+    @app_commands.describe(channel="要監聽的文字頻道", member="發言時要朗讀的成員")
+    async def tts_setup(self, interaction: discord.Interaction, channel: discord.TextChannel, member: discord.Member):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("請在伺服器內使用。", ephemeral=True)
+            return
+        if not (interaction.user.guild_permissions.manage_guild or interaction.user.id == OWNER_ID):
+            await interaction.response.send_message("需要管理伺服器權限才能設定。", ephemeral=True)
+            return
+        settings = self._read_tts_settings()
+        settings[str(interaction.guild.id)] = {
+            "channel_id": channel.id,
+            "member_id": member.id,
+            "enabled": True,
+        }
+        self._write_tts_settings(settings)
+        await interaction.response.send_message(
+            f"已設定文字朗讀：只監聽 {channel.mention} 中 {member.mention} 的訊息。"
+            "Bot 會在該成員所在的語音頻道朗讀，單次最多 50 字。",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name=app_commands.locale_str("tts_off", zh_TW="關閉文字朗讀"), description=app_commands.locale_str("關閉本伺服器的文字朗讀", zh_TW="關閉本伺服器的文字朗讀"))
+    @app_commands.guild_only()
+    async def tts_off(self, interaction: discord.Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("請在伺服器內使用。", ephemeral=True)
+            return
+        if not (interaction.user.guild_permissions.manage_guild or interaction.user.id == OWNER_ID):
+            await interaction.response.send_message("需要管理伺服器權限才能設定。", ephemeral=True)
+            return
+        settings = self._read_tts_settings()
+        settings.pop(str(interaction.guild.id), None)
+        self._write_tts_settings(settings)
+        await interaction.response.send_message("已關閉本伺服器的文字朗讀。", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if not message.guild or message.author.bot or message.webhook_id:
+            return
+        settings = self._read_tts_settings().get(str(message.guild.id))
+        if not isinstance(settings, dict) or not settings.get("enabled"):
+            return
+        if message.channel.id != settings.get("channel_id") or message.author.id != settings.get("member_id"):
+            return
+
+        # Remove URLs before reading; cap each message and enforce a per-user cooldown.
+        text = re.sub(r"https?://\S+|www\.\S+", " ", message.content, flags=re.IGNORECASE)
+        text = re.sub(r"<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>", " 表情 ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return
+        text = text[:50]
+        now = time.monotonic()
+        cooldown_key = (message.guild.id, message.author.id)
+        if now - self._tts_last_spoken.get(cooldown_key, 0.0) < 3.0:
+            return
+        self._tts_last_spoken[cooldown_key] = now
+
+        voice_state = getattr(message.author, "voice", None)
+        voice_channel = getattr(voice_state, "channel", None)
+        if not voice_channel:
+            return
+        lock = self._tts_locks.setdefault(message.guild.id, asyncio.Lock())
+        if lock.locked():
+            return
+
+        async with lock:
+            audio_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                    audio_path = temp_file.name
+                communicate = edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural")
+                await communicate.save(audio_path)
+
+                voice_client = message.guild.voice_client
+                if voice_client and voice_client.is_connected():
+                    if voice_client.channel.id != voice_channel.id:
+                        await voice_client.move_to(voice_channel)
+                else:
+                    voice_client = await voice_channel.connect()
+
+                if voice_client.is_playing():
+                    return
+
+                source = discord.FFmpegPCMAudio(audio_path, executable=imageio_ffmpeg.get_ffmpeg_exe())
+                done = asyncio.Event()
+                voice_client.play(source, after=lambda error: self.bot.loop.call_soon_threadsafe(done.set))
+                try:
+                    await asyncio.wait_for(done.wait(), timeout=20)
+                except asyncio.TimeoutError:
+                    if voice_client.is_playing():
+                        voice_client.stop()
+            except (discord.ClientException, discord.Forbidden, discord.HTTPException, OSError, RuntimeError, asyncio.TimeoutError) as exc:
+                print(f"[TTS] guild={message.guild.id} channel={message.channel.id}: {type(exc).__name__}: {exc}")
+            finally:
+                if audio_path:
+                    try:
+                        os.unlink(audio_path)
+                    except OSError:
+                        pass
+
 
     async def _authorize(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == OWNER_ID:
