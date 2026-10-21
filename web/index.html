@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>桌面即時投影</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif; overflow: hidden; }
+    main { width: 100%; height: 100%; display: grid; place-items: center; position: relative; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    #status { position: absolute; left: 12px; bottom: 12px; padding: 8px 12px; border-radius: 8px; background: #202127dd; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <video id="screen" autoplay playsinline muted></video>
+    <div id="status">正在連線到即時畫面…</div>
+  </main>
+  <script>
+    // Set this to the publicly reachable MediaMTX WebRTC/WHEP endpoint.
+    // Do not use 127.0.0.1 here for remote viewers; it points to each viewer's own device.
+    const WHEP_URL = (new URLSearchParams(location.search).get("whep") || "https://YOUR-MEDIAMTX-HOST/live/whep").replace(/\/$/, "");
+    const video = document.getElementById("screen");
+    const status = document.getElementById("status");
+
+    async function connect() {
+      let pc;
+      try {
+        pc = new RTCPeerConnection({ iceServers: [] });
+        pc.addTransceiver("video", { direction: "recvonly" });
+        pc.ontrack = event => {
+          video.srcObject = event.streams[0];
+          status.textContent = "已連線 · 即時桌面畫面";
+          video.play().catch(() => {});
+        };
+        pc.onconnectionstatechange = () => {
+          if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+            status.textContent = "連線中斷，請重新整理頁面";
+          }
+        };
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await new Promise(resolve => {
+          if (pc.iceGatheringState === "complete") return resolve();
+          const timeout = setTimeout(resolve, 2500);
+          pc.onicegatheringstatechange = () => {
+            if (pc.iceGatheringState === "complete") { clearTimeout(timeout); resolve(); }
+          };
+        });
+        const response = await fetch(WHEP_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: pc.localDescription.sdp
+        });
+        if (!response.ok) throw new Error("WHEP HTTP " + response.status);
+        const answer = await response.text();
+        await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      } catch (error) {
+        if (pc) pc.close();
+        status.textContent = "無法連線：請確認 MediaMTX 的公開 HTTPS/WHEP 位址與 CORS 設定";
+        console.error(error);
+      }
+    }
+    connect();
+  </script>
+</body>
+</html>
