@@ -91,18 +91,7 @@ class ChannelSelectView(discord.ui.View):
 
 class GuildRestrictedCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if ALLOWED_GUILD_IDS and (
-            interaction.guild_id is None or interaction.guild_id not in ALLOWED_GUILD_IDS
-        ):
-            message = '這個 Bot 目前只允許在管理者設定的伺服器中使用。'
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(message, ephemeral=True)
-                else:
-                    await interaction.response.send_message(message, ephemeral=True)
-            except discord.HTTPException:
-                pass
-            return False
+        # 只要 Bot 已加入該伺服器，就允許使用斜線指令。
         return True
 
 
@@ -157,31 +146,15 @@ class Bot(commands.Bot):
 
         await self.tree.set_translator(TraditionalChineseTranslator())
 
-        global_commands = list(self.tree.get_commands())
         for attempt in range(3):
             try:
-                if ALLOWED_GUILD_IDS:
-                    guilds = [discord.Object(id=guild_id) for guild_id in sorted(ALLOWED_GUILD_IDS)]
-                    for guild in guilds:
-                        self.tree.clear_commands(guild=guild)
-                        self.tree.copy_global_to(guild=guild)
-                    self.tree.clear_commands(guild=None)
-                    try:
-                        await self.tree.sync()
-                    finally:
-                        for command in global_commands:
-                            self.tree.add_command(command)
-                    synced_total = 0
-                    for guild in guilds:
-                        synced = await self.tree.sync(guild=guild)
-                        synced_total += len(synced)
-                    print(
-                        f"Synced {synced_total} guild slash commands "
-                        f"across {len(ALLOWED_GUILD_IDS)} allowlisted guild(s)"
-                    )
-                else:
-                    synced = await self.tree.sync()
-                    print(f"Synced {len(synced)} global slash commands")
+                # 清除舊版本可能留下的伺服器專屬指令，避免與全域指令重複。
+                for guild_id in sorted(ALLOWED_GUILD_IDS):
+                    guild = discord.Object(id=guild_id)
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                synced = await self.tree.sync()
+                print(f"Synced {len(synced)} global slash commands (available in every joined guild)")
                 break
             except Exception as exc:
                 print(f"Slash command sync failed (attempt {attempt + 1}/3): {exc!r}")
@@ -214,24 +187,7 @@ class Bot(commands.Bot):
             if _relay_enabled_cache.get(relay_guild.id, False):
                 _schedule_relay_warm(relay_guild)
         for guild in sorted(self.guilds, key=lambda item: item.name.casefold()):
-            allowed = not ALLOWED_GUILD_IDS or guild.id in ALLOWED_GUILD_IDS
-            status = "SLASH COMMANDS ENABLED" if allowed else "NOT ALLOWLISTED — slash commands will not appear here"
-            print(f"[Guild] {guild.name} | ID={guild.id} | {status}")
-        if ALLOWED_GUILD_IDS:
-            connected_ids = {guild.id for guild in self.guilds}
-            configured_but_missing = ALLOWED_GUILD_IDS - connected_ids
-            if configured_but_missing:
-                print(
-                    "[Slash commands] GUILD_IDS contains server IDs this bot is not currently in: "
-                    + ", ".join(str(guild_id) for guild_id in sorted(configured_but_missing))
-                )
-            blocked = [guild for guild in self.guilds if guild.id not in ALLOWED_GUILD_IDS]
-            if blocked:
-                print(
-                    "[Slash commands] To enable commands in a listed server, add its ID to GUILD_IDS "
-                    "in your local .env, then restart the bot. Current excluded servers: "
-                    + ", ".join(f"{guild.name} ({guild.id})" for guild in blocked)
-                )
+            print(f"[Guild] {guild.name} | ID={guild.id} | SLASH COMMANDS ENABLED (global)")
         if not reminder_worker.is_running():
             reminder_worker.start()
         if not getattr(self, "_terminal_speech_started", False):
