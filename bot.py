@@ -3,7 +3,20 @@ import os
 import re
 import traceback
 import time
+import logging
 from pathlib import Path
+
+# 隱藏第三方套件的一般成功／請求紀錄；WARNING、ERROR 與例外仍會顯示。
+for _logger_name in (
+    "discord",
+    "discord.http",
+    "discord.gateway",
+    "discord.client",
+    "aiohttp",
+    "asyncio",
+    "wavelink",
+):
+    logging.getLogger(_logger_name).setLevel(logging.WARNING)
 
 from dotenv import load_dotenv
 from web_dashboard import start_dashboard
@@ -337,7 +350,7 @@ class Bot(commands.Bot):
                     self.tree.clear_commands(guild=guild)
                     await self.tree.sync(guild=guild)
                 synced = await self.tree.sync()
-                print(f"Synced {len(synced)} global slash commands (available in every joined guild)")
+                print(f"[OK] Slash 指令同步完成：{len(synced)} 個全域指令")
                 break
             except Exception as exc:
                 print(f"Slash command sync failed (attempt {attempt + 1}/3): {exc!r}")
@@ -351,9 +364,29 @@ class Bot(commands.Bot):
     async def on_ready(self):
         if not getattr(self, "_web_dashboard_started", False):
             self._web_dashboard_started = True
-            await start_dashboard(self)
-        print(f"Logged in as {self.user} ({self.user.id})")
-        print(f"Connected guilds: {len(self.guilds)}")
+            try:
+                await start_dashboard(self)
+                self._dashboard_start_error = None
+            except Exception as exc:
+                self._dashboard_start_error = f"{type(exc).__name__}: {exc}"
+                print(f"[錯誤] 控制面板啟動失敗：{self._dashboard_start_error}")
+                traceback.print_exc()
+
+        # Discord 可能因重連再次觸發 on_ready；啟動畫面只輸出一次。
+        if not getattr(self, "_startup_summary_printed", False):
+            self._startup_summary_printed = True
+            print("\\n" + "=" * 42)
+            print("              Discord Bot")
+            print("=" * 42)
+            print(f"[OK] Discord 登入成功：{self.user}")
+            print(f"[OK] 已連接伺服器：{len(self.guilds)} 個")
+            if getattr(self, "_dashboard_start_error", None):
+                print("[錯誤] 控制面板未能啟動，詳情見上方錯誤")
+            else:
+                print("[OK] 控制面板啟動流程完成")
+            print("=" * 42)
+            print("機器人已就緒，等待指令")
+            print("=" * 42 + "\\n")
         for relay_guild in self.guilds:
             if relay_guild.id not in _relay_enabled_cache:
                 try:
@@ -369,8 +402,6 @@ class Bot(commands.Bot):
                     _relay_enabled_cache[relay_guild.id] = False
             if _relay_enabled_cache.get(relay_guild.id, False):
                 _schedule_relay_warm(relay_guild)
-        for guild in sorted(self.guilds, key=lambda item: item.name.casefold()):
-            print(f"[Guild] {guild.name} | ID={guild.id} | SLASH COMMANDS ENABLED (global)")
         if not reminder_worker.is_running():
             reminder_worker.start()
 
