@@ -224,8 +224,57 @@ class ChannelSelectView(discord.ui.View):
 
 class GuildRestrictedCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # 只要 Bot 已加入該伺服器，就允許使用斜線指令。
         return True
+
+    async def sync(self, *, guild=None):
+        if guild is not None:
+            return await super().sync(guild=guild)
+
+        if self.client.application_id is None:
+            return await super().sync(guild=None)
+
+        remote_commands = await self._http.get_global_commands(self.client.application_id)
+        entry_point = next(
+            (command for command in remote_commands if int(command.get("type", 1)) == 4),
+            None,
+        )
+
+        commands_to_sync = self._get_all_commands(guild=None)
+        if self.translator:
+            payload = [
+                await command.get_translated_payload(self, self.translator)
+                for command in commands_to_sync
+            ]
+        else:
+            payload = [command.to_dict(self) for command in commands_to_sync]
+
+        if entry_point is not None:
+            preserved_fields = (
+                "name",
+                "description",
+                "type",
+                "handler",
+                "options",
+                "name_localizations",
+                "description_localizations",
+                "integration_types",
+                "contexts",
+                "nsfw",
+                "default_member_permissions",
+                "dm_permission",
+            )
+            preserved_entry_point = {
+                key: entry_point[key]
+                for key in preserved_fields
+                if key in entry_point
+            }
+            payload.append(preserved_entry_point)
+
+        data = await self._http.bulk_upsert_global_commands(
+            self.client.application_id,
+            payload=payload,
+        )
+        return [app_commands.AppCommand(data=item, state=self._state) for item in data]
 
 
 class Bot(commands.Bot):
