@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 
-MAX_QUEUE_SIZE = 50
+MAX_QUEUE_SIZE = 10000
 MAX_QUERY_LENGTH = 200
 LAVALINK_NODES = (
     {
@@ -457,10 +457,11 @@ class MusicCog(commands.Cog):
             count, started = await self.enqueue_tracks(
                 message.guild, message.author.voice.channel, message.channel.id, message.author.id, tracks
             )
+            is_playlist = "list=" in query.lower() or "playlist" in query.lower()
             if len(tracks) > count:
                 note = f"佇列已滿，只加入前 {count} 首。"
-            elif hasattr(tracks, "name"):
-                note = f"播放清單已加入 {count} 首。"
+            elif is_playlist:
+                note = f"播放清單已依 YouTube 順序加入 {count} 首。"
             else:
                 note = f"已加入 {count} 首。"
             if started:
