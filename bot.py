@@ -40,8 +40,8 @@ class _QuietLogStream:
             value = str(value)
         with _LOG_LOCK:
             self._log_pending += value
-            while "\\n" in self._log_pending:
-                log_line, self._log_pending = self._log_pending.split("\\n", 1)
+            while "\n" in self._log_pending:
+                log_line, self._log_pending = self._log_pending.split("\n", 1)
                 record = logging.LogRecord("bot.output", logging.INFO, "", 0, log_line, (), None)
                 _LOG_HANDLER.emit(record)
             _LOG_HANDLER.flush()
