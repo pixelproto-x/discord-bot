@@ -33,13 +33,17 @@ class _QuietLogStream:
         self._wrapped = wrapped
         self._quiet = quiet
         self._pending = ""
+        self._log_pending = ""
 
     def write(self, value):
         if not isinstance(value, str):
             value = str(value)
         with _LOG_LOCK:
-            record = logging.LogRecord("bot.output", logging.INFO, "", 0, value, (), None)
-            _LOG_HANDLER.emit(record)
+            self._log_pending += value
+            while "\\n" in self._log_pending:
+                log_line, self._log_pending = self._log_pending.split("\\n", 1)
+                record = logging.LogRecord("bot.output", logging.INFO, "", 0, log_line, (), None)
+                _LOG_HANDLER.emit(record)
             _LOG_HANDLER.flush()
         if not self._quiet:
             return self._wrapped.write(value)
@@ -54,8 +58,13 @@ class _QuietLogStream:
         if self._pending and (not self._quiet or any(token in self._pending for token in _CONSOLE_IMPORTANT)):
             self._wrapped.write(self._pending)
         self._pending = ""
+        with _LOG_LOCK:
+            if self._log_pending:
+                record = logging.LogRecord("bot.output", logging.INFO, "", 0, self._log_pending, (), None)
+                _LOG_HANDLER.emit(record)
+                self._log_pending = ""
+            _LOG_HANDLER.flush()
         self._wrapped.flush()
-        _LOG_HANDLER.flush()
 
     def isatty(self):
         return self._wrapped.isatty()
