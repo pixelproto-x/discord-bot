@@ -478,33 +478,16 @@ class MusicCog(commands.Cog):
         if message.author.bot or not message.guild or not message.content:
             return
         match = SUPPORTED_URL_RE.search(message.content)
-       def render_queue(self, session: MusicSession | None) -> str:
-        if not session or (not session.current and not session.queue):
-            return "🎵 目前沒有播放中的歌曲，待播清單也是空的。"
-        lines = ["🎛️ **音樂控制台**"]
-        if session.current:
-            state = "（已暫停）" if getattr(session.player, "paused", False) else "（播放中）"
-            lines.append(f"\\n🎶 **目前播放**\\n{track_title(session.current)} · {track_duration(session.current)} {state}")
-        else:
-            lines.append("\\n🎶 **目前播放**\\n沒有歌曲正在播放")
-        lines.append("\\n📃 **待播清單**")
-        if session.queue:
-            lines.extend(f"{index}. {track_title(track)} · {track_duration(track)}" for index, track in enumerate(session.queue, 1))
-        else:
-            lines.append("（沒有待播歌曲）")
-        if len(session.queue) > 25:
-            lines.append(f"下拉選單最多可操作前 25 首；其餘 {len(session.queue) - 25} 首仍保留在清單。")
-        return "\\n".join(lines)[:1900]
-
-    @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
-    async def queue(self, interaction: discord.Interaction):
-        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
-        await interaction.response.send_message(
-            self.render_queue(session),
-            view=MusicQueueView(self, interaction.guild.id, interaction.user.id) if interaction.guild else None,
-        )
-
-      query, error = normalize_query(query)
+       @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
+    @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
+    async def play(self, interaction: discord.Interaction, query: str):
+        if not interaction.guild:
+            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
+            return
+        if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
+            return
+        query, error = normalize_query(query)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
@@ -518,14 +501,11 @@ class MusicCog(commands.Cog):
             is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
             if not is_url:
                 view = MusicSearchView(self, tracks, interaction.user.id)
-                names = "\\n".join(
+                names = "\n".join(
                     f"{index}. **{track_title(track)}**"
                     for index, track in enumerate(tracks, 1)
                 )
-                await interaction.followup.send(
-                    f"🎵 找到這些，點你要的：\n{names}",
-                    view=view,
-                )
+                await interaction.followup.send(f"🎵 找到這些，點你要的：\n{names}"[:1900], view=view)
                 return
             selected_tracks = tracks if is_playlist else tracks[:1]
             count, started = await self.enqueue_tracks(
@@ -547,6 +527,32 @@ class MusicCog(commands.Cog):
         except Exception as exc:
             print(f"[Music] /music play 錯誤：{type(exc).__name__}: {exc}")
             await interaction.followup.send("解析失敗，請確認 Lavalink 節點在線；Spotify 需要節點支援 LavaSrc。", ephemeral=True)
+
+    def render_queue(self, session: MusicSession | None) -> str:
+        if not session or (not session.current and not session.queue):
+            return "🎵 目前沒有播放中的歌曲，待播清單也是空的。"
+        lines = ["🎛️ **音樂控制台**"]
+        if session.current:
+            state = "（已暫停）" if getattr(session.player, "paused", False) else "（播放中）"
+            lines.append(f"\n🎶 **目前播放**\n{track_title(session.current)} · {track_duration(session.current)} {state}")
+        else:
+            lines.append("\n🎶 **目前播放**\n沒有歌曲正在播放")
+        lines.append("\n📃 **待播清單**")
+        if session.queue:
+            lines.extend(f"{index}. {track_title(track)} · {track_duration(track)}" for index, track in enumerate(session.queue, 1))
+        else:
+            lines.append("（沒有待播歌曲）")
+        if len(session.queue) > 25:
+            lines.append(f"下拉選單最多可操作前 25 首；其餘 {len(session.queue) - 25} 首仍保留在清單。")
+        return "\n".join(lines)[:1900]
+
+    @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
+    async def queue(self, interaction: discord.Interaction):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        await interaction.response.send_message(
+            self.render_queue(session),
+            view=MusicQueueView(self, interaction.guild.id, interaction.user.id) if interaction.guild else None,
+        )
 
     @music.command(name=app_commands.locale_str("pause", zh_TW="暫停"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
     async def pause(self, interaction: discord.Interaction):
@@ -575,22 +581,6 @@ class MusicCog(commands.Cog):
         session.skip_requested = True
         await session.player.stop()
         await interaction.response.send_message("好，跳到下一首。")
-
-    @music.command(name=app_commands.locale_str("queue", zh_TW="佇列"), description=app_commands.locale_str("查看目前播放與等待中的歌曲", zh_TW="查看目前播放與等待中的歌曲"))
-    async def queue(self, interaction: discord.Interaction):
-        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
-        if not session or (not session.current and not session.queue):
-            await interaction.response.send_message("目前佇列是空的。", ephemeral=True)
-            return
-        lines = []
-        if session.current:
-            lines.append(f"🎵 正在播放：**{track_title(session.current)}**（{track_duration(session.current)}）")
-        if session.queue:
-            lines.append("接下來：")
-            lines.extend(f"{index}. **{track_title(track)}**（{track_duration(track)}）" for index, track in enumerate(session.queue[:20], 1))
-            if len(session.queue) > 20:
-                lines.append(f"……還有 {len(session.queue) - 20} 首")
-        await interaction.response.send_message("\n".join(lines))
 
     @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("設定音量 0 到 100", zh_TW="設定音量 0 到 100"))
     @app_commands.describe(value="音量百分比")
