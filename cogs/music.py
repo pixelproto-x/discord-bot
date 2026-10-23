@@ -14,8 +14,24 @@ from discord.ext import commands
 
 MAX_QUEUE_SIZE = 50
 MAX_QUERY_LENGTH = 200
-DEFAULT_LAVALINK_URI = "https://lava-v4.millohost.my.id:443"
-DEFAULT_LAVALINK_PASSWORD = "youshallnotpass"
+LAVALINK_NODES = (
+    {
+        "identifier": "triniumhost-primary",
+        "uri": "https://lavalink-v4.triniumhost.com:443",
+        "password": "youshallnotpass",
+    },
+    {
+        "identifier": "millohost-fallback",
+        "uri": "https://lava-v4.millohost.my.id:443",
+        "password": "youshallnotpass",
+    },
+    {
+        "identifier": "serenetia-fallback",
+        "uri": "https://lavalinkv4.serenetia.com:443",
+        "password": "BatuManaBisa",
+    },
+)
+LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
     re.IGNORECASE,
@@ -93,18 +109,37 @@ class MusicCog(commands.Cog):
         self.locks = defaultdict(asyncio.Lock)
         self.node_error: str | None = None
 
-    async def cog_load(self):
+    async def setup_nodes(self):
+        """建立主要節點與備援節點；每個節點都使用 300 秒閒置逾時。"""
         if wavelink.Pool.nodes:
+            print("[Music] Lavalink 節點池已存在，略過重複初始化。")
             return
-        uri = os.getenv("LAVALINK_URI", DEFAULT_LAVALINK_URI).strip()
-        password = os.getenv("LAVALINK_PASSWORD", DEFAULT_LAVALINK_PASSWORD)
+
+        nodes = [
+            wavelink.Node(
+                identifier=config["identifier"],
+                uri=config["uri"],
+                password=config["password"],
+                inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
+                retries=3,
+            )
+            for config in LAVALINK_NODES
+        ]
+
         try:
-            node = wavelink.Node(uri=uri, password=password, identifier="public-lavalink")
-            await wavelink.Pool.connect(nodes=[node], client=self.bot)
-            print(f"[Music] 已連接 Lavalink 節點：{uri}")
+            await wavelink.Pool.connect(nodes=nodes, client=self.bot)
+            connected = list(wavelink.Pool.nodes.values())
+            self.node_error = None
+            print(
+                "[Music] Lavalink 節點池初始化完成："
+                + ", ".join(f"{node.identifier} ({node.uri})" for node in connected)
+            )
         except Exception as exc:
             self.node_error = f"{type(exc).__name__}: {exc}"
-            print(f"[Music] Lavalink 連線失敗：{self.node_error}")
+            print(f"[Music] Lavalink 節點池初始化失敗：{self.node_error}")
+
+    async def cog_load(self):
+        await self.setup_nodes()
 
     def get_session(self, guild_id: int) -> MusicSession | None:
         return self.sessions.get(guild_id)
