@@ -1,47 +1,44 @@
 import asyncio
-import functools
 import os
+import random
 import re
-import shutil
-from urllib.parse import urlsplit
 from collections import defaultdict
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import discord
-import imageio_ffmpeg
-import yt_dlp
-from discord import app_commands, ui
+import wavelink
+from discord import app_commands
 from discord.ext import commands
 
 
-YTDL_SEARCH = {
-    "quiet": True,
-    "no_warnings": True,
-    "skip_download": True,
-    "extract_flat": True,
-    "noplaylist": True,
-    "default_search": "ytsearch5",
-}
-YTDL_STREAM = {
-    "quiet": True,
-    "no_warnings": True,
-    "skip_download": True,
-    "noplaylist": True,
-    "format": "bestaudio/best",
-}
-
 MAX_QUEUE_SIZE = 50
 MAX_QUERY_LENGTH = 200
+DEFAULT_LAVALINK_URI = "https://lava-v4.millohost.my.id:443"
+DEFAULT_LAVALINK_PASSWORD = "youshallnotpass"
+SUPPORTED_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
+    re.IGNORECASE,
+)
 
 
-def normalize_music_query(query: str) -> tuple[str | None, str | None]:
-    """Trim and validate user input before passing it to yt-dlp."""
+@dataclass
+class MusicSession:
+    player: wavelink.Player
+    queue: list = field(default_factory=list)
+    current: object | None = None
+    volume: int = 80
+    loop_mode: str = "off"
+    skip_requested: bool = False
+    text_channel_id: int | None = None
+
+
+def normalize_query(query: str) -> tuple[str | None, str | None]:
     value = query.strip() if isinstance(query, str) else ""
     if not value:
-        return None, "請輸入歌名、歌手或 YouTube 連結。"
+        return None, "請輸入歌名、歌手或 YouTube／Spotify 網址。"
     if len(value) > MAX_QUERY_LENGTH:
         return None, f"搜尋內容最多 {MAX_QUERY_LENGTH} 個字。"
-
     if re.match(r"^https?://", value, re.IGNORECASE):
         try:
             parsed = urlsplit(value)
@@ -49,456 +46,214 @@ def normalize_music_query(query: str) -> tuple[str | None, str | None]:
             port = parsed.port
         except ValueError:
             return None, "這個網址格式不正確。"
-
-        scheme = parsed.scheme.lower()
-        valid_host = host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
-        expected_port = 80 if scheme == "http" else 443
+        allowed = (
+            host == "youtu.be"
+            or host == "youtube.com"
+            or host.endswith(".youtube.com")
+            or host == "spotify.com"
+            or host.endswith(".spotify.com")
+        )
         if (
-            scheme not in {"http", "https"}
-            or not valid_host
+            parsed.scheme.lower() not in {"http", "https"}
+            or not allowed
             or parsed.username is not None
             or parsed.password is not None
-            or port not in (None, expected_port)
+            or port not in (None, 80 if parsed.scheme.lower() == "http" else 443)
         ):
-            return None, "目前只支援一般歌名搜尋或 YouTube 連結。"
-
+            return None, "目前只接受 YouTube 或 Spotify 網址，或一般歌曲關鍵字。"
     return value, None
 
 
-@dataclass
-class Song:
-    title: str
-    url: str
-    webpage_url: str
-    duration: int | None = None
-    requester_id: int | None = None
+def track_title(track) -> str:
+    info = getattr(track, "title", None)
+    return str(info or "未知歌曲")
 
 
-@dataclass
-class Player:
-    queue: list[Song] = field(default_factory=list)
-    current: Song | None = None
-    voice: discord.VoiceClient | None = None
-    volume: float = 0.8
-    loop_mode: str = "off"
-    skip_current: bool = False
-    retry_count: int = 0
-    loading: bool = False
+def track_url(track) -> str:
+    return str(getattr(track, "uri", None) or getattr(track, "url", None) or "")
 
 
-class MusicSearchView(ui.View):
-    def __init__(self, cog, interaction, results, timeout=45):
-        super().__init__(timeout=timeout)
-        self.cog = cog
-        self.owner_id = interaction.user.id
-        for index, song in enumerate(results[:5]):
-            button = ui.Button(
-                label=f"{index + 1}. {song.title[:70]}",
-                style=discord.ButtonStyle.secondary,
-                row=index // 2,
-            )
-            async def callback(i: discord.Interaction, selected=song):
-                if i.user.id != self.owner_id:
-                    await i.response.send_message("不是你在選啦 😂", ephemeral=True)
-                    return
-                self.stop()
-                await i.response.defer()
-                ok, msg = await self.cog.enqueue_song(i, selected)
-                await i.followup.send(msg, ephemeral=False if ok else True)
-            button.callback = callback
-            self.add_item(button)
-
-
-class MusicControlView(ui.View):
-    def __init__(self, cog, guild_id, timeout=None):
-        super().__init__(timeout=timeout)
-        self.cog = cog
-        self.guild_id = guild_id
-
-    @ui.button(label="⏯️ 播放/繼續", style=discord.ButtonStyle.primary)
-    async def play_pause(self, interaction: discord.Interaction, button: ui.Button):
-        player = self.cog.players.get(self.guild_id)
-        if not player or not player.voice:
-            await interaction.response.send_message("目前沒有正在播的東西。", ephemeral=True)
-            return
-        async with self.cog.lock_for(self.guild_id):
-            player = self.cog.players.get(self.guild_id)
-            if not player or not player.voice:
-                await interaction.response.send_message("目前沒有正在播的東西。", ephemeral=True)
-                return
-            if player.voice.is_playing():
-                player.voice.pause()
-                reply = "先暫停一下。"
-            elif player.voice.is_paused():
-                player.voice.resume()
-                reply = "繼續播。"
-            else:
-                reply = "目前沒有正在播的東西。"
-        await interaction.response.send_message(reply, ephemeral=True)
-
-    @ui.button(label="⏭️ 下一首", style=discord.ButtonStyle.secondary)
-    async def skip(self, interaction: discord.Interaction, button: ui.Button):
-        player = self.cog.players.get(self.guild_id)
-        if player and player.voice and (player.voice.is_playing() or player.voice.is_paused() or player.loading):
-            async with self.cog.lock_for(self.guild_id):
-                player = self.cog.players.get(self.guild_id)
-                if not player or not player.voice:
-                    await interaction.response.send_message("現在沒在播歌。", ephemeral=True)
-                    return
-                player.skip_current = True
-                if player.loading:
-                    player.loading = False
-                    player.current = None
-                    player.skip_current = False
-                    await self.cog._play_next_locked(self.guild_id)
-                else:
-                    player.voice.stop()
-            await interaction.response.send_message("跳下一首。", ephemeral=True)
-        else:
-            await interaction.response.send_message("現在沒在播歌。", ephemeral=True)
-
-    @ui.button(label="🔀 隨機", style=discord.ButtonStyle.secondary)
-    async def shuffle(self, interaction: discord.Interaction, button: ui.Button):
-        player = self.cog.players.get(self.guild_id)
-        if player and len(player.queue) > 1:
-            import random
-            async with self.cog.lock_for(self.guild_id):
-                player = self.cog.players.get(self.guild_id)
-                if not player:
-                    await interaction.response.send_message("現在沒有音樂工作階段。", ephemeral=True)
-                    return
-                random.shuffle(player.queue)
-            await interaction.response.send_message("佇列打亂了。", ephemeral=True)
-        else:
-            await interaction.response.send_message("佇列裡沒幾首歌可以打亂。", ephemeral=True)
-
-    @ui.button(label="🔁 循環", style=discord.ButtonStyle.secondary)
-    async def loop(self, interaction: discord.Interaction, button: ui.Button):
-        player = self.cog.players.get(self.guild_id)
-        if not player:
-            await interaction.response.send_message("現在沒有音樂工作階段。", ephemeral=True)
-            return
-        async with self.cog.lock_for(self.guild_id):
-            player = self.cog.players.get(self.guild_id)
-            if not player:
-                await interaction.response.send_message("現在沒有音樂工作階段。", ephemeral=True)
-                return
-            player.loop_mode = {"off":"one", "one":"all", "all":"off"}[player.loop_mode]
-            labels = {"off":"關閉", "one":"單曲", "all":"整個佇列"}
-            mode = player.loop_mode
-        await interaction.response.send_message(f"循環：**{labels[mode]}**。", ephemeral=True)
-
-    @ui.button(label="⏹️ 停止", style=discord.ButtonStyle.danger)
-    async def stop(self, interaction: discord.Interaction, button: ui.Button):
-        await self.cog.stop_player(self.guild_id)
-        await interaction.response.send_message("音樂停了，Bot 也離開語音。", ephemeral=True)
+def track_duration(track) -> str:
+    length = getattr(track, "length", None)
+    if not length:
+        return "直播／未知長度"
+    seconds = int(length) // 1000
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 class MusicCog(commands.Cog):
-    music = app_commands.Group(name=app_commands.locale_str("music", zh_TW="音樂"), description=app_commands.locale_str("在語音頻道搜尋並播放音樂", zh_TW="在語音頻道搜尋並播放音樂"))
+    music = app_commands.Group(
+        name=app_commands.locale_str("music", zh_TW="音樂"),
+        description=app_commands.locale_str("搜尋並播放音樂", zh_TW="搜尋並播放音樂"),
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.players: dict[int, Player] = {}
+        self.sessions: dict[int, MusicSession] = {}
         self.locks = defaultdict(asyncio.Lock)
+        self.node_error: str | None = None
 
-    def lock_for(self, guild_id: int):
-        return self.locks[guild_id]
-
-    def ffmpeg_executable(self):
-        configured = os.getenv("FFMPEG_PATH")
-        if configured:
-            return configured
-        system_ffmpeg = shutil.which("ffmpeg")
-        if system_ffmpeg:
-            return system_ffmpeg
+    async def cog_load(self):
+        if wavelink.Pool.nodes:
+            return
+        uri = os.getenv("LAVALINK_URI", DEFAULT_LAVALINK_URI).strip()
+        password = os.getenv("LAVALINK_PASSWORD", DEFAULT_LAVALINK_PASSWORD)
         try:
-            return imageio_ffmpeg.get_ffmpeg_exe()
+            node = wavelink.Node(uri=uri, password=password, identifier="public-lavalink")
+            await wavelink.Pool.connect(nodes=[node], client=self.bot)
+            print(f"[Music] 已連接 Lavalink 節點：{uri}")
+        except Exception as exc:
+            self.node_error = f"{type(exc).__name__}: {exc}"
+            print(f"[Music] Lavalink 連線失敗：{self.node_error}")
+
+    def get_session(self, guild_id: int) -> MusicSession | None:
+        return self.sessions.get(guild_id)
+
+    async def ensure_player(self, guild: discord.Guild, channel: discord.VoiceChannel | discord.StageChannel, text_channel_id: int) -> MusicSession:
+        session = self.sessions.get(guild.id)
+        voice_client = guild.voice_client
+        if isinstance(voice_client, wavelink.Player):
+            player = voice_client
+            if player.channel != channel:
+                if session and (session.current or session.queue):
+                    raise RuntimeError("我正在其他語音頻道播放音樂，不能直接切換。")
+                await player.move_to(channel)
+        else:
+            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+        if session is None or session.player is not player:
+            session = MusicSession(player=player)
+            self.sessions[guild.id] = session
+        session.text_channel_id = text_channel_id
+        try:
+            await player.set_volume(session.volume)
         except Exception:
-            return None
+            pass
+        return session
 
-    def player(self, guild_id: int) -> Player:
-        return self.players.setdefault(guild_id, Player())
-
-    async def ytdlp_search(self, query: str):
-        loop = asyncio.get_running_loop()
-        def task():
-            with yt_dlp.YoutubeDL(YTDL_SEARCH) as ydl:
-                return ydl.extract_info(query, download=False)
-        data = await asyncio.wait_for(loop.run_in_executor(None, task), timeout=20)
-        if not data:
+    async def resolve_query(self, query: str) -> list:
+        value, error = normalize_query(query)
+        if error:
+            raise ValueError(error)
+        assert value is not None
+        if re.match(r"^https?://", value, re.IGNORECASE):
+            identifier = value
+        else:
+            identifier = f"ytsearch:{value}"
+        result = await wavelink.Playable.search(identifier)
+        if not result:
             return []
-        entries = data.get("entries") if isinstance(data, dict) else None
-        if entries is None:
-            entries = [data]
-        results = []
-        for entry in entries:
-            if not entry:
-                continue
-            webpage = entry.get("webpage_url") or entry.get("original_url")
-            if not webpage and entry.get("id"):
-                webpage = f"https://www.youtube.com/watch?v={entry['id']}"
-            if webpage:
-                results.append(
-                    Song(
-                        title=entry.get("title") or "不知道這首叫什麼",
-                        url=entry.get("url") or webpage,
-                        webpage_url=webpage,
-                        duration=entry.get("duration"),
-                    )
-                )
-        return results
+        if hasattr(result, "tracks"):
+            return list(result.tracks)
+        return list(result)
 
-    async def make_stream(self, song: Song):
-        loop = asyncio.get_running_loop()
-        def task():
-            with yt_dlp.YoutubeDL(YTDL_STREAM) as ydl:
-                data = ydl.extract_info(song.webpage_url, download=False)
-                stream_url = data.get("url")
-                return stream_url, data.get("title") or song.title, data.get("duration")
-        stream_url, title, duration = await asyncio.wait_for(loop.run_in_executor(None, task), timeout=30)
-        if not stream_url:
-            raise RuntimeError("no stream")
-        return stream_url, title, duration
-
-    async def enqueue_song(self, interaction: discord.Interaction, song: Song):
-        if not interaction.guild:
-            return False, "這個要在伺服器裡用。"
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            return False, "你先進一個語音頻道，我才知道歌要播哪裡。"
-        ffmpeg = self.ffmpeg_executable()
-        if not ffmpeg:
-            return False, "我找不到 FFmpeg，所以現在沒辦法播歌。先把 FFmpeg 裝好再試。"
-
-        guild_id = interaction.guild.id
-        async with self.lock_for(guild_id):
-            player = self.players.get(guild_id)
-            if player and len(player.queue) >= MAX_QUEUE_SIZE:
-                return False, f"這個伺服器的等待佇列最多 {MAX_QUEUE_SIZE} 首，先播放或移除幾首再加。"
-
-            voice_channel = interaction.user.voice.channel
-            player = self.player(guild_id)
+    async def enqueue_tracks(
+        self,
+        guild: discord.Guild,
+        voice_channel: discord.VoiceChannel | discord.StageChannel,
+        text_channel_id: int,
+        requester_id: int,
+        tracks: list,
+    ) -> tuple[int, bool]:
+        if not tracks:
+            return 0, False
+        session = await self.ensure_player(guild, voice_channel, text_channel_id)
+        available = max(0, MAX_QUEUE_SIZE - len(session.queue) - (1 if session.current else 0))
+        selected = tracks[:available]
+        if not selected:
+            raise OverflowError(f"等待佇列最多 {MAX_QUEUE_SIZE} 首，請先播放或移除幾首。")
+        for track in selected:
             try:
-                if not player.voice or not player.voice.is_connected():
-                    player.voice = await voice_channel.connect()
-                elif player.voice.channel != voice_channel:
-                    await player.voice.move_to(voice_channel)
+                track.extras = {"requester_id": str(requester_id)}
             except Exception:
-                return False, "我進不去那個語音頻道，看看 Bot 有沒有連線權限。"
-
-            song.requester_id = interaction.user.id
-            player.queue.append(song)
-            if not player.voice.is_playing() and not player.voice.is_paused() and not player.current:
-                await self._play_next_locked(guild_id)
-                if player.current is song:
-                    return True, f"好，正在播 **{song.title}** 🎵"
-                if song in player.queue:
-                    return True, f"加進去了：**{song.title}**。"
-                return False, f"這首沒能播放，已經跳過：**{song.title}**。換一首試試。"
-            position = len(player.queue)
-            return True, f"加進去了：**{song.title}**。現在排在第 {position} 首。"
+                pass
+            session.queue.append(track)
+        started = False
+        if session.current is None and not session.player.playing:
+            await self.play_next(guild.id)
+            started = True
+        return len(selected), started
 
     async def play_next(self, guild_id: int):
-        async with self.lock_for(guild_id):
-            await self._play_next_locked(guild_id)
-
-    async def _play_next_locked(self, guild_id: int):
-        player = self.players.get(guild_id)
-        if not player or not player.voice or not player.voice.is_connected() or player.loading:
-            return
-
-        if player.loop_mode == "one" and player.current and not player.skip_current:
-            song = player.current
-        else:
-            if not player.queue:
-                player.current = None
-                player.skip_current = False
-                asyncio.create_task(self._disconnect_if_idle(guild_id, player))
+        async with self.locks[guild_id]:
+            session = self.sessions.get(guild_id)
+            if not session or session.current is not None:
                 return
-            song = player.queue.pop(0)
-            player.current = song
-            player.skip_current = False
-            player.retry_count = 0
-
-        ffmpeg = self.ffmpeg_executable()
-        if not ffmpeg:
-            player.current = None
-            player.skip_current = False
-            asyncio.create_task(self.play_next(guild_id))
-            return
-
-        player.loading = True
-        asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
-
-    async def _prepare_and_play(self, guild_id: int, player: Player, song: Song, ffmpeg: str):
-        try:
-            # Resolve the stream outside the guild lock so pause/skip/queue controls
-            # and other bot features are not blocked by a slow extractor.
-            stream_url, title, duration = await self.make_stream(song)
-            song.title = title
-            song.duration = duration
-            source = discord.PCMVolumeTransformer(
-                discord.FFmpegPCMAudio(
-                    stream_url,
-                    executable=ffmpeg,
-                    before_options="-thread_queue_size 1024 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1",
-                    options="-af aresample=async=1000:first_pts=0 -vn",
-                ),
-                volume=player.volume,
-            )
-        except Exception as exc:
-            error_text = str(exc)
-            age_restricted = (
-                "Sign in to confirm your age" in error_text
-                or "age-restricted" in error_text.lower()
-                or "confirm your age" in error_text.lower()
-            )
-            print(
-                f"Music stream skipped (YouTube age restriction): {song.title}"
-                if age_restricted
-                else f"Music stream error: {exc!r}"
-            )
-            async with self.lock_for(guild_id):
-                current_player = self.players.get(guild_id)
-                if current_player is not player or player.current is not song:
-                    return
-                player.loading = False
-                if player.skip_current:
-                    player.current = None
-                    player.skip_current = False
-                    player.retry_count = 0
-                elif not age_restricted and player.retry_count < 1:
-                    player.retry_count += 1
-                    player.loading = True
-                    asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
-                    return
-                else:
-                    player.current = None
-                    player.skip_current = False
-                    player.retry_count = 0
-                    try:
-                        if age_restricted:
-                            await player.voice.channel.send(
-                                f"這首歌有 YouTube 年齡限制，我無法播放，已自動跳過：**{song.title}**"
-                            )
-                        else:
-                            await player.voice.channel.send(f"這首我播不起來，先跳過：{song.title}")
-                    except Exception:
-                        pass
-                await self._play_next_locked(guild_id)
-            return
-
-        async with self.lock_for(guild_id):
-            current_player = self.players.get(guild_id)
-            if current_player is not player:
+            if not session.queue:
                 return
-            if player.current is not song:
-                return
-            if player.skip_current or not player.voice or not player.voice.is_connected():
-                player.loading = False
-                player.current = None
-                player.skip_current = False
-                player.retry_count = 0
-                await self._play_next_locked(guild_id)
-                return
+            track = session.queue.pop(0)
+            session.current = track
+            session.skip_requested = False
             try:
-                player.voice.play(source, after=self._after_callback(guild_id))
-                player.retry_count = 0
-                player.loading = False
+                await session.player.play(track)
+                print(f"[Music] Playing: {track_title(track)} (guild={guild_id})")
             except Exception as exc:
-                player.loading = False
-                print("Music playback start error:", repr(exc))
-                if player.retry_count < 1:
-                    player.retry_count += 1
-                    player.loading = True
-                    asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
-                    return
-                player.current = None
-                player.skip_current = False
-                player.retry_count = 0
-                await self._play_next_locked(guild_id)
+                print(f"[Music] 播放失敗：{type(exc).__name__}: {exc}")
+                session.current = None
+                asyncio.create_task(self.play_next(guild_id))
+
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
+        player = getattr(payload, "player", None)
+        if player is None or player.guild is None:
+            return
+        guild_id = player.guild.id
+        async with self.locks[guild_id]:
+            session = self.sessions.get(guild_id)
+            if not session or session.player is not player:
                 return
-
-            try:
-                await player.voice.channel.send(f"🎵 現在播：**{song.title}**")
-            except Exception:
-                pass
-
-    async def _disconnect_if_idle(self, guild_id: int, player: Player):
-        await asyncio.sleep(20)
-        async with self.lock_for(guild_id):
-            if (
-                self.players.get(guild_id) is player
-                and not player.queue
-                and player.current is None
-                and player.voice
-                and player.voice.is_connected()
-                and not player.voice.is_playing()
-            ):
+            ended_track = session.current or getattr(payload, "track", None)
+            reason = str(getattr(payload, "reason", "")).upper()
+            skipped = session.skip_requested
+            session.skip_requested = False
+            if ended_track and not skipped and reason.endswith("FINISHED"):
+                if session.loop_mode == "one":
+                    session.current = ended_track
+                    try:
+                        await player.play(ended_track)
+                    except Exception as exc:
+                        print(f"[Music] 單曲循環失敗：{exc!r}")
+                        session.current = None
+                    return
+                if session.loop_mode == "queue":
+                    session.queue.append(ended_track)
+            session.current = None
+            if session.queue:
+                next_track = session.queue.pop(0)
+                session.current = next_track
                 try:
-                    await player.voice.disconnect()
+                    await player.play(next_track)
+                    return
+                except Exception as exc:
+                    print(f"[Music] 下一首播放失敗：{exc!r}")
+                    session.current = None
+                    asyncio.create_task(self.play_next(guild_id))
+                    return
+            asyncio.create_task(self.disconnect_when_idle(guild_id, session))
+
+    async def disconnect_when_idle(self, guild_id: int, session: MusicSession):
+        await asyncio.sleep(60)
+        async with self.locks[guild_id]:
+            if (
+                self.sessions.get(guild_id) is session
+                and session.current is None
+                and not session.queue
+                and not session.player.playing
+            ):
+                self.sessions.pop(guild_id, None)
+                try:
+                    await session.player.disconnect()
                 except Exception:
                     pass
-                self.players.pop(guild_id, None)
-
-    def _after_callback(self, guild_id: int):
-        loop = self.bot.loop
-        def after(error):
-            if error:
-                print("Music player error:", repr(error))
-            if loop.is_closed():
-                return
-            try:
-                asyncio.run_coroutine_threadsafe(self.after_track(guild_id, error), loop)
-            except RuntimeError:
-                pass
-        return after
-
-    async def after_track(self, guild_id: int, error=None):
-        async with self.lock_for(guild_id):
-            player = self.players.get(guild_id)
-            if not player:
-                return
-
-            player.loading = False
-            if error and player.current and player.retry_count < 1 and not player.skip_current:
-                player.retry_count += 1
-                player.loading = True
-                asyncio.create_task(
-                    self._prepare_and_play(
-                        guild_id,
-                        player,
-                        player.current,
-                        self.ffmpeg_executable(),
-                    )
-                )
-                return
-
-            player.retry_count = 0
-            if player.skip_current:
-                if player.loop_mode == "all" and player.current:
-                    player.queue.append(player.current)
-                player.current = None
-                player.skip_current = False
-            elif player.loop_mode == "one" and player.current:
-                pass
-            elif player.loop_mode == "all" and player.current:
-                player.queue.append(player.current)
-                player.current = None
-            else:
-                player.current = None
-
-            await self._play_next_locked(guild_id)
 
     async def stop_player(self, guild_id: int):
-        async with self.lock_for(guild_id):
-            player = self.players.pop(guild_id, None)
-            if player:
-                player.skip_current = True
+        async with self.locks[guild_id]:
+            session = self.sessions.pop(guild_id, None)
             guild = self.bot.get_guild(guild_id)
             voice_client = guild.voice_client if guild else None
-            if not voice_client and player:
-                voice_client = player.voice
+            if session:
+                voice_client = session.player
+                session.queue.clear()
+                session.current = None
+                session.skip_requested = True
             speech_cog = self.bot.get_cog("SpeechControlCog")
             if speech_cog:
                 mic_source = getattr(speech_cog, "active_mics", {}).get(guild_id)
@@ -506,260 +261,205 @@ class MusicCog(commands.Cog):
                     await speech_cog._finish_mic(guild_id, mic_source)
                 if guild_id in getattr(speech_cog, "active_guilds", set()):
                     await speech_cog._cleanup(guild_id, getattr(speech_cog, "temp_files", {}).get(guild_id))
-            if voice_client:
+            if voice_client and voice_client.is_connected():
                 try:
-                    if voice_client.is_playing() or voice_client.is_paused():
-                        voice_client.stop()
-                except Exception:
-                    pass
-                try:
-                    if voice_client.is_connected():
-                        await voice_client.disconnect(force=True)
+                    await voice_client.disconnect(force=True)
                 except Exception as exc:
-                    print(f"[Voice] Disconnect failed: {type(exc).__name__}: {exc!r}")
-            if player:
-                player.voice = None
-                player.current = None
-                player.queue.clear()
-                player.skip_current = False
+                    print(f"[Music] 離開語音失敗：{type(exc).__name__}: {exc}")
 
-    @music.command(name=app_commands.locale_str("search", zh_TW="搜尋歌曲"), description=app_commands.locale_str("直接搜尋 YouTube 歌曲並選一首", zh_TW="直接搜尋 YouTube 歌曲並選一首"))
-    @app_commands.describe(query="歌名、歌手或關鍵字")
-    async def search(self, interaction: discord.Interaction, query: str):
-        if not interaction.guild:
-            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
+    async def play_query_from_message(self, message: discord.Message, query: str):
+        if not message.guild or not isinstance(message.author, discord.Member):
             return
-        query, error_message = normalize_music_query(query)
-        if error_message:
-            await interaction.response.send_message(error_message, ephemeral=True)
+        if not message.author.voice or not message.author.voice.channel:
+            await message.reply("你先加入語音頻道，我才知道要在哪裡播。", mention_author=False)
             return
-        await interaction.response.defer()
         try:
-            results = await self.ytdlp_search(query)
-        except Exception:
-            await interaction.followup.send("YouTube 搜尋這次沒回來，過一下再試。")
-            return
-        if not results:
-            await interaction.followup.send("找不到這首，換個關鍵字看看。")
-            return
-        lines = [f"{i+1}. **{s.title}**" for i, s in enumerate(results[:5])]
-        view = MusicSearchView(self, interaction, results)
-        await interaction.followup.send("🎵 找到這些：\n" + "\n".join(lines) + "\n點下面選你要的。", view=view)
+            tracks = await self.resolve_query(query)
+            if not tracks:
+                await message.reply("找不到這個歌曲或網址，可能是節點不支援這個來源。", mention_author=False)
+                return
+            count, started = await self.enqueue_tracks(
+                message.guild, message.author.voice.channel, message.channel.id, message.author.id, tracks
+            )
+            if len(tracks) > count:
+                note = f"佇列已滿，只加入前 {count} 首。"
+            elif hasattr(tracks, "name"):
+                note = f"播放清單已加入 {count} 首。"
+            else:
+                note = f"已加入 {count} 首。"
+            if started:
+                await message.channel.send(f"🎵 開始播放：**{track_title(self.sessions[message.guild.id].current)}**")
+            else:
+                await message.channel.send(note)
+        except OverflowError as exc:
+            await message.reply(str(exc), mention_author=False)
+        except Exception as exc:
+            print(f"[Music] 自動播放失敗：{type(exc).__name__}: {exc}")
+            await message.reply("這個連結目前無法解析，或 Lavalink 節點暫時不可用。", mention_author=False)
 
-    @app_commands.command(name=app_commands.locale_str("join", zh_TW="加入語音"), description=app_commands.locale_str("讓 LogRelay 加入你目前所在的語音頻道", zh_TW="讓 LogRelay 加入你目前所在的語音頻道"))
-    async def join_voice(self, interaction: discord.Interaction):
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild or not message.content:
+            return
+        match = SUPPORTED_URL_RE.search(message.content)
+        if not match:
+            return
+        await self.play_query_from_message(message, match.group(0).rstrip(".,!?)]}，。！？"))
+
+    @commands.Cog.listener()
+    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
+        print(f"[Music] Lavalink 節點就緒：{payload.node.identifier}")
+
+    @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
+    @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
+    async def play(self, interaction: discord.Interaction, query: str):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
             return
-        member = interaction.user
-        if not isinstance(member, discord.Member) or not member.voice or not member.voice.channel:
-            await interaction.response.send_message("你先加入一個語音頻道，我才能跟過去。", ephemeral=True)
+        if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
             return
-        channel = member.voice.channel
-        permissions = channel.permissions_for(interaction.guild.me)
-        if not permissions.connect or not permissions.speak:
-            await interaction.response.send_message("我需要這個頻道的「連接」和「說話」權限。", ephemeral=True)
+        query, error = normalize_query(query)
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
             return
-        voice_client = interaction.guild.voice_client
-        if voice_client and voice_client.is_connected():
-            player = self.players.get(interaction.guild.id)
-            if player and (player.current or player.queue) and voice_client.channel != channel:
-                await interaction.response.send_message("我正在播放或排隊播放音樂，不能切換頻道中斷大家。", ephemeral=True)
-                return
-            if voice_client.channel == channel:
-                await interaction.response.send_message("已連線。", ephemeral=True)
-                return
-            try:
-                await voice_client.move_to(channel)
-            except (discord.Forbidden, discord.HTTPException):
-                await interaction.response.send_message("切換語音頻道失敗，請檢查我的權限。", ephemeral=True)
-                return
-        else:
-            try:
-                
-                try:
-                    import nacl  
-                    import davey  
-                except ImportError as dependency_error:
-                    print(f"[Voice] Missing voice dependency: {type(dependency_error).__name__}: {dependency_error}")
-                    await interaction.response.send_message(
-                        "語音依賴未安裝完整。請在啟動 Bot 的同一個 Python 環境執行：python -m pip install -r requirements.txt，然後重新啟動 Bot。",
-                        ephemeral=True,
-                    )
-                    return
-                player = self.player(interaction.guild.id)
-                player.voice = await channel.connect()
-            except Exception as exc:
-                
-                print(f"[Voice] Join failed: {type(exc).__name__}: {exc!r}")
-                if isinstance(exc, discord.Forbidden):
-                    message = "加入語音失敗：Bot 沒有此頻道的「查看頻道、連接、說話」權限。"
-                elif isinstance(exc, discord.HTTPException):
-                    message = f"Discord 拒絕語音連線（HTTP {exc.status}）。請稍後重試，並查看 Bot 終端機錯誤紀錄。"
-                elif isinstance(exc, RuntimeError):
-                    message = (
-                        "語音連線初始化失敗。請在啟動 Bot 的同一個 Python 環境執行 "
-                        "python -m pip install -r requirements.txt，重啟後再試；若仍失敗，請查看 Bot 終端機的 [Voice] Join failed 詳細原因。"
-                    )
-                else:
-                    message = f"加入語音失敗（{type(exc).__name__}）。請查看 Bot 終端機的 [Voice] Join failed 詳細原因。"
-                await interaction.response.send_message(message, ephemeral=True)
-                return
-        await interaction.response.send_message(f"我加入了 {channel.mention}。")
-
-    @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲，選一首後直接播放", zh_TW="搜尋歌曲，選一首後直接播放"))
-    @app_commands.describe(query="歌名、歌手或關鍵字")
-    async def play(self, interaction: discord.Interaction, query: str):
-        if not interaction.guild:
-            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
-            return
-        query, error_message = normalize_music_query(query)
-        if error_message:
-            await interaction.response.send_message(error_message, ephemeral=True)
-            return
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         try:
-            results = await self.ytdlp_search(query if re.match(r"^https?://", query, re.IGNORECASE) else f"ytsearch5:{query}")
-        except Exception:
-            await interaction.followup.send("YouTube 這次搜尋失敗了，再試一次。")
-            return
+            tracks = await self.resolve_query(query)
+            if not tracks:
+                await interaction.followup.send("找不到歌曲；如果是 Spotify，節點必須安裝支援 Spotify 的 LavaSrc 外掛。")
+                return
+            count, started = await self.enqueue_tracks(
+                interaction.guild, interaction.user.voice.channel, interaction.channel_id, interaction.user.id, tracks
+            )
+            if len(tracks) > count:
+                suffix = f"（佇列上限已到，只加入前 {count} 首）"
+            elif len(tracks) > 1:
+                suffix = f"（播放清單共加入 {count} 首）"
+            else:
+                suffix = ""
+            session = self.sessions[interaction.guild.id]
+            if started and session.current:
+                await interaction.followup.send(f"🎵 開始播放：**{track_title(session.current)}**{suffix}")
+            else:
+                await interaction.followup.send(f"已加入佇列：**{track_title(tracks[0])}**{suffix}")
+        except OverflowError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+        except Exception as exc:
+            print(f"[Music] /music play 錯誤：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("解析失敗，請確認 Lavalink 節點在線；Spotify 需要節點支援 LavaSrc。", ephemeral=True)
 
-        if not results:
-            await interaction.followup.send("找不到這首，換個關鍵字看看。")
-            return
-
-        if len(results) == 1:
-            ok, msg = await self.enqueue_song(interaction, results[0])
-            await interaction.followup.send(msg, ephemeral=not ok)
-            return
-
-        lines = [f"{i+1}. **{song.title}**" for i, song in enumerate(results[:5])]
-        view = MusicSearchView(self, interaction, results[:5])
-        await interaction.followup.send(
-            "🎵 找到這些，點你要的：\n" + "\n".join(lines),
-            view=view,
-        )
-
-    @music.command(name=app_commands.locale_str("queue", zh_TW="播放清單"), description=app_commands.locale_str("看看現在音樂佇列", zh_TW="看看現在音樂佇列"))
-    async def queue(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
-            return
-        player = self.players.get(interaction.guild.id)
-        if not player or (not player.current and not player.queue):
-            await interaction.response.send_message("現在沒排歌。")
-            return
-        lines = [f"🎶 正在播：**{player.current.title}**" if player.current else "目前沒在播"]
-        if player.queue:
-            lines.append("接下來：")
-            lines.extend(f"{i+1}. {song.title}" for i, song in enumerate(player.queue[:20]))
-        await interaction.response.send_message("\n".join(lines))
-
-    @music.command(name=app_commands.locale_str("nowplaying", zh_TW="正在播放"), description=app_commands.locale_str("看看現在正在播什麼", zh_TW="看看現在正在播什麼"))
-    async def nowplaying(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player or not player.current:
-            await interaction.response.send_message("現在沒在播歌。", ephemeral=True)
-            return
-        await interaction.response.send_message(f"🎵 現在是 **{player.current.title}**\n🔁 循環：{player.loop_mode}")
-
-    @music.command(name=app_commands.locale_str("pause", zh_TW="暫停音樂"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
+    @music.command(name=app_commands.locale_str("pause", zh_TW="暫停"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
     async def pause(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if player and player.voice and player.voice.is_playing():
-            player.voice.pause()
-            await interaction.response.send_message("先停一下。")
-        else:
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session or not session.player.playing:
             await interaction.response.send_message("現在沒有正在播放的歌。", ephemeral=True)
+            return
+        await session.player.pause(True)
+        await interaction.response.send_message("已暫停。")
 
-    @music.command(name=app_commands.locale_str("resume", zh_TW="繼續播放"), description=app_commands.locale_str("繼續播放", zh_TW="繼續播放"))
+    @music.command(name=app_commands.locale_str("resume", zh_TW="繼續"), description=app_commands.locale_str("繼續播放歌曲", zh_TW="繼續播放歌曲"))
     async def resume(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if player and player.voice and player.voice.is_paused():
-            player.voice.resume()
-            await interaction.response.send_message("繼續播。")
-        else:
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session or not session.player.paused:
             await interaction.response.send_message("現在沒有暫停中的歌。", ephemeral=True)
+            return
+        await session.player.pause(False)
+        await interaction.response.send_message("繼續播放。")
 
-    @music.command(name=app_commands.locale_str("skip", zh_TW="跳過歌曲"), description=app_commands.locale_str("跳到下一首", zh_TW="跳到下一首"))
+    @music.command(name=app_commands.locale_str("skip", zh_TW="跳過"), description=app_commands.locale_str("跳到下一首", zh_TW="跳到下一首"))
     async def skip(self, interaction: discord.Interaction):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session or not session.current:
+            await interaction.response.send_message("現在沒有歌曲可以跳過。", ephemeral=True)
+            return
+        session.skip_requested = True
+        await session.player.stop()
+        await interaction.response.send_message("好，跳到下一首。")
+
+    @music.command(name=app_commands.locale_str("stop", zh_TW="停止"), description=app_commands.locale_str("清空佇列並離開語音", zh_TW="清空佇列並離開語音"))
+    async def stop(self, interaction: discord.Interaction):
         if not interaction.guild:
-            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            player = self.players.get(interaction.guild.id)
-            if not player or not player.voice or not (player.voice.is_playing() or player.voice.is_paused()):
-                await interaction.response.send_message("現在沒東西可以跳。", ephemeral=True)
-                return
-            player.skip_current = True
-            player.voice.stop()
-        await interaction.response.send_message("好，下一首。")
-    @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("調整音量 0 到 100", zh_TW="調整音量 0 到 100"))
-    @app_commands.describe(value="音量百分比")
-    async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player:
-            await interaction.response.send_message("現在還沒開始播。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            player.volume = value / 100
-            if player.voice and isinstance(player.voice.source, discord.PCMVolumeTransformer):
-                player.voice.source.volume = player.volume
-        await interaction.response.send_message(f"音量調成 **{value}%**。")
-
-    @music.command(name=app_commands.locale_str("shuffle", zh_TW="隨機排序"), description=app_commands.locale_str("把目前佇列打亂", zh_TW="把目前佇列打亂"))
-    async def shuffle(self, interaction: discord.Interaction):
-        import random
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player or len(player.queue) < 2:
-            await interaction.response.send_message("佇列裡至少要有兩首才值得打亂。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            random.shuffle(player.queue)
-        await interaction.response.send_message("好了，順序打亂。")
-
-    @music.command(name=app_commands.locale_str("loop", zh_TW="循環播放"), description=app_commands.locale_str("切換單曲、全部或關閉循環", zh_TW="切換單曲、全部或關閉循環"))
-    async def loop(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player:
-            await interaction.response.send_message("現在沒音樂工作階段。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            player.loop_mode = {"off":"one", "one":"all", "all":"off"}[player.loop_mode]
-        await interaction.response.send_message(f"現在是 **{player.loop_mode}** 循環。")
-
-    @music.command(name=app_commands.locale_str("remove", zh_TW="移除"), description=app_commands.locale_str("移除佇列裡指定編號的歌曲", zh_TW="移除佇列裡指定編號的歌曲"))
-    @app_commands.describe(index="歌曲編號")
-    async def remove(self, interaction: discord.Interaction, index: app_commands.Range[int, 1, 50]):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player or index > len(player.queue):
-            await interaction.response.send_message("沒有這個編號。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            if index > len(player.queue):
-                await interaction.response.send_message("沒有這個編號。", ephemeral=True)
-                return
-            removed = player.queue.pop(index - 1)
-        await interaction.response.send_message(f"拿掉了：**{removed.title}**")
-
-    @music.command(name=app_commands.locale_str("clear", zh_TW="清空"), description=app_commands.locale_str("清空等待中的歌曲", zh_TW="清空等待中的歌曲"))
-    async def clear(self, interaction: discord.Interaction):
-        player = self.players.get(interaction.guild.id) if interaction.guild else None
-        if not player:
-            await interaction.response.send_message("佇列本來就是空的。", ephemeral=True)
-            return
-        async with self.lock_for(interaction.guild.id):
-            count = len(player.queue)
-            player.queue.clear()
-        await interaction.response.send_message(f"清掉 {count} 首等待中的歌。")
-
-    @music.command(name=app_commands.locale_str("leave", zh_TW="離開語音"), description=app_commands.locale_str("讓 Bot 離開語音", zh_TW="讓 Bot 離開語音"))
-    async def leave(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
+            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
             return
         await self.stop_player(interaction.guild.id)
-        await interaction.response.send_message("已處理。", ephemeral=True)
+        await interaction.response.send_message("已停止播放並離開語音。")
+
+    @music.command(name=app_commands.locale_str("queue", zh_TW="佇列"), description=app_commands.locale_str("查看目前播放與等待中的歌曲", zh_TW="查看目前播放與等待中的歌曲"))
+    async def queue(self, interaction: discord.Interaction):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session or (not session.current and not session.queue):
+            await interaction.response.send_message("目前佇列是空的。", ephemeral=True)
+            return
+        lines = []
+        if session.current:
+            lines.append(f"🎵 正在播放：**{track_title(session.current)}**（{track_duration(session.current)}）")
+        if session.queue:
+            lines.append("接下來：")
+            lines.extend(f"{index}. **{track_title(track)}**（{track_duration(track)}）" for index, track in enumerate(session.queue[:20], 1))
+            if len(session.queue) > 20:
+                lines.append(f"……還有 {len(session.queue) - 20} 首")
+        await interaction.response.send_message("\n".join(lines))
+
+    @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("設定音量 0 到 100", zh_TW="設定音量 0 到 100"))
+    @app_commands.describe(value="音量百分比")
+    async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session:
+            await interaction.response.send_message("目前沒有音樂工作階段。", ephemeral=True)
+            return
+        session.volume = value
+        await session.player.set_volume(value)
+        await interaction.response.send_message(f"音量已調整為 **{value}%**。")
+
+    @music.command(name=app_commands.locale_str("loop", zh_TW="循環"), description=app_commands.locale_str("設定關閉、單曲或佇列循環", zh_TW="設定關閉、單曲或佇列循環"))
+    @app_commands.describe(mode="循環模式")
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="關閉", value="off"),
+        app_commands.Choice(name="單曲", value="one"),
+        app_commands.Choice(name="佇列", value="queue"),
+    ])
+    async def loop(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session:
+            await interaction.response.send_message("目前沒有音樂工作階段。", ephemeral=True)
+            return
+        session.loop_mode = mode.value
+        labels = {"off": "關閉", "one": "單曲", "queue": "佇列"}
+        await interaction.response.send_message(f"循環模式已設定為 **{labels[mode.value]}**。")
+
+    @music.command(name=app_commands.locale_str("shuffle", zh_TW="隨機播放"), description=app_commands.locale_str("打亂目前等待中的歌曲", zh_TW="打亂目前等待中的歌曲"))
+    async def shuffle(self, interaction: discord.Interaction):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        if not session or len(session.queue) < 2:
+            await interaction.response.send_message("等待佇列至少要有兩首歌才能洗牌。", ephemeral=True)
+            return
+        random.shuffle(session.queue)
+        await interaction.response.send_message(f"已打亂 {len(session.queue)} 首等待中的歌曲。")
+
+    @commands.command(name="shuffle")
+    async def prefix_shuffle(self, ctx: commands.Context):
+        if not ctx.guild:
+            await ctx.reply("請在伺服器裡使用。", mention_author=False)
+            return
+        session = self.sessions.get(ctx.guild.id)
+        if not session or len(session.queue) < 2:
+            await ctx.reply("等待佇列至少要有兩首歌才能洗牌。", mention_author=False)
+            return
+        random.shuffle(session.queue)
+        await ctx.reply(f"已打亂 {len(session.queue)} 首等待中的歌曲。", mention_author=False)
+
+    @app_commands.command(name=app_commands.locale_str("join_voice", zh_TW="加入語音"), description=app_commands.locale_str("加入你目前所在的語音頻道", zh_TW="加入你目前所在的語音頻道"))
+    async def join_voice(self, interaction: discord.Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
+            await interaction.response.send_message("你先加入一個語音頻道。", ephemeral=True)
+            return
+        try:
+            await self.ensure_player(interaction.guild, interaction.user.voice.channel, interaction.channel_id)
+            await interaction.response.send_message(f"我加入了 {interaction.user.voice.channel.mention}。")
+        except Exception as exc:
+            print(f"[Music] 加入語音失敗：{type(exc).__name__}: {exc}")
+            await interaction.response.send_message("加入語音失敗，請確認節點和 Bot 的語音權限。", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
