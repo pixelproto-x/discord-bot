@@ -191,6 +191,7 @@ class MusicCog(commands.Cog):
                 session.current = None
                 asyncio.create_task(self.play_next(guild_id))
 
+    @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player = getattr(payload, "player", None)
         if player is None or player.guild is None:
