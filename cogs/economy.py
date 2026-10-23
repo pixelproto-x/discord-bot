@@ -284,7 +284,7 @@ class EconomyCog(commands.Cog):
         user = target.user if isinstance(target, discord.Interaction) else target.author
         row = self.store.get(target.guild.id, user.id)
         available = row["wallet"] if deposit else row["bank"]
-        amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() else 0
+        amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= 16 else 0
         if not valid_amount(amount):
             await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。")
             return
