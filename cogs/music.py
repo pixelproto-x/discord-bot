@@ -360,10 +360,10 @@ class MusicCog(commands.Cog):
             )
             async with self.lock_for(guild_id):
                 current_player = self.players.get(guild_id)
-                if current_player is not player:
+                if current_player is not player or player.current is not song:
                     return
                 player.loading = False
-                if player.current is not song or player.skip_current:
+                if player.skip_current:
                     player.current = None
                     player.skip_current = False
                     player.retry_count = 0
@@ -390,19 +390,16 @@ class MusicCog(commands.Cog):
 
         async with self.lock_for(guild_id):
             current_player = self.players.get(guild_id)
-            if (
-                current_player is not player
-                or player.current is not song
-                or player.skip_current
-                or not player.voice
-                or not player.voice.is_connected()
-            ):
+            if current_player is not player:
+                return
+            if player.current is not song:
+                return
+            if player.skip_current or not player.voice or not player.voice.is_connected():
                 player.loading = False
-                if current_player is player:
-                    player.current = None
-                    player.skip_current = False
-                    player.retry_count = 0
-                    await self._play_next_locked(guild_id)
+                player.current = None
+                player.skip_current = False
+                player.retry_count = 0
+                await self._play_next_locked(guild_id)
                 return
             try:
                 player.voice.play(source, after=self._after_callback(guild_id))
