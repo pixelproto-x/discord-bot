@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def cooldown_text(seconds):
 class EconomyStore:
     def __init__(self):
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -81,7 +82,7 @@ class EconomyStore:
         con.execute("UPDATE users SET guild_id=? WHERE user_id=?", (guild_id, user_id))
 
     def get(self, guild_id, user_id):
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = dict(con.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone())
@@ -91,7 +92,7 @@ class EconomyStore:
     def claim(self, guild_id, user_id, kind, amount):
         column = {"daily": "last_daily", "work": "last_work", "fish": "last_fish"}[kind]
         now = now_utc()
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute(f"SELECT {column}, wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
@@ -109,7 +110,7 @@ class EconomyStore:
 
     def move(self, guild_id, user_id, amount, deposit):
         source, destination = ("wallet", "bank") if deposit else ("bank", "wallet")
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute(f"SELECT {source}, {destination} FROM users WHERE user_id=?", (user_id,)).fetchone()
@@ -125,7 +126,7 @@ class EconomyStore:
             return True
 
     def transfer(self, guild_id, sender, receiver, amount):
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
@@ -140,7 +141,7 @@ class EconomyStore:
             return True
 
     def dice(self, guild_id, user_id, amount, payout):
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
@@ -152,7 +153,7 @@ class EconomyStore:
             return True
 
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
-        with self.connect() as con:
+        with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, robber_id)
             self.ensure(con, guild_id, target_id)
@@ -172,7 +173,7 @@ class EconomyStore:
                 con.execute("UPDATE users SET wallet=wallet+? WHERE user_id=?", (stolen, robber_id))
                 result = ("success", stolen)
             else:
-                fine = min(robber["wallet"], int(robber["wallet"] * fine_fraction))
+                fine = min(robber["wallet"], max(1, int(robber["wallet"] * fine_fraction))) if robber["wallet"] else 0
                 con.execute("UPDATE users SET wallet=wallet-? WHERE user_id=?", (fine, robber_id))
                 result = ("failed", fine)
             con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
