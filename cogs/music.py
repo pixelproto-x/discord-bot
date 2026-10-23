@@ -415,12 +415,12 @@ class MusicCog(commands.Cog):
             is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
             if not is_url:
                 view = MusicSearchView(self, tracks, interaction.user.id)
-                names = "\\n".join(
+                names = "\n.join(
                     f"{index}. **{track_title(track)}**"
                     for index, track in enumerate(tracks[:5], 1)
                 )
                 await interaction.followup.send(
-                    f"🎵 找到這些，點你要的：\\n{names}",
+                    f"🎵 找到這些，點你要的：\n{names}",
                     view=view,
                 )
                 return
