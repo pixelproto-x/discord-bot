@@ -261,7 +261,7 @@ class MusicCog(commands.Cog):
                     await speech_cog._finish_mic(guild_id, mic_source)
                 if guild_id in getattr(speech_cog, "active_guilds", set()):
                     await speech_cog._cleanup(guild_id, getattr(speech_cog, "temp_files", {}).get(guild_id))
-            if voice_client and voice_client.is_connected():
+            if voice_client and getattr(voice_client, "connected", True):
                 try:
                     await voice_client.disconnect(force=True)
                 except Exception as exc:
