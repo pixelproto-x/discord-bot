@@ -83,6 +83,7 @@ class Player:
     loop_mode: str = "off"
     skip_current: bool = False
     retry_count: int = 0
+    loading: bool = False
 
 
 class MusicSearchView(ui.View):
@@ -138,14 +139,20 @@ class MusicControlView(ui.View):
     @ui.button(label="⏭️ 下一首", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: ui.Button):
         player = self.cog.players.get(self.guild_id)
-        if player and player.voice and (player.voice.is_playing() or player.voice.is_paused()):
+        if player and player.voice and (player.voice.is_playing() or player.voice.is_paused() or player.loading):
             async with self.cog.lock_for(self.guild_id):
                 player = self.cog.players.get(self.guild_id)
                 if not player or not player.voice:
                     await interaction.response.send_message("現在沒在播歌。", ephemeral=True)
                     return
                 player.skip_current = True
-                player.voice.stop()
+                if player.loading:
+                    player.loading = False
+                    player.current = None
+                    player.skip_current = False
+                    await self.cog._play_next_locked(self.guild_id)
+                else:
+                    player.voice.stop()
             await interaction.response.send_message("跳下一首。", ephemeral=True)
         else:
             await interaction.response.send_message("現在沒在播歌。", ephemeral=True)
@@ -297,75 +304,128 @@ class MusicCog(commands.Cog):
 
     async def _play_next_locked(self, guild_id: int):
         player = self.players.get(guild_id)
-        if not player or not player.voice or not player.voice.is_connected():
+        if not player or not player.voice or not player.voice.is_connected() or player.loading:
             return
 
-        while True:
-            if player.loop_mode == "one" and player.current and not player.skip_current:
-                song = player.current
-            else:
-                if not player.queue:
+        if player.loop_mode == "one" and player.current and not player.skip_current:
+            song = player.current
+        else:
+            if not player.queue:
+                player.current = None
+                player.skip_current = False
+                asyncio.create_task(self._disconnect_if_idle(guild_id, player))
+                return
+            song = player.queue.pop(0)
+            player.current = song
+            player.skip_current = False
+            player.retry_count = 0
+
+        ffmpeg = self.ffmpeg_executable()
+        if not ffmpeg:
+            player.current = None
+            player.skip_current = False
+            asyncio.create_task(self.play_next(guild_id))
+            return
+
+        player.loading = True
+        asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
+
+    async def _prepare_and_play(self, guild_id: int, player: Player, song: Song, ffmpeg: str):
+        try:
+            # Resolve the stream outside the guild lock so pause/skip/queue controls
+            # and other bot features are not blocked by a slow extractor.
+            stream_url, title, duration = await self.make_stream(song)
+            song.title = title
+            song.duration = duration
+            source = discord.PCMVolumeTransformer(
+                discord.FFmpegPCMAudio(
+                    stream_url,
+                    executable=ffmpeg,
+                    before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1",
+                    options="-vn",
+                ),
+                volume=player.volume,
+            )
+        except Exception as exc:
+            error_text = str(exc)
+            age_restricted = (
+                "Sign in to confirm your age" in error_text
+                or "age-restricted" in error_text.lower()
+                or "confirm your age" in error_text.lower()
+            )
+            print(
+                f"Music stream skipped (YouTube age restriction): {song.title}"
+                if age_restricted
+                else f"Music stream error: {exc!r}"
+            )
+            async with self.lock_for(guild_id):
+                current_player = self.players.get(guild_id)
+                if current_player is not player:
+                    return
+                player.loading = False
+                if player.current is not song or player.skip_current:
                     player.current = None
                     player.skip_current = False
-                    asyncio.create_task(self._disconnect_if_idle(guild_id, player))
+                    player.retry_count = 0
+                elif not age_restricted and player.retry_count < 1:
+                    player.retry_count += 1
+                    player.loading = True
+                    asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
                     return
-                song = player.queue.pop(0)
-                player.current = song
-                player.skip_current = False
+                else:
+                    player.current = None
+                    player.skip_current = False
+                    player.retry_count = 0
+                    try:
+                        if age_restricted:
+                            await player.voice.channel.send(
+                                f"這首歌有 YouTube 年齡限制，我無法播放，已自動跳過：**{song.title}**"
+                            )
+                        else:
+                            await player.voice.channel.send(f"這首我播不起來，先跳過：{song.title}")
+                    except Exception:
+                        pass
+                await self._play_next_locked(guild_id)
+            return
 
-            ffmpeg = self.ffmpeg_executable()
-            if not ffmpeg:
-                player.current = None
-                player.skip_current = False
-                continue
-
+        async with self.lock_for(guild_id):
+            current_player = self.players.get(guild_id)
+            if (
+                current_player is not player
+                or player.current is not song
+                or player.skip_current
+                or not player.voice
+                or not player.voice.is_connected()
+            ):
+                player.loading = False
+                if current_player is player:
+                    player.current = None
+                    player.skip_current = False
+                    player.retry_count = 0
+                    await self._play_next_locked(guild_id)
+                return
             try:
-                stream_url, title, duration = await self.make_stream(song)
-                song.title = title
-                song.duration = duration
-                source = discord.PCMVolumeTransformer(
-                    discord.FFmpegPCMAudio(
-                        stream_url,
-                        executable=ffmpeg,
-                        before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                        options="-vn",
-                    ),
-                    volume=player.volume,
-                )
                 player.voice.play(source, after=self._after_callback(guild_id))
                 player.retry_count = 0
-                try:
-                    await player.voice.channel.send(f"🎵 現在播：**{song.title}**")
-                except Exception:
-                    pass
-                return
+                player.loading = False
             except Exception as exc:
-                error_text = str(exc)
-                age_restricted = (
-                    "Sign in to confirm your age" in error_text
-                    or "age-restricted" in error_text.lower()
-                    or "confirm your age" in error_text.lower()
-                )
-                if age_restricted:
-                    print(f"Music stream skipped (YouTube age restriction): {song.title}")
-                else:
-                    print("Music stream error:", repr(exc))
-                if not age_restricted and player.current is song and player.retry_count < 1:
+                player.loading = False
+                print("Music playback start error:", repr(exc))
+                if player.retry_count < 1:
                     player.retry_count += 1
-                    continue
-                player.retry_count = 0
+                    player.loading = True
+                    asyncio.create_task(self._prepare_and_play(guild_id, player, song, ffmpeg))
+                    return
                 player.current = None
                 player.skip_current = False
-                try:
-                    if age_restricted:
-                        await player.voice.channel.send(
-                            f"這首歌有 YouTube 年齡限制，我無法播放，已自動跳過：**{song.title}**"
-                        )
-                    else:
-                        await player.voice.channel.send(f"這首我播不起來，先跳過：{song.title}")
-                except Exception:
-                    pass
-                continue
+                player.retry_count = 0
+                await self._play_next_locked(guild_id)
+                return
+
+            try:
+                await player.voice.channel.send(f"🎵 現在播：**{song.title}**")
+            except Exception:
+                pass
 
     async def _disconnect_if_idle(self, guild_id: int, player: Player):
         await asyncio.sleep(20)
@@ -403,9 +463,18 @@ class MusicCog(commands.Cog):
             if not player:
                 return
 
+            player.loading = False
             if error and player.current and player.retry_count < 1 and not player.skip_current:
                 player.retry_count += 1
-                await self._play_next_locked(guild_id)
+                player.loading = True
+                asyncio.create_task(
+                    self._prepare_and_play(
+                        guild_id,
+                        player,
+                        player.current,
+                        self.ffmpeg_executable(),
+                    )
+                )
                 return
 
             player.retry_count = 0
