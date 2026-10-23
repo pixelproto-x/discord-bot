@@ -121,6 +121,7 @@ from cogs import (
     history,
     browser_mic,
     marriage,
+    economy,
 )
 
 
@@ -374,7 +375,7 @@ class Bot(commands.Bot):
             intents.auto_moderation_execution = True
         if hasattr(intents, "auto_moderation_configuration"):
             intents.auto_moderation_configuration = True
-        super().__init__(command_prefix="!", intents=intents, help_command=None, tree_cls=GuildRestrictedCommandTree)
+        super().__init__(command_prefix=("!", "_"), intents=intents, help_command=None, tree_cls=GuildRestrictedCommandTree)
     async def close(self):
         await super().close()
 
@@ -400,6 +401,7 @@ class Bot(commands.Bot):
             history,
             browser_mic,
             marriage,
+            economy,
         ]
         failed_modules = []
         for module in modules:
