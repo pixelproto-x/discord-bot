@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 data/*.sqlite3
 .env
+streamer/node_modules/
+mediamtx/
