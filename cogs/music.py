@@ -17,18 +17,18 @@ MAX_QUERY_LENGTH = 200
 LAVALINK_NODES = (
     {
         "identifier": "triniumhost-primary",
-        "uri": "https://lavalink-v4.triniumhost.com:443",
-        "password": "youshallnotpass",
+        "uri": "https://lavalink-v4.triniumhost.indevs.in:443",
+        "password": "free",
     },
     {
         "identifier": "millohost-fallback",
         "uri": "https://lava-v4.millohost.my.id:443",
-        "password": "youshallnotpass",
+        "password": "https://discord.gg/mjS5J2K3ep",
     },
     {
         "identifier": "serenetia-fallback",
         "uri": "https://lavalinkv4.serenetia.com:443",
-        "password": "BatuManaBisa",
+        "password": "https://dsc.gg/ajidevserver",
     },
 )
 LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
