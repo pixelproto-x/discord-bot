@@ -5,6 +5,62 @@ import traceback
 import time
 import logging
 from pathlib import Path
+import sys
+import threading
+
+# 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
+_LOG_DIR = Path(__file__).resolve().parent / "logs"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_LOG_FILE = (_LOG_DIR / "bot.log").open("a", encoding="utf-8", buffering=1)
+_LOG_LOCK = threading.Lock()
+_CONSOLE_IMPORTANT = (
+    "[OK]", "[錯誤]", "ERROR", "CRITICAL", "WARNING", "Traceback",
+    "Exception", "exception", " failed", "Failed", "failed", "Error",
+    "error", "429", "403", "401", "500", "denied", "disconnect",
+    "reconnect", "Relay failed", "Reminder delivery failed",
+    "Slash command error", "Failed to load", "Joined guild",
+)
+
+class _QuietLogStream:
+    def __init__(self, wrapped, *, quiet=False):
+        self._wrapped = wrapped
+        self._quiet = quiet
+        self._pending = ""
+
+    def write(self, value):
+        if not isinstance(value, str):
+            value = str(value)
+        with _LOG_LOCK:
+            _LOG_FILE.write(value)
+            _LOG_FILE.flush()
+        if not self._quiet:
+            return self._wrapped.write(value)
+        self._pending += value
+        while "\\n" in self._pending:
+            line, self._pending = self._pending.split("\\n", 1)
+            if any(token in line for token in _CONSOLE_IMPORTANT):
+                self._wrapped.write(line + "\\n")
+        return len(value)
+
+    def flush(self):
+        if self._pending and (not self._quiet or any(token in self._pending for token in _CONSOLE_IMPORTANT)):
+            self._wrapped.write(self._pending)
+        self._pending = ""
+        self._wrapped.flush()
+        _LOG_FILE.flush()
+
+    def isatty(self):
+        return self._wrapped.isatty()
+
+    @property
+    def encoding(self):
+        return getattr(self._wrapped, "encoding", "utf-8")
+
+    def fileno(self):
+        return self._wrapped.fileno()
+
+sys.stdout = _QuietLogStream(sys.stdout, quiet=True)
+sys.stderr = _QuietLogStream(sys.stderr, quiet=False)
 
 # 隱藏第三方套件的一般成功／請求紀錄；WARNING、ERROR 與例外仍會顯示。
 for _logger_name in (
