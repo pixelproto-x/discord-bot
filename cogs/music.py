@@ -148,47 +148,6 @@ class MusicSearchView(discord.ui.View):
             self.add_item(MusicSearchButton(cog, track, index, requester_id))
 
 
-class MusicConsoleDeliveryView(discord.ui.View):
-    def __init__(self, cog, guild_id: int, author_id: int):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.guild_id = int(guild_id)
-        self.author_id = int(author_id)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.author_id:
-            return True
-        await interaction.response.send_message("只有發起這則指令的人可以選擇訊息公開方式。", ephemeral=True)
-        return False
-
-    @discord.ui.button(label="📢 公開發送", style=discord.ButtonStyle.primary)
-    async def publish(self, interaction: discord.Interaction, button: discord.ui.Button):
-        channel = interaction.channel
-        if channel is None or not hasattr(channel, "send"):
-            await interaction.response.send_message("無法在這個頻道公開發送音樂控制台。", ephemeral=True)
-            return
-        session = self.cog.sessions.get(self.guild_id)
-        try:
-            await channel.send(
-                self.cog.render_queue(session),
-                view=MusicQueueView(self.cog, self.guild_id, self.author_id),
-            )
-            await interaction.response.edit_message(content="✅ 已公開發送", view=None)
-            self.stop()
-        except Exception as exc:
-            print(f"[Music] 公開發送控制台失敗：{type(exc).__name__}: {exc}")
-            await interaction.response.send_message("公開發送失敗，請確認 Bot 在頻道中的發送訊息與使用外部表情符號等必要權限。", ephemeral=True)
-
-    @discord.ui.button(label="僅自己可見", style=discord.ButtonStyle.secondary)
-    async def private(self, interaction: discord.Interaction, button: discord.ui.Button):
-        session = self.cog.sessions.get(self.guild_id)
-        await interaction.response.edit_message(
-            content=self.cog.render_queue(session),
-            view=MusicQueueView(self.cog, self.guild_id, self.author_id),
-        )
-        self.stop()
-
-
 class MusicQueueSelect(discord.ui.Select):
     def __init__(self, cog, guild_id: int, requester_id: int):
         self.cog = cog
@@ -588,15 +547,18 @@ class MusicCog(commands.Cog):
         return "\n".join(lines)[:1900]
 
     @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
-    async def queue(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def queue(self, interaction: discord.Interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
             return
         author_id = int(interaction.user.id)
+        session = self.sessions.get(interaction.guild.id)
         await interaction.response.send_message(
-            "這則回覆尚未發送。請先選擇要公開發送，還是僅自己可見",
-            view=MusicConsoleDeliveryView(self, interaction.guild.id, author_id),
-            ephemeral=True,
+            self.render_queue(session),
+            view=MusicQueueView(self, interaction.guild.id, author_id),
+            ephemeral=not public,
         )
 
     @music.command(name=app_commands.locale_str("pause", zh_TW="暫停"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
