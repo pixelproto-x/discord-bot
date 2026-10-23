@@ -352,7 +352,7 @@ class EconomyCog(commands.Cog):
         result = f"你贏了，拿回 {amount * 2:,} 金幣（淨賺 {amount:,}）。" if a > b else f"平手，退回本金 {amount:,} 金幣。" if a == b else f"你輸了，下注的 {amount:,} 金幣被沒收。"
         await self._reply(target, f"🎲 你的骰子 {player[0]} + {player[1]} = **{a}**\n莊家骰子 {house[0]} + {house[1]} = **{b}**\n{result}")
 
-    @app_commands.command(name=app_commands.locale_str("dice", zh_TW="骰子"), description="與莊家比骰子大小並下注")
+    @app_commands.command(name=app_commands.locale_str("economy_dice", zh_TW="骰子"), description="與莊家比骰子大小並下注")
     @app_commands.describe(amount="大於 0 的整數下注金額")
     async def dice_slash(self, interaction: discord.Interaction, amount: int):
         await self._dice(interaction, amount)
