@@ -55,6 +55,7 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 </main>
 <script>
 let token="",selectedGuild="",selectedChannel="";
+const GUILD_PREF_KEY="discord-dashboard-last-guild";
 const $=id=>document.getElementById(id);
 function message(id,text,error=false){$(id).textContent=text;$(id).classList.toggle("error",error)}
 function setLockedControls(locked){document.querySelectorAll("#app button,#app input,#app select,#app textarea").forEach(el=>{el.disabled=locked})}
@@ -66,14 +67,16 @@ async function api(path,body){
 }
 async function loadStatus(){
  const data=await api("/api/status");$("botName").textContent=data.user||"未連線";$("guildCount").textContent=data.guild_count;$("latency").textContent=data.latency_ms+" ms";
- selectedGuild=String(data.selected_guild_id||selectedGuild||"");selectedChannel=String(data.selected_channel_id||selectedChannel||"");
+ const savedGuild=localStorage.getItem(GUILD_PREF_KEY)||"";
+ selectedGuild=String(savedGuild||data.selected_guild_id||selectedGuild||"");selectedChannel=String(data.selected_channel_id||selectedChannel||"");
  $("selectedInfo").textContent=data.selected_guild_name?(data.selected_guild_name+" / #"+data.selected_channel_name):"尚未選擇控制頻道";
 }
 async function loadGuilds(){
  const data=await api("/api/guilds");const select=$("guild");select.replaceChildren();
  for(const guild of data.guilds){const o=document.createElement("option");o.value=guild.id;o.textContent=guild.name;select.append(o)}
- if(selectedGuild&&[...select.options].some(o=>o.value===selectedGuild))select.value=selectedGuild;
- if(select.value){selectedGuild=select.value;await loadChannels()}
+ const preferred=selectedGuild||localStorage.getItem(GUILD_PREF_KEY)||"";
+ if(preferred&&[...select.options].some(o=>o.value===preferred))select.value=preferred;
+ if(select.value){selectedGuild=select.value;localStorage.setItem(GUILD_PREF_KEY,selectedGuild);await loadChannels()}
 }
 async function loadChannels(){
  selectedGuild=$("guild").value;const data=await api("/api/channels?guild_id="+encodeURIComponent(selectedGuild));const select=$("channel");select.replaceChildren();
@@ -100,7 +103,7 @@ async function connect(){
 function showLocked(){token="";$("authCard").classList.remove("hidden");$("app").classList.add("hidden");setLockedControls(true);$("logout").classList.add("hidden");$("connection").textContent="已登出";$("token").value="";}
 async function logout(){try{await fetch("/logout",{credentials:"same-origin"})}catch{}showLocked();message("authMsg","已登出控制面板。")}
 $("connect").onclick=connect;$("logout").onclick=logout;window.addEventListener("load",async()=>{try{await loadStatus();await loadGuilds();$("authCard").classList.add("hidden");$("app").classList.remove("hidden");$("logout").classList.remove("hidden");$("connection").textContent="Discord 已驗證登入";message("statusMsg","已使用白名單 Discord 帳號登入。")}catch(e){$("app").classList.remove("hidden");setLockedControls(true);/* public read-only view; key required for API actions */}});$("refresh").onclick=async()=>{try{await loadStatus();await loadGuilds();message("statusMsg","狀態已更新。")}catch(e){message("statusMsg",e.message,true)}};
-$("guild").onchange=async()=>{selectedChannel="";try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
+$("guild").onchange=async()=>{selectedChannel="";selectedGuild=$("guild").value;if(selectedGuild)localStorage.setItem(GUILD_PREF_KEY,selectedGuild);try{await loadChannels()}catch(e){message("selectMsg",e.message,true)}};
 $("channel").onchange=()=>{selectedChannel=$("channel").value};
 $("selectTarget").onclick=async()=>{try{const d=await api("/api/select",{guild_id:$("guild").value,channel_id:$("channel").value});selectedGuild=d.guild_id;selectedChannel=d.channel_id;await loadStatus();message("selectMsg","已設定控制頻道。")}catch(e){message("selectMsg",e.message,true)}};
 $("sendBtn").onclick=async()=>{try{const d=await api("/api/send",{channel_id:$("channel").value,content:$("sendText").value});message("sendMsg",d.message);$("sendText").value=""}catch(e){message("sendMsg",e.message,true)}};
