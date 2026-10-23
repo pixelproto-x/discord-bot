@@ -87,6 +87,55 @@ class Hacks(commands.Cog):
         self._write_tts_settings(settings)
         await interaction.response.send_message("已關閉本伺服器的文字朗讀。", ephemeral=True)
 
+    async def _generate_tts_audio(self, text: str, audio_path: str):
+        """Prefer Google Cloud TTS when configured; keep Edge TTS as a safe fallback."""
+        api_key = os.getenv("GOOGLE_TTS_API_KEY", "").strip()
+        if api_key:
+            # Holly was the original US-English Google Assistant voice. Google does not
+            # expose Holly itself as a guaranteed Cloud TTS voice, so use a WaveNet
+            # approximation for English and a native Taiwan Mandarin WaveNet voice for Chinese.
+            has_chinese = bool(re.search(r"[\u3400-\u9fff]", text))
+            language_code = "cmn-TW" if has_chinese else "en-US"
+            voice_name = (
+                os.getenv("GOOGLE_TTS_ZH_VOICE", "cmn-TW-Wavenet-A").strip()
+                if has_chinese
+                else os.getenv("GOOGLE_TTS_EN_VOICE", "en-US-Wavenet-F").strip()
+            )
+            payload = {
+                "input": {"text": text},
+                "voice": {"languageCode": language_code, "name": voice_name},
+                "audioConfig": {
+                    "audioEncoding": "MP3",
+                    "speakingRate": 0.96,
+                    "pitch": -1.0 if not has_chinese else 0.0,
+                },
+            }
+            try:
+                timeout = aiohttp.ClientTimeout(total=20)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(
+                        "https://texttospeech.googleapis.com/v1/text:synthesize",
+                        params={"key": api_key},
+                        json=payload,
+                    ) as response:
+                        result = await response.json(content_type=None)
+                        if response.status >= 400:
+                            raise RuntimeError(
+                                f"Google Cloud TTS HTTP {response.status}: "
+                                f"{result.get('error', {}).get('message', 'unknown error')}"
+                            )
+                audio_content = result.get("audioContent")
+                if not audio_content:
+                    raise RuntimeError("Google Cloud TTS response did not contain audioContent")
+                with open(audio_path, "wb") as audio_file:
+                    audio_file.write(base64.b64decode(audio_content))
+                return
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, RuntimeError) as exc:
+                print(f"[TTS] Google Cloud TTS failed; falling back to Edge TTS: {type(exc).__name__}: {exc}")
+
+        communicate = edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural")
+        await communicate.save(audio_path)
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if not message.guild or message.author.bot or message.webhook_id:
@@ -123,8 +172,7 @@ class Hacks(commands.Cog):
             try:
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
                     audio_path = temp_file.name
-                communicate = edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural")
-                await communicate.save(audio_path)
+                await self._generate_tts_audio(text, audio_path)
 
                 voice_client = message.guild.voice_client
                 if voice_client and voice_client.is_connected():
