@@ -47,7 +47,7 @@ button{cursor:pointer;background:#26365e;border-color:#3b4f82;font-weight:650;tr
 <section class="card"><h2>選擇伺服器與頻道</h2><label for="guild">伺服器</label><select id="guild"></select><label for="channel">文字頻道</label><select id="channel"></select><button id="selectTarget" style="margin-top:12px">設為目前控制頻道</button><div class="note" id="selectedInfo">尚未選擇</div><div class="message" id="selectMsg"></div></section>
 <section class="card"><h2>傳送文字頻道訊息</h2><label for="sendText">要讓 一條魚 發送的內容</label><textarea id="sendText" maxlength="2000" placeholder="輸入訊息內容（最多 2000 字）"></textarea><button id="sendBtn" style="margin-top:12px">傳送到選定文字頻道</button><div class="message" id="sendMsg"></div></section>
 <section class="card voice-card"><div class="voice-card-head"><div class="voice-icon">◖))</div><div><h2>即時語音朗讀</h2><p class="voice-desc">選擇語音房間，輸入文字，一條魚 就會加入語音並唸出來。</p></div></div><label for="voiceChannel">目標語音房間</label><select id="voiceChannel"></select><div class="voice-room-meta" id="voiceRoomMeta">先選擇伺服器，再選擇要朗讀的語音房間。</div><label for="voiceText">朗讀內容</label><textarea id="voiceText" maxlength="500" placeholder="例如：大家好，我現在可以直接在語音裡說話了。"></textarea><div class="voice-actions"><span class="voice-limit">最多 500 字 · 繁體中文語音</span><button id="voiceSendBtn">▶ 開始朗讀</button></div><div class="note">如果 Bot 正在播放音樂或其他音訊，會先拒絕朗讀，避免打斷播放。</div><div class="message" id="voiceSendMsg"></div></section>
-<section class="card voice-card"><div class="voice-card-head"><div class="voice-icon">🎙</div><div><h2>即時麥克風傳聲</h2><p class="voice-desc">使用手機或電腦的瀏覽器麥克風，把你的聲音即時送進 Discord 語音頻道。</p></div></div><label for="micChannel">目標語音房間</label><select id="micChannel"></select><div class="voice-room-meta">允許瀏覽器使用麥克風；公開網站必須使用 HTTPS。</div><div class="voice-actions"><button id="micStartBtn">🎙 開始傳聲</button><button id="micStopBtn" class="secondary" disabled>■ 停止傳聲</button></div><div class="note">開始後會持續傳送麥克風聲音，按停止即可結束。Bot 正在播放音樂時不會中斷音樂。</div><div class="message" id="micMsg"></div></section>
+<section class="card voice-card"><div class="voice-card-head"><div class="voice-icon">🎙</div><div><h2>即時麥克風傳聲</h2><p class="voice-desc">使用手機或電腦的瀏覽器麥克風，把你的聲音即時送進 Discord 語音頻道。</p></div></div><label for="micChannel">目標語音房間</label><select id="micChannel"></select><div class="voice-room-meta">允許瀏覽器使用麥克風；公開網站必須使用 HTTPS。</div><div class="voice-actions"><button id="micStartBtn">🎙 開始傳聲</button><button id="micMuteBtn" class="secondary" disabled>🔇 開啟麥克風</button><button id="micStopBtn" class="secondary" disabled>■ 停止傳聲</button></div><div class="note">開始後會持續傳送麥克風聲音，按停止即可結束。Bot 正在播放音樂時不會中斷音樂。</div><div class="message" id="micMsg"></div></section>
 <section class="card wide"><h2>引用指定訊息回覆</h2><div class="row"><div><label for="messageId">Discord 訊息 ID</label><input id="messageId" inputmode="numeric" placeholder="右鍵訊息 → 複製訊息 ID"></div><div><label for="replyText">一條魚 的回覆內容</label><textarea id="replyText" maxlength="2000" placeholder="輸入要回覆的內容"></textarea></div></div><button id="replyBtn" style="margin-top:12px">引用該訊息並回覆</button><div class="note">必須先選擇該訊息所在的伺服器與頻道；一條魚 需要能查看頻道及訊息歷史。</div><div class="message" id="replyMsg"></div></section>
 <section class="card"><h2>刪除指定訊息</h2><label for="deleteMessageId">Discord 訊息 ID</label><input id="deleteMessageId" inputmode="numeric" placeholder="右鍵目標訊息 → 複製訊息 ID"><button id="deleteBtn" style="margin-top:12px">刪除指定訊息</button><div class="note">刪除目前選定頻道中的訊息；Bot 必須有管理訊息權限。刪除後無法復原。</div><div class="message" id="deleteMsg"></div></section>
 <section class="card"><h2>私下模仿整個伺服器的群聊語氣</h2><label for="mimicPrompt">要讓 AI 模仿著表達的內容</label><textarea id="mimicPrompt" maxlength="2000" placeholder="輸入一句話或要改寫的內容"></textarea><button id="mimicBtn" style="margin-top:12px">模仿訊息（結果只有你看得到）</button><label for="mimicResult">模仿結果</label><textarea id="mimicResult" readonly placeholder="結果會顯示在這裡"></textarea><div class="message" id="mimicMsg"></div></section>
@@ -109,14 +109,14 @@ $("deleteBtn").onclick=async()=>{if(!confirm("確定刪除目前選定頻道中�
 $("mimicBtn").onclick=async()=>{const prompt=$("mimicPrompt").value.trim();if(!prompt){message("mimicMsg","請先輸入要模仿著表達的內容。",true);return}const btn=$("mimicBtn");btn.disabled=true;message("mimicMsg","正在讀取群聊樣本並產生結果…");try{const d=await api("/api/mimic",{channel_id:$("channel").value,prompt});$("mimicResult").value=d.answer;message("mimicMsg","完成。結果只有目前控制台使用者看得到。")}catch(e){message("mimicMsg",e.message,true)}finally{btn.disabled=false}};
 $("voiceChannel").onchange=()=>{const o=$("voiceChannel").selectedOptions[0];$("voiceRoomMeta").textContent=o&&o.value?"目標房間："+o.textContent+" · 按下朗讀後 Bot 會自動加入或切換到此房間。":"目前伺服器沒有可用語音房間。"}; $("voiceSendBtn").onclick=async()=>{const content=$("voiceText").value.trim();if(!content){message("voiceSendMsg","先輸入要唸的文字。",true);return}const btn=$("voiceSendBtn");btn.disabled=true;btn.textContent="正在產生語音…";try{const d=await api("/api/send-voice",{channel_id:$("voiceChannel").value,content});message("voiceSendMsg",d.message);$("voiceText").value=""}catch(e){message("voiceSendMsg",e.message,true)}finally{btn.disabled=false;btn.textContent="▶ 開始朗讀"}};
 
-let micStream=null,micContext=null,micSocket=null,micProcessor=null,micSourceNode=null,micGain=null,micBuffer=new Float32Array(0),micActive=false;
+let micStream=null,micContext=null,micSocket=null,micProcessor=null,micSourceNode=null,micGain=null,micBuffer=new Float32Array(0),micActive=false,micMuted=true;
 function closeBrowserMic(){
  micActive=false;if(micProcessor)micProcessor.onaudioprocess=null;
  try{if(micSocket&&micSocket.readyState===WebSocket.OPEN)micSocket.close()}catch(e){}
  try{if(micStream)micStream.getTracks().forEach(t=>t.stop())}catch(e){}
  try{if(micContext)micContext.close()}catch(e){}
- micStream=null;micContext=null;micSocket=null;micProcessor=null;micSourceNode=null;micGain=null;micBuffer=new Float32Array(0);
- $("micStartBtn").disabled=false;$("micStopBtn").disabled=true;
+ micStream=null;micContext=null;micSocket=null;micProcessor=null;micSourceNode=null;micGain=null;micBuffer=new Float32Array(0);micMuted=true;
+ $("micStartBtn").disabled=false;$("micMuteBtn").disabled=true;$("micMuteBtn").textContent="🔇 開啟麥克風";$("micStopBtn").disabled=true;
 }
 $("micStartBtn").onclick=async()=>{
  if(micActive)return;
@@ -147,9 +147,10 @@ $("micStartBtn").onclick=async()=>{
    micBuffer=combined.slice(offset);
   };
   micSourceNode.connect(micProcessor);micProcessor.connect(micGain);micGain.connect(micContext.destination);
-  micActive=true;btn.disabled=true;$("micStopBtn").disabled=false;message("micMsg","正在即時傳送麥克風聲音到 Discord。");
+  micActive=true;micMuted=true;micStream.getAudioTracks().forEach(track=>track.enabled=false);btn.disabled=true;$("micMuteBtn").disabled=false;$("micMuteBtn").textContent="🎙 開啟麥克風";$("micStopBtn").disabled=false;message("micMsg","傳聲已連線，麥克風目前關閉；按「開啟麥克風」開始傳送聲音。");
  }catch(e){closeBrowserMic();try{await api("/api/mic/stop",{channel_id:channelId})}catch(err){}message("micMsg",e.message||"啟動麥克風失敗。",true)}
 };
+$("micMuteBtn").onclick=()=>{if(!micActive||!micStream)return;micMuted=!micMuted;micStream.getAudioTracks().forEach(track=>track.enabled=!micMuted);$("micMuteBtn").textContent=micMuted?"🎙 開啟麥克風":"🔇 關閉麥克風";message("micMsg",micMuted?"麥克風已關閉，傳聲連線仍保持。":"麥克風已開啟，正在即時傳送聲音到 Discord。")};
 $("micStopBtn").onclick=async()=>{
  const channelId=$("micChannel").value;closeBrowserMic();try{const d=await api("/api/mic/stop",{channel_id:channelId});message("micMsg",d.message||"已停止麥克風傳聲。")}catch(e){message("micMsg",e.message,true)}
 };
