@@ -3,9 +3,6 @@ import os
 import re
 import traceback
 import time
-import subprocess
-import threading
-import atexit
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -294,112 +291,10 @@ class Bot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None, tree_cls=GuildRestrictedCommandTree)
         self._terminal_guild_id: int | None = None
         self._terminal_channel_id: int | None = None
-        self._stream_processes: list[subprocess.Popen] = []
-        self._stream_lock = threading.Lock()
-        self._stream_url: str | None = None
-        self._stream_reader: threading.Thread | None = None
-        self._stream_shutdown_registered = False
-
-    def _start_stream_services(self):
-        if self._stream_processes and any(p.poll() is None for p in self._stream_processes):
-            return
-        root = Path(__file__).resolve().parent
-        mediamtx_dir = root / "mediamtx"
-        mediamtx_exe = mediamtx_dir / "mediamtx.exe"
-        cloudflared_exe = root / "cloudflared.exe"
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        if not mediamtx_exe.is_file():
-            print(f"[Stream] 找不到 {mediamtx_exe}")
-            return
-        if not cloudflared_exe.is_file():
-            print(f"[Stream] 找不到 {cloudflared_exe}")
-            return
-        try:
-            mediamtx = subprocess.Popen(
-                [str(mediamtx_exe)],
-                cwd=str(mediamtx_dir),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags,
-            )
-            self._stream_processes.append(mediamtx)
-            cloudflared = subprocess.Popen(
-                [str(cloudflared_exe), "tunnel", "--url", "http://127.0.0.1:8889"],
-                cwd=str(root),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                creationflags=creationflags,
-            )
-            self._stream_processes.append(cloudflared)
-            self._stream_reader = threading.Thread(
-                target=self._read_cloudflared_output,
-                args=(cloudflared,),
-                name="cloudflared-log-reader",
-                daemon=True,
-            )
-            self._stream_reader.start()
-            if not self._stream_shutdown_registered:
-                atexit.register(self._stop_stream_services)
-                self._stream_shutdown_registered = True
-        except (OSError, ValueError) as exc:
-            print(f"[Stream] 背景服務啟動失敗：{type(exc).__name__}: {exc}")
-            self._stop_stream_services()
-
-    def _read_cloudflared_output(self, process: subprocess.Popen):
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
-        stream = process.stdout
-        if stream is None:
-            return
-        try:
-            for line in iter(stream.readline, ""):
-                line = line.rstrip()
-                if line:
-                    print(f"[Cloudflared] {line}")
-                match = pattern.search(line)
-                if match:
-                    url = match.group(0)
-                    with self._stream_lock:
-                        self._stream_url = url
-                    os.environ["DISCORD_LIVE_PAGE_URL"] = url
-                    hacks.Hacks.LIVE_PAGE_URL = url
-                    print(f"\033[92m[Stream] MediaMTX 與 Cloudflared 已於背景自動就緒，網址: {url}\033[0m")
-        except (OSError, ValueError):
-            pass
-        finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
-
-    def _stop_stream_services(self):
-        processes, self._stream_processes = self._stream_processes, []
-        for process in reversed(processes):
-            if process.poll() is not None:
-                continue
-            try:
-                process.terminate()
-                process.wait(timeout=4)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
-            except OSError:
-                pass
-
     async def close(self):
-        self._stop_stream_services()
         await super().close()
 
     async def setup_hook(self):
-        self._start_stream_services()
         install_ephemeral_publish_buttons()
         storage.init_db()
         modules = [
