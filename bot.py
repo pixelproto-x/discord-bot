@@ -4,6 +4,7 @@ import re
 import traceback
 import time
 import logging
+import logging.handlers
 from pathlib import Path
 import sys
 import threading
@@ -11,7 +12,13 @@ import threading
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
 _LOG_DIR = Path(__file__).resolve().parent / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
-_LOG_FILE = (_LOG_DIR / "bot.log").open("a", encoding="utf-8", buffering=1)
+_LOG_HANDLER = logging.handlers.RotatingFileHandler(
+    _LOG_DIR / "bot.log",
+    maxBytes=2 * 1024 * 1024,
+    backupCount=3,
+    encoding="utf-8",
+)
+_LOG_HANDLER.setFormatter(logging.Formatter("%(message)s"))
 _LOG_LOCK = threading.Lock()
 _CONSOLE_IMPORTANT = (
     "[OK]", "[錯誤]", "ERROR", "CRITICAL", "WARNING", "Traceback",
@@ -31,8 +38,9 @@ class _QuietLogStream:
         if not isinstance(value, str):
             value = str(value)
         with _LOG_LOCK:
-            _LOG_FILE.write(value)
-            _LOG_FILE.flush()
+            record = logging.LogRecord("bot.output", logging.INFO, "", 0, value, (), None)
+            _LOG_HANDLER.emit(record)
+            _LOG_HANDLER.flush()
         if not self._quiet:
             return self._wrapped.write(value)
         self._pending += value
@@ -47,7 +55,7 @@ class _QuietLogStream:
             self._wrapped.write(self._pending)
         self._pending = ""
         self._wrapped.flush()
-        _LOG_FILE.flush()
+        _LOG_HANDLER.flush()
 
     def isatty(self):
         return self._wrapped.isatty()
