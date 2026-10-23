@@ -341,8 +341,8 @@ class MusicCog(commands.Cog):
                 discord.FFmpegPCMAudio(
                     stream_url,
                     executable=ffmpeg,
-                    before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1",
-                    options="-vn",
+                    before_options="-thread_queue_size 1024 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1",
+                    options="-af aresample=async=1000:first_pts=0 -vn",
                 ),
                 volume=player.volume,
             )
