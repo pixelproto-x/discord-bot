@@ -478,7 +478,11 @@ class MusicCog(commands.Cog):
         if message.author.bot or not message.guild or not message.content:
             return
         match = SUPPORTED_URL_RE.search(message.content)
-       @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
+        if not match:
+            return
+        await self.play_query_from_message(message, match.group(0).rstrip(".,!?)]}，。！？"))
+
+    @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
     @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
     async def play(self, interaction: discord.Interaction, query: str):
         if not interaction.guild:
