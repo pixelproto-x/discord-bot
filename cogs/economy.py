@@ -191,7 +191,7 @@ class EconomyCog(commands.Cog):
             return True
         msg = "經濟指令只能在伺服器中使用。"
         if isinstance(target, discord.Interaction):
-            await target.response.send_message(msg, ephemeral=True)
+            await target.response.send_message(msg, ephemeral=False)
         else:
             await target.reply(msg, mention_author=False)
         return False
@@ -199,9 +199,9 @@ class EconomyCog(commands.Cog):
     async def _reply(self, target, content, *, embed=None):
         if isinstance(target, discord.Interaction):
             if target.response.is_done():
-                await target.followup.send(content, embed=embed, ephemeral=True)
+                await target.followup.send(content, embed=embed, ephemeral=False)
             else:
-                await target.response.send_message(content, embed=embed, ephemeral=True)
+                await target.response.send_message(content, embed=embed, ephemeral=False)
         else:
             await target.reply(content, embed=embed, mention_author=False)
 
