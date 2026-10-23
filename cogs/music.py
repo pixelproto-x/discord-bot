@@ -228,22 +228,7 @@ class MusicCog(commands.Cog):
                     session.current = None
                     asyncio.create_task(self.play_next(guild_id))
                     return
-            asyncio.create_task(self.disconnect_when_idle(guild_id, session))
-
-    async def disconnect_when_idle(self, guild_id: int, session: MusicSession):
-        await asyncio.sleep(60)
-        async with self.locks[guild_id]:
-            if (
-                self.sessions.get(guild_id) is session
-                and session.current is None
-                and not session.queue
-                and not session.player.playing
-            ):
-                self.sessions.pop(guild_id, None)
-                try:
-                    await session.player.disconnect()
-                except Exception:
-                    pass
+            # 保持語音連線；不因播放佇列暫時為空而自動離開。
 
     async def stop_player(self, guild_id: int):
         async with self.locks[guild_id]:
