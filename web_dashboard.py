@@ -293,8 +293,10 @@ async def start_dashboard(bot):
         raise response
 
     async def status(request):
-        guild = bot.get_guild(bot._terminal_guild_id) if bot._terminal_guild_id else None
-        channel = bot.get_channel(bot._terminal_channel_id) if bot._terminal_channel_id else None
+        selected_guild_id = getattr(bot, "_dashboard_guild_id", None)
+        selected_channel_id = getattr(bot, "_dashboard_channel_id", None)
+        guild = bot.get_guild(selected_guild_id) if selected_guild_id else None
+        channel = bot.get_channel(selected_channel_id) if selected_channel_id else None
         return web.json_response({
             "ready": bot.is_ready(),
             "user": str(bot.user) if bot.user else None,
@@ -447,8 +449,8 @@ async def start_dashboard(bot):
         perms = channel.permissions_for(me) if me else None
         if not perms or not perms.view_channel or not perms.send_messages:
             return _json_error("Bot 沒有查看或傳送訊息的權限。", 403)
-        bot._terminal_guild_id = guild.id
-        bot._terminal_channel_id = channel.id
+        bot._dashboard_guild_id = guild.id
+        bot._dashboard_channel_id = channel.id
         return web.json_response({"guild_id": str(guild.id), "channel_id": str(channel.id)})
 
     async def send_message(request):
