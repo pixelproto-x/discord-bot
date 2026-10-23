@@ -170,16 +170,18 @@ class MusicCog(commands.Cog):
         if error:
             raise ValueError(error)
         assert value is not None
-        if re.match(r"^https?://", value, re.IGNORECASE):
-            identifier = value
-        else:
-            identifier = f"ytsearch:{value}"
+        is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
+        identifier = value if is_url else f"ytsearch:{value}"
         result = await wavelink.Playable.search(identifier)
         if not result:
             return []
         if hasattr(result, "tracks"):
-            return list(result.tracks)
-        return list(result)
+            tracks = list(result.tracks)
+        else:
+            tracks = list(result)
+
+        # 歌名搜尋只播放最符合的一首；只有貼上播放清單網址時才加入多首。
+        return tracks if is_url else tracks[:1]
 
     async def enqueue_tracks(
         self,
