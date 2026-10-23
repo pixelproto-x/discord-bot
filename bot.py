@@ -373,9 +373,6 @@ class Bot(commands.Bot):
             print(f"[Guild] {guild.name} | ID={guild.id} | SLASH COMMANDS ENABLED (global)")
         if not reminder_worker.is_running():
             reminder_worker.start()
-        if not getattr(self, "_terminal_speech_started", False):
-            self._terminal_speech_started = True
-            self._terminal_speech_task = asyncio.create_task(self._terminal_speech_console())
 
 
     async def close(self):
