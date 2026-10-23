@@ -97,24 +97,15 @@ def track_duration(track) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-class MusicSearchSelect(discord.ui.Select):
-    def __init__(self, cog, tracks: list, requester_id: int):
+class MusicSearchButton(discord.ui.Button):
+    def __init__(self, cog, track, index: int, requester_id: int):
         self.cog = cog
-        self.tracks = tracks[:25]
+        self.track = track
         self.requester_id = requester_id
-        options = [
-            discord.SelectOption(
-                label=track_title(track)[:100] or f"歌曲 {index}",
-                description=f"{track_duration(track)} · {getattr(track, 'author', '未知歌手')}"[:100],
-                value=str(index - 1),
-            )
-            for index, track in enumerate(self.tracks, 1)
-        ]
         super().__init__(
-            placeholder="選擇要播放的歌曲",
-            min_values=1,
-            max_values=1,
-            options=options,
+            label=f"{index}. {track_title(track)}"[:80],
+            style=discord.ButtonStyle.primary,
+            row=(index - 1) // 5,
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -128,20 +119,19 @@ class MusicSearchSelect(discord.ui.Select):
         if not member.voice or not member.voice.channel:
             await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
             return
-        track = self.tracks[int(self.values[0])]
         try:
             count, started = await self.cog.enqueue_tracks(
                 interaction.guild,
                 member.voice.channel,
                 interaction.channel_id,
                 member.id,
-                [track],
+                [self.track],
             )
             session = self.cog.sessions[interaction.guild.id]
             if started and session.current:
                 text = f"🎵 開始播放：**{track_title(session.current)}**"
             else:
-                text = f"已加入佇列：**{track_title(track)}**"
+                text = f"已加入佇列：**{track_title(self.track)}**"
             for item in self.view.children:
                 item.disabled = True
             await interaction.response.edit_message(content=text, view=self.view)
@@ -153,7 +143,9 @@ class MusicSearchSelect(discord.ui.Select):
 class MusicSearchView(discord.ui.View):
     def __init__(self, cog, tracks: list, requester_id: int):
         super().__init__(timeout=60)
-        self.add_item(MusicSearchSelect(cog, tracks, requester_id))
+        self.tracks = tracks[:25]
+        for index, track in enumerate(self.tracks, 1):
+            self.add_item(MusicSearchButton(cog, track, index, requester_id))
 
 
 class MusicQueueSelect(discord.ui.Select):
@@ -506,10 +498,13 @@ class MusicCog(commands.Cog):
             is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
             if not is_url:
                 view = MusicSearchView(self, tracks, interaction.user.id)
+                display_tracks = tracks[:25]
                 names = "\n".join(
                     f"{index}. **{track_title(track)}**"
-                    for index, track in enumerate(tracks, 1)
+                    for index, track in enumerate(display_tracks, 1)
                 )
+                if len(tracks) > 25:
+                    names += f"\n…共找到 {len(tracks)} 首；Discord 一則訊息最多提供 25 個直接選歌按鈕。"
                 await interaction.followup.send(f"🎵 找到這些，點你要的：\n{names}"[:1900], view=view)
                 return
             selected_tracks = tracks if is_playlist else tracks[:1]
