@@ -100,7 +100,7 @@ def track_duration(track) -> str:
 class MusicSearchSelect(discord.ui.Select):
     def __init__(self, cog, tracks: list, requester_id: int):
         self.cog = cog
-        self.tracks = tracks[:5]
+        self.tracks = tracks[:25]
         self.requester_id = requester_id
         options = [
             discord.SelectOption(
@@ -154,6 +154,100 @@ class MusicSearchView(discord.ui.View):
     def __init__(self, cog, tracks: list, requester_id: int):
         super().__init__(timeout=60)
         self.add_item(MusicSearchSelect(cog, tracks, requester_id))
+
+
+class MusicQueueSelect(discord.ui.Select):
+    def __init__(self, cog, guild_id: int, requester_id: int):
+        self.cog = cog
+        self.guild_id = guild_id
+        self.requester_id = requester_id
+        session = cog.sessions.get(guild_id)
+        queue = list(session.queue) if session else []
+        options = [
+            discord.SelectOption(label=track_title(track)[:100], description=f"第 {index} 首 · {track_duration(track)}"[:100], value=str(index - 1))
+            for index, track in enumerate(queue[:25], 1)
+        ]
+        super().__init__(placeholder="選擇要刪除的待播歌曲", min_values=1, max_values=1,
+                         options=options or [discord.SelectOption(label="沒有待播歌曲", value="none")],
+                         disabled=not options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("只有開啟控制台的人可以操作這份清單。", ephemeral=True)
+            return
+        session = self.cog.sessions.get(self.guild_id)
+        if not session or self.values[0] == "none":
+            await interaction.response.send_message("目前沒有可刪除的待播歌曲。", ephemeral=True)
+            return
+        index = int(self.values[0])
+        if index >= len(session.queue):
+            await interaction.response.send_message("清單已變動，請重新開啟控制台。", ephemeral=True)
+            return
+        removed = session.queue.pop(index)
+        await interaction.response.edit_message(content=self.cog.render_queue(session),
+                                                view=MusicQueueView(self.cog, self.guild_id, self.requester_id))
+        await interaction.followup.send(f"已從待播清單移除：**{track_title(removed)}**", ephemeral=True)
+
+
+class MusicQueueView(discord.ui.View):
+    def __init__(self, cog, guild_id: int, requester_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.requester_id = requester_id
+        self.add_item(MusicQueueSelect(cog, guild_id, requester_id))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message("只有開啟控制台的人可以操作這份清單。", ephemeral=True)
+        return False
+
+    async def refresh(self, interaction: discord.Interaction, notice: str | None = None):
+        session = self.cog.sessions.get(self.guild_id)
+        content = self.cog.render_queue(session)
+        if notice:
+            content = f"{notice}\\n\\n{content}"
+        await interaction.response.edit_message(content=content[:1900],
+                                                view=MusicQueueView(self.cog, self.guild_id, self.requester_id))
+
+    @discord.ui.button(label="下一首", style=discord.ButtonStyle.primary, row=1)
+    async def next_track(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.cog.sessions.get(self.guild_id)
+        if not session or not session.current:
+            await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
+            return
+        session.skip_requested = True
+        await session.player.stop()
+        await self.refresh(interaction, "已切到下一首。")
+
+    @discord.ui.button(label="暫停／繼續", style=discord.ButtonStyle.secondary, row=1)
+    async def toggle_pause(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.cog.sessions.get(self.guild_id)
+        if not session or not session.current:
+            await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
+            return
+        paused = bool(getattr(session.player, "paused", False))
+        await session.player.pause(not paused)
+        await self.refresh(interaction, "已繼續播放。" if paused else "已暫停。")
+
+    @discord.ui.button(label="倒退 5 秒", style=discord.ButtonStyle.secondary, row=1)
+    async def rewind_five(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.cog.sessions.get(self.guild_id)
+        if not session or not session.current:
+            await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
+            return
+        position = int(getattr(session.player, "position", 0) or 0)
+        try:
+            await session.player.seek(max(0, position - 5000))
+            await self.refresh(interaction, "已倒退 5 秒。")
+        except Exception as exc:
+            print(f"[Music] 倒退失敗：{type(exc).__name__}: {exc}")
+            await interaction.response.send_message("這個來源不支援倒退，或播放器暫時無法定位。", ephemeral=True)
+
+    @discord.ui.button(label="更新清單", style=discord.ButtonStyle.success, row=1)
+    async def refresh_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.refresh(interaction)
 
 
 class MusicCog(commands.Cog):
@@ -384,24 +478,33 @@ class MusicCog(commands.Cog):
         if message.author.bot or not message.guild or not message.content:
             return
         match = SUPPORTED_URL_RE.search(message.content)
-        if not match:
-            return
-        await self.play_query_from_message(message, match.group(0).rstrip(".,!?)]}，。！？"))
+       def render_queue(self, session: MusicSession | None) -> str:
+        if not session or (not session.current and not session.queue):
+            return "🎵 目前沒有播放中的歌曲，待播清單也是空的。"
+        lines = ["🎛️ **音樂控制台**"]
+        if session.current:
+            state = "（已暫停）" if getattr(session.player, "paused", False) else "（播放中）"
+            lines.append(f"\\n🎶 **目前播放**\\n{track_title(session.current)} · {track_duration(session.current)} {state}")
+        else:
+            lines.append("\\n🎶 **目前播放**\\n沒有歌曲正在播放")
+        lines.append("\\n📃 **待播清單**")
+        if session.queue:
+            lines.extend(f"{index}. {track_title(track)} · {track_duration(track)}" for index, track in enumerate(session.queue, 1))
+        else:
+            lines.append("（沒有待播歌曲）")
+        if len(session.queue) > 25:
+            lines.append(f"下拉選單最多可操作前 25 首；其餘 {len(session.queue) - 25} 首仍保留在清單。")
+        return "\\n".join(lines)[:1900]
 
-    @commands.Cog.listener()
-    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
-        print(f"[Music] Lavalink 節點就緒：{payload.node.identifier}")
+    @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
+    async def queue(self, interaction: discord.Interaction):
+        session = self.sessions.get(interaction.guild.id) if interaction.guild else None
+        await interaction.response.send_message(
+            self.render_queue(session),
+            view=MusicQueueView(self, interaction.guild.id, interaction.user.id) if interaction.guild else None,
+        )
 
-    @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
-    @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
-    async def play(self, interaction: discord.Interaction, query: str):
-        if not interaction.guild:
-            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
-            return
-        if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
-            return
-        query, error = normalize_query(query)
+      query, error = normalize_query(query)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
@@ -415,9 +518,9 @@ class MusicCog(commands.Cog):
             is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
             if not is_url:
                 view = MusicSearchView(self, tracks, interaction.user.id)
-                names = "\n.join(
+                names = "\\n".join(
                     f"{index}. **{track_title(track)}**"
-                    for index, track in enumerate(tracks[:5], 1)
+                    for index, track in enumerate(tracks, 1)
                 )
                 await interaction.followup.send(
                     f"🎵 找到這些，點你要的：\n{names}",
@@ -472,14 +575,6 @@ class MusicCog(commands.Cog):
         session.skip_requested = True
         await session.player.stop()
         await interaction.response.send_message("好，跳到下一首。")
-
-    @music.command(name=app_commands.locale_str("stop", zh_TW="停止"), description=app_commands.locale_str("清空佇列並離開語音", zh_TW="清空佇列並離開語音"))
-    async def stop(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
-            return
-        await self.stop_player(interaction.guild.id)
-        await interaction.response.send_message("已停止播放並離開語音。")
 
     @music.command(name=app_commands.locale_str("queue", zh_TW="佇列"), description=app_commands.locale_str("查看目前播放與等待中的歌曲", zh_TW="查看目前播放與等待中的歌曲"))
     async def queue(self, interaction: discord.Interaction):
