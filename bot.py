@@ -375,7 +375,7 @@ class Bot(commands.Bot):
         # Discord 可能因重連再次觸發 on_ready；啟動畫面只輸出一次。
         if not getattr(self, "_startup_summary_printed", False):
             self._startup_summary_printed = True
-            print("\\n" + "=" * 42)
+            print("\n" + "=" * 42)
             print("              Discord Bot")
             print("=" * 42)
             print(f"[OK] Discord 登入成功：{self.user}")
@@ -386,7 +386,7 @@ class Bot(commands.Bot):
                 print("[OK] 控制面板啟動流程完成")
             print("=" * 42)
             print("機器人已就緒，等待指令")
-            print("=" * 42 + "\\n")
+            print("=" * 42 + "\n")
         for relay_guild in self.guilds:
             if relay_guild.id not in _relay_enabled_cache:
                 try:
