@@ -13,7 +13,7 @@ from discord.ext import commands
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
 MAX_BALANCE = 9_000_000_000_000_000
 UTC = timezone.utc
-COOLDOWNS = {"daily": 86400, "work": 1800, "fish": 600, "rob": 3600}
+COOLDOWNS = {"daily": 86400, "work": 60, "fish": 30, "rob": 600}
 WORK_LINES = [
     "你去咖啡店打工，忙到差點把自己也端給客人。",
     "你幫鄰居搬家具，最重的那箱竟然裝滿教科書。",
@@ -176,7 +176,8 @@ class EconomyStore:
                 fine = min(robber["wallet"], max(1, int(robber["wallet"] * fine_fraction))) if robber["wallet"] else 0
                 con.execute("UPDATE users SET wallet=wallet-? WHERE user_id=?", (fine, robber_id))
                 result = ("failed", fine)
-            con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
+            if success:
+                con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
             con.commit()
             return result
 
@@ -380,7 +381,7 @@ class EconomyCog(commands.Cog):
             message = f"搶劫失敗！你被罰款 **{value:,}** 金幣（以錢包現金為限）。"
         await self._reply(target, message)
 
-    @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（1 小時冷卻）")
+    @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
     @app_commands.describe(member="要搶劫的成員")
     async def rob_slash(self, interaction: discord.Interaction, member: discord.Member):
         await self._rob(interaction, member)
