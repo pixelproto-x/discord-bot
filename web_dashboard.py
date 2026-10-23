@@ -144,13 +144,13 @@ $("micStartBtn").onclick=async()=>{
    const combined=new Float32Array(micBuffer.length+resampled.length);combined.set(micBuffer);combined.set(resampled,micBuffer.length);
    let offset=0;
    while(combined.length-offset>=960&&micSocket.readyState===WebSocket.OPEN){
-    const pcm=new Int16Array(960);for(let i=0;i<960;i++){const v=Math.max(-1,Math.min(1,combined[offset+i]));pcm[i]=v<0?v*32768:v*32767}
+    const pcm=new Int16Array(960);if(micMuted){pcm.fill(0)}else{for(let i=0;i<960;i++){const v=Math.max(-1,Math.min(1,combined[offset+i]));pcm[i]=v<0?v*32768:v*32767}}
     micSocket.send(pcm.buffer);offset+=960;
    }
    micBuffer=combined.slice(offset);
   };
   micSourceNode.connect(micProcessor);micProcessor.connect(micGain);micGain.connect(micContext.destination);
-  micActive=true;micMuted=true;micStream.getAudioTracks().forEach(track=>track.enabled=false);btn.disabled=true;$("micMuteBtn").disabled=false;$("micMuteBtn").textContent="🎙 開啟麥克風";$("micStopBtn").disabled=false;message("micMsg","傳聲已連線，麥克風目前關閉；按「開啟麥克風」開始傳送聲音。");
+  micActive=true;micMuted=false;micStream.getAudioTracks().forEach(track=>track.enabled=true);btn.disabled=true;$("micMuteBtn").disabled=false;$("micMuteBtn").textContent="🔇 關閉麥克風";$("micStopBtn").disabled=false;message("micMsg","麥克風已開啟，正在即時傳送聲音到 Discord。");
  }catch(e){closeBrowserMic();try{await api("/api/mic/stop",{channel_id:channelId})}catch(err){}message("micMsg",e.message||"啟動麥克風失敗。",true)}
 };
 $("micMuteBtn").onclick=()=>{if(!micActive||!micStream)return;micMuted=!micMuted;micStream.getAudioTracks().forEach(track=>track.enabled=!micMuted);$("micMuteBtn").textContent=micMuted?"🎙 開啟麥克風":"🔇 關閉麥克風";message("micMsg",micMuted?"麥克風已關閉，傳聲連線仍保持。":"麥克風已開啟，正在即時傳送聲音到 Discord。")};
