@@ -97,6 +97,65 @@ def track_duration(track) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
+class MusicSearchSelect(discord.ui.Select):
+    def __init__(self, cog, tracks: list, requester_id: int):
+        self.cog = cog
+        self.tracks = tracks[:5]
+        self.requester_id = requester_id
+        options = [
+            discord.SelectOption(
+                label=track_title(track)[:100] or f"歌曲 {index}",
+                description=f"{track_duration(track)} · {getattr(track, 'author', '未知歌手')}"[:100],
+                value=str(index - 1),
+            )
+            for index, track in enumerate(self.tracks, 1)
+        ]
+        super().__init__(
+            placeholder="選擇要播放的歌曲",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("這份選歌清單是別人叫出的，請自己搜尋一次。", ephemeral=True)
+            return
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
+            return
+        member = interaction.user
+        if not member.voice or not member.voice.channel:
+            await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
+            return
+        track = self.tracks[int(self.values[0])]
+        try:
+            count, started = await self.cog.enqueue_tracks(
+                interaction.guild,
+                member.voice.channel,
+                interaction.channel_id,
+                member.id,
+                [track],
+            )
+            session = self.cog.sessions[interaction.guild.id]
+            if started and session.current:
+                text = f"🎵 開始播放：**{track_title(session.current)}**"
+            else:
+                text = f"已加入佇列：**{track_title(track)}**"
+            for item in self.view.children:
+                item.disabled = True
+            await interaction.response.edit_message(content=text, view=self.view)
+        except Exception as exc:
+            print(f"[Music] 選歌播放失敗：{type(exc).__name__}: {exc}")
+            await interaction.response.send_message("加入播放佇列失敗，請確認 Lavalink 節點在線。", ephemeral=True)
+
+
+class MusicSearchView(discord.ui.View):
+    def __init__(self, cog, tracks: list, requester_id: int):
+        super().__init__(timeout=60)
+        self.add_item(MusicSearchSelect(cog, tracks, requester_id))
+
+
 class MusicCog(commands.Cog):
     music = app_commands.Group(
         name=app_commands.locale_str("music", zh_TW="音樂"),
@@ -180,8 +239,8 @@ class MusicCog(commands.Cog):
         else:
             tracks = list(result)
 
-        # 歌名搜尋只播放最符合的一首；只有貼上播放清單網址時才加入多首。
-        return tracks if is_url else tracks[:1]
+        # 歌名搜尋回傳候選歌曲供使用者選擇；網址則保留單曲／播放清單行為。
+        return tracks
 
     async def enqueue_tracks(
         self,
@@ -352,12 +411,26 @@ class MusicCog(commands.Cog):
             if not tracks:
                 await interaction.followup.send("找不到歌曲；如果是 Spotify，節點必須安裝支援 Spotify 的 LavaSrc 外掛。")
                 return
+            is_url = bool(re.match(r"^https?://", query, re.IGNORECASE))
+            is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
+            if not is_url:
+                view = MusicSearchView(self, tracks, interaction.user.id)
+                names = "\\n".join(
+                    f"{index}. **{track_title(track)}**"
+                    for index, track in enumerate(tracks[:5], 1)
+                )
+                await interaction.followup.send(
+                    f"🎵 找到這些，點你要的：\\n{names}",
+                    view=view,
+                )
+                return
+            selected_tracks = tracks if is_playlist else tracks[:1]
             count, started = await self.enqueue_tracks(
-                interaction.guild, interaction.user.voice.channel, interaction.channel_id, interaction.user.id, tracks
+                interaction.guild, interaction.user.voice.channel, interaction.channel_id, interaction.user.id, selected_tracks
             )
-            if len(tracks) > count:
+            if len(selected_tracks) > count:
                 suffix = f"（佇列上限已到，只加入前 {count} 首）"
-            elif len(tracks) > 1:
+            elif is_playlist:
                 suffix = f"（播放清單共加入 {count} 首）"
             else:
                 suffix = ""
@@ -365,7 +438,7 @@ class MusicCog(commands.Cog):
             if started and session.current:
                 await interaction.followup.send(f"🎵 開始播放：**{track_title(session.current)}**{suffix}")
             else:
-                await interaction.followup.send(f"已加入佇列：**{track_title(tracks[0])}**{suffix}")
+                await interaction.followup.send(f"已加入佇列：**{track_title(selected_tracks[0])}**{suffix}")
         except OverflowError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
         except Exception as exc:
