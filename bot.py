@@ -36,10 +36,10 @@ class _QuietLogStream:
         if not self._quiet:
             return self._wrapped.write(value)
         self._pending += value
-        while "\\n" in self._pending:
-            line, self._pending = self._pending.split("\\n", 1)
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
             if any(token in line for token in _CONSOLE_IMPORTANT):
-                self._wrapped.write(line + "\\n")
+                self._wrapped.write(line + "\n")
         return len(value)
 
     def flush(self):
@@ -790,7 +790,7 @@ async def transparent_message_relay(message: discord.Message):
                 target_author = getattr(resolved_reference, "author", None)
                 target_name = getattr(target_author, "display_name", None) or getattr(target_author, "name", None)
                 reply_label = f"↪ 回覆「{target_name}」：" if target_name else "↪ 回覆上一則模仿訊息："
-                send_kwargs["content"] = f"{reply_label}\\n{payload}" if payload else reply_label
+                send_kwargs["content"] = f"{reply_label}\n{payload}" if payload else reply_label
 
             if not sent:
                 try:
