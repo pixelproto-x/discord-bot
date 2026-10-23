@@ -352,7 +352,7 @@ class Bot(commands.Bot):
             self._stop_stream_services()
 
     def _read_cloudflared_output(self, process: subprocess.Popen):
-        pattern = re.compile(r"https://[a-zA-Z0-9-]+\\.trycloudflare\\.com")
+        pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
         stream = process.stdout
         if stream is None:
             return
