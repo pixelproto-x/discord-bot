@@ -340,15 +340,29 @@ class MusicCog(commands.Cog):
                     pass
                 return
             except Exception as exc:
-                print("Music stream error:", repr(exc))
-                if player.current is song and player.retry_count < 1:
+                error_text = str(exc)
+                age_restricted = (
+                    "Sign in to confirm your age" in error_text
+                    or "age-restricted" in error_text.lower()
+                    or "confirm your age" in error_text.lower()
+                )
+                if age_restricted:
+                    print(f"Music stream skipped (YouTube age restriction): {song.title}")
+                else:
+                    print("Music stream error:", repr(exc))
+                if not age_restricted and player.current is song and player.retry_count < 1:
                     player.retry_count += 1
                     continue
                 player.retry_count = 0
                 player.current = None
                 player.skip_current = False
                 try:
-                    await player.voice.channel.send(f"這首我播不起來，先跳過：{song.title}")
+                    if age_restricted:
+                        await player.voice.channel.send(
+                            f"這首歌有 YouTube 年齡限制，我無法播放，已自動跳過：**{song.title}**"
+                        )
+                    else:
+                        await player.voice.channel.send(f"這首我播不起來，先跳過：{song.title}")
                 except Exception:
                     pass
                 continue
