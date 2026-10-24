@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from web_dashboard import _apply_dashboard_security_headers, _is_same_origin
+from web_dashboard import _apply_dashboard_security_headers, _is_allowed_websocket_origin, _is_same_origin
 
 
 class DashboardSecurityHeaderTests(unittest.TestCase):
@@ -29,6 +29,16 @@ class DashboardSecurityHeaderTests(unittest.TestCase):
             response.headers["Strict-Transport-Security"],
             "max-age=31536000",
         )
+
+
+class DashboardWebSocketOriginTests(unittest.TestCase):
+    def test_accepts_dashboard_origin(self):
+        self.assertTrue(_is_allowed_websocket_origin("https://control.example.com", "https://control.example.com"))
+
+    def test_rejects_missing_null_and_foreign_origins(self):
+        for origin in ("", None, "null", "https://other.example.com", "http://control.example.com"):
+            with self.subTest(origin=origin):
+                self.assertFalse(_is_allowed_websocket_origin(origin, "https://control.example.com"))
 
 
 class DashboardOriginValidationTests(unittest.TestCase):
