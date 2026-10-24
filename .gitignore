@@ -1,6 +1,13 @@
 __pycache__/
 *.py[cod]
+.venv/
+venv/
+env/
 data/*.sqlite3
 .env
+.env.*
+!.env.example
+logs/
+*.log
 streamer/node_modules/
 mediamtx/
