@@ -1117,7 +1117,9 @@ def _start_companion_services():
         print("[提示] 找不到旁邊的 FreeMindAI-main\\run.bat，略過 FreeMindAI 自動啟動。")
 
     economy_editor = project_dir / "economy_editor.py"
-    if economy_editor.is_file():
+    if _is_local_port_open(8766):
+        print("[Startup] Port 8766 is already in use; skipping duplicate Economy Editor launch.")
+    elif economy_editor.is_file():
         try:
             subprocess.Popen(
                 [

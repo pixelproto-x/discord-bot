@@ -50,6 +50,9 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
 
 LAVALINK_NODES = _configured_lavalink_nodes()
 LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
+# A dead public node must never hold up the rest of the bot's startup. This
+# bounds the first websocket attempt; retries are disabled on every node below.
+LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
     re.IGNORECASE,
@@ -272,6 +275,43 @@ class MusicCog(commands.Cog):
         self.locks = defaultdict(asyncio.Lock)
         self.node_error: str | None = None
 
+    async def _discard_failed_node(self, node: wavelink.Node) -> None:
+        """Remove a failed node and close its client session without log noise."""
+        try:
+            await node.close(eject=True)
+        except Exception:
+            pass
+
+        # Wavelink only schedules session cleanup after a successful
+        # connection. A timed-out initial connection has no such task.
+        session = getattr(node, "_session", None)
+        if session is not None and not session.closed:
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+    async def _connect_node_once(self, node: wavelink.Node) -> bool:
+        """Try one node once, with a short timeout and no propagated error."""
+        try:
+            await asyncio.wait_for(
+                wavelink.Pool.connect(nodes=(node,), client=self.bot),
+                timeout=LAVALINK_CONNECT_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            await self._discard_failed_node(node)
+            raise
+        except Exception:
+            await self._discard_failed_node(node)
+            return False
+
+        # With retries=0, Wavelink can return after a refused connection while
+        # leaving a disconnected node in Pool. Do not count it as usable.
+        if node.status is wavelink.NodeStatus.DISCONNECTED:
+            await self._discard_failed_node(node)
+            return False
+        return True
+
     async def setup_nodes(self):
         """建立音樂節點；失效公開節點只嘗試一次，避免重試刷屏。"""
         if wavelink.Pool.nodes:
@@ -298,13 +338,14 @@ class MusicCog(commands.Cog):
             for config in LAVALINK_NODES
         ]
 
+        results = [False] * len(nodes)
         try:
-            await wavelink.Pool.connect(nodes=nodes, client=self.bot)
+            results = await asyncio.gather(*(self._connect_node_once(node) for node in nodes))
         except Exception:
             # 單一節點不可用時，不讓音樂服務影響 Discord Bot 啟動。
             pass
 
-        connected = list(wavelink.Pool.nodes.values())
+        connected = [node for node, succeeded in zip(nodes, results) if succeeded]
         configured_count = len(nodes)
         failed_count = max(0, configured_count - len(connected))
         if connected:
