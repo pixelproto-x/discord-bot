@@ -49,6 +49,13 @@ class CogRegistrationTests(unittest.IsolatedAsyncioTestCase):
             names = [command.name for command in commands_registered]
             self.assertTrue(names, "Expected the project to register slash commands.")
             self.assertEqual(len(names), len(set(names)), "Top-level slash command names must be unique.")
+
+            birthday_cog = client.get_cog("BirthdayCog")
+            self.assertIsNotNone(birthday_cog, "BirthdayCog should register.")
+            self.assertFalse(
+                birthday_cog.birthday_worker.is_running(),
+                "Birthday background worker must not start before the Discord client is ready.",
+            )
         finally:
             await client.close()
 
