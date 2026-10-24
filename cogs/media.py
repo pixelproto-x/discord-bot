@@ -1128,14 +1128,16 @@ class SearchCog(commands.Cog):
             self._log_ai_error("Discord casual chat", exc)
 
     @search.command(name=app_commands.locale_str("youtube", zh_TW="影片搜尋"), description=app_commands.locale_str("搜尋 YouTube 並列出幾個結果", zh_TW="搜尋 YouTube 並列出幾個結果"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(query="關鍵字")
-    async def youtube(self, interaction, query: str):
+    async def youtube(self, interaction, query: str, public: bool = True):
         query = query.strip()
         if not query:
             await interaction.response.send_message("請輸入搜尋關鍵字。", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
         try:
             with yt_dlp.YoutubeDL({
                 "quiet": True,
@@ -1153,7 +1155,7 @@ class SearchCog(commands.Cog):
 
             entries = (data or {}).get("entries", [])[:5]
             if not entries:
-                await interaction.followup.send("沒找到東西。")
+                await interaction.followup.send("沒找到東西。", ephemeral=not public)
                 return
 
             lines = []
@@ -1165,20 +1167,22 @@ class SearchCog(commands.Cog):
                 title = entry.get("title", "未知")
                 lines.append(f"{i}. **{title}**\n{url}")
 
-            await interaction.followup.send("🔎 YouTube 搜尋結果：\n" + "\n".join(lines))
+            await interaction.followup.send("🔎 YouTube 搜尋結果：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"YouTube search error: {exc}")
-            await interaction.followup.send("YouTube 搜尋這次沒回來。")
+            await interaction.followup.send("YouTube 搜尋這次沒回來。", ephemeral=not public)
 
     @search.command(name=app_commands.locale_str("wikipedia", zh_TW="維基百科"), description=app_commands.locale_str("搜尋 Wikipedia", zh_TW="搜尋 Wikipedia"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(query="想查的東西")
-    async def wikipedia(self, interaction, query: str):
+    async def wikipedia(self, interaction, query: str, public: bool = True):
         query = query.strip()
         if not query:
             await interaction.response.send_message("請輸入搜尋內容。", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
         url = "https://zh.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
             "action": "query",
             "format": "json",
@@ -1196,27 +1200,29 @@ class SearchCog(commands.Cog):
 
             items = data.get("query", {}).get("search", [])
             if not items:
-                await interaction.followup.send("Wikipedia 沒找到。")
+                await interaction.followup.send("Wikipedia 沒找到。", ephemeral=not public)
                 return
 
             lines = [
                 f"{i + 1}. **{item['title']}**\nhttps://zh.wikipedia.org/wiki/{urllib.parse.quote(item['title'])}"
                 for i, item in enumerate(items)
             ]
-            await interaction.followup.send("📖 找到這些：\n" + "\n".join(lines))
+            await interaction.followup.send("📖 找到這些：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"Wikipedia search error: {exc}")
-            await interaction.followup.send("Wikipedia 現在沒回應。")
+            await interaction.followup.send("Wikipedia 現在沒回應。", ephemeral=not public)
 
     @search.command(name=app_commands.locale_str("github", zh_TW="專案搜尋"), description=app_commands.locale_str("搜尋 GitHub 公開專案", zh_TW="搜尋 GitHub 公開專案"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(query="關鍵字")
-    async def github(self, interaction, query: str):
+    async def github(self, interaction, query: str, public: bool = True):
         query = query.strip()
         if not query:
             await interaction.response.send_message("請輸入搜尋關鍵字。", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
         url = "https://api.github.com/search/repositories?" + urllib.parse.urlencode({
             "q": query,
             "per_page": 5,
@@ -1237,25 +1243,28 @@ class SearchCog(commands.Cog):
 
             items = data.get("items", [])
             if not items:
-                await interaction.followup.send("GitHub 沒找到。")
+                await interaction.followup.send("GitHub 沒找到。", ephemeral=not public)
                 return
 
             lines = [
                 f"{i + 1}. **{item['full_name']}** ⭐ {item.get('stargazers_count', 0)}\n{item['html_url']}"
                 for i, item in enumerate(items)
             ]
-            await interaction.followup.send("💻 GitHub 搜尋結果：\n" + "\n".join(lines))
+            await interaction.followup.send("💻 GitHub 搜尋結果：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"GitHub search error: {exc}")
-            await interaction.followup.send("GitHub 搜尋這次失敗了。")
+            await interaction.followup.send("GitHub 搜尋這次失敗了。", ephemeral=not public)
 
     @image.command(name=app_commands.locale_str("resize", zh_TW="調整圖片尺寸"), description=app_commands.locale_str("把圖片縮到指定寬度", zh_TW="把圖片縮到指定寬度"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(image="要處理的圖片", width="寬度 64 到 2048")
     async def resize(
         self,
         interaction,
         image: discord.Attachment,
         width: app_commands.Range[int, 64, 2048],
+        public: bool = True,
     ):
         if not image.content_type or not image.content_type.startswith("image/"):
             await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
@@ -1264,18 +1273,18 @@ class SearchCog(commands.Cog):
             await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
             return
 
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
             data = await image.read()
             with Image.open(io.BytesIO(data)) as source:
                 if source.width * source.height > MAX_IMAGE_PIXELS:
-                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。", ephemeral=True)
                     return
                 pic = source.convert("RGBA")
             ratio = width / pic.width
             height = max(1, int(pic.height * ratio))
             if height > 20000 or width * height > MAX_IMAGE_PIXELS:
-                await interaction.followup.send("縮放後的圖片比例過長，請先裁切再試。")
+                await interaction.followup.send("縮放後的圖片比例過長，請先裁切再試。", ephemeral=True)
                 return
             pic = pic.resize((width, height), Image.Resampling.LANCZOS)
 
@@ -1285,15 +1294,17 @@ class SearchCog(commands.Cog):
 
             await interaction.followup.send(
                 f"好了，縮成 {width} × {height}。",
-                file=discord.File(out, "resized.png"),
+                file=discord.File(out, "resized.png", ephemeral=not public),
             )
         except Exception as exc:
             print(f"Image resize error: {exc}")
-            await interaction.followup.send("這張圖處理失敗了。")
+            await interaction.followup.send("這張圖處理失敗了。", ephemeral=True)
 
     @image.command(name=app_commands.locale_str("color", zh_TW="顏色資訊"), description=app_commands.locale_str("抓一張圖片的平均顏色", zh_TW="抓一張圖片的平均顏色"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(image="要分析的圖片")
-    async def color(self, interaction, image: discord.Attachment):
+    async def color(self, interaction, image: discord.Attachment, public: bool = True):
         if not image.content_type or not image.content_type.startswith("image/"):
             await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
             return
@@ -1301,26 +1312,28 @@ class SearchCog(commands.Cog):
             await interaction.response.send_message("圖片太大，請使用 8 MB 以下的圖片。", ephemeral=True)
             return
 
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
             data = await image.read()
             with Image.open(io.BytesIO(data)) as source:
                 if source.width * source.height > MAX_IMAGE_PIXELS:
-                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。")
+                    await interaction.followup.send("圖片解析度太大，請先縮小或裁切再試。", ephemeral=True)
                     return
                 pic = source.convert("RGB").resize((1, 1))
             r, g, b = ImageStat.Stat(pic).mean
             hex_color = f"#{int(r):02X}{int(g):02X}{int(b):02X}"
             await interaction.followup.send(
                 f"這張圖抓到的平均色大概是 **{hex_color}**。"
-            )
+            , ephemeral=not public)
         except Exception as exc:
             print(f"Image color error: {exc}")
-            await interaction.followup.send("這張圖分析失敗了。")
+            await interaction.followup.send("這張圖分析失敗了。", ephemeral=True)
 
     @image.command(name=app_commands.locale_str("ocr", zh_TW="圖片文字辨識"), description=app_commands.locale_str("從圖片抓文字，需要設定 OCR_SPACE_API_KEY", zh_TW="從圖片抓文字，需要設定 OCR_SPACE_API_KEY"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(image="有文字的圖片")
-    async def ocr(self, interaction, image: discord.Attachment):
+    async def ocr(self, interaction, image: discord.Attachment, public: bool = True):
         if not image.content_type or not image.content_type.startswith("image/"):
             await interaction.response.send_message("請丟圖片給我。", ephemeral=True)
             return
@@ -1342,7 +1355,7 @@ class SearchCog(commands.Cog):
         ):
             return
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
 
         try:
             data = await image.read()
@@ -1375,13 +1388,13 @@ class SearchCog(commands.Cog):
                 text.strip() for text in texts if text.strip()
             )[:1800]
             await interaction.followup.send(
-                ("抓到的文字：\n" + extracted)
+                ("抓到的文字：\n" + extracted, ephemeral=not public)
                 if extracted
                 else "這張圖沒抓到文字。"
             )
         except Exception as exc:
             print(f"OCR error: {exc}")
-            await interaction.followup.send("OCR 這次失敗了，再試一次。")
+            await interaction.followup.send("OCR 這次失敗了，再試一次。", ephemeral=True)
 
     @ai.command(name=app_commands.locale_str("persona-reset", zh_TW="重設聊天人格"), description=app_commands.locale_str("重置一條魚的人設違規處分", zh_TW="重置一條魚的人設違規處分"))
     async def persona_reset(self, interaction: discord.Interaction):
