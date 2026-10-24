@@ -9,6 +9,8 @@ from pathlib import Path
 import sys
 import threading
 
+from safe_logging import redact_sensitive_text
+
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
 _LOG_DIR = Path(__file__).resolve().parent / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,7 +44,7 @@ class _QuietLogStream:
             self._log_pending += value
             while "\n" in self._log_pending:
                 log_line, self._log_pending = self._log_pending.split("\n", 1)
-                record = logging.LogRecord("bot.output", logging.INFO, "", 0, log_line, (), None)
+                record = logging.LogRecord("bot.output", logging.INFO, "", 0, redact_sensitive_text(log_line), (), None)
                 _LOG_HANDLER.emit(record)
             _LOG_HANDLER.flush()
         if not self._quiet:
@@ -60,7 +62,7 @@ class _QuietLogStream:
         self._pending = ""
         with _LOG_LOCK:
             if self._log_pending:
-                record = logging.LogRecord("bot.output", logging.INFO, "", 0, self._log_pending, (), None)
+                record = logging.LogRecord("bot.output", logging.INFO, "", 0, redact_sensitive_text(self._log_pending), (), None)
                 _LOG_HANDLER.emit(record)
                 self._log_pending = ""
             _LOG_HANDLER.flush()
