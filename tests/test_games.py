@@ -21,7 +21,7 @@ class GuessCommandTests(unittest.IsolatedAsyncioTestCase):
             await GameCog.guess.callback(cog, interaction, number=30)
 
         self.assertEqual(cog.guess_sessions[(123, 456)]["target"], 42)
-        interaction.response.send_message.assert_awaited_once_with("太小了。")
+        interaction.response.send_message.assert_awaited_once_with("太小了。", ephemeral=False)
         cog.finish_game.assert_not_awaited()
 
 
