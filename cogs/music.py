@@ -15,8 +15,10 @@ from discord.ext import commands
 MAX_QUEUE_SIZE = 10000
 MAX_QUERY_LENGTH = 200
 def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
-    """Load Lavalink endpoints and passwords from environment, never source code."""
-    nodes = []
+    """Load local nodes first, then a broad set of publicly documented free nodes."""
+    nodes: list[dict[str, str]] = []
+    seen_uris: set[str] = set()
+
     for index in range(1, 4):
         uri = os.getenv(f"LAVALINK_{index}_URI", "").strip()
         password = os.getenv(f"LAVALINK_{index}_PASSWORD", "")
@@ -25,13 +27,39 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         if not uri or not password:
             print(f"[Music] LAVALINK_{index}_URI 和 LAVALINK_{index}_PASSWORD 必須一起設定。")
             continue
-        nodes.append({
-            "identifier": os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}",
-            "uri": uri,
-            "password": password,
-        })
-    return tuple(nodes)
+        identifier = os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}"
+        nodes.append({"identifier": identifier, "uri": uri, "password": password})
+        seen_uris.add(uri.rstrip("/").lower())
 
+    # Public community nodes. These are best-effort fallbacks: operators may
+    # change passwords, impose fair-use limits, or take nodes offline.
+    public_nodes = (
+        ("nazha-sg-1", "https://sg-1.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
+        ("nazha-sg-2", "https://sg-2.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
+        ("nazha-sg-3", "https://sg-3.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
+        ("nazha-global", "https://lavalink.nazha.online:443", "nazhafreelava"),
+        ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://dsc.gg/ajidevserver"),
+        ("ajiedev-v4", "https://lava-v4.ajieblogs.eu.org:443", "https://dsc.gg/ajidevserver"),
+        ("jirayu-v4", "http://lavalink.jirayu.net:13592", "youshallnotpass"),
+        ("muzykant-v4", "https://lavalink_v4.muzykant.xyz:443", "https://discord.gg/v6sdrD9kPh"),
+        ("disutils-1", "https://lavalink-1.is-it.pink:443", "https://disutils.com"),
+        ("disutils-2", "https://lavalink-2.is-it.pink:443", "https://disutils.com"),
+        ("disutils-3", "https://lavalink-3.is-it.pink:443", "https://disutils.com"),
+        ("disutils-4", "https://lavalink-4.is-it.pink:443", "https://disutils.com"),
+        ("disutils-5", "https://lavalink-5.is-it.pink:443", "https://disutils.com"),
+        ("oreshi-v4", "http://proxy.oreshi.com:2333", "https://discord.gg/RPCfvBSUuM"),
+        ("techbyte-v4", "http://lavahatry4.techbyte.host:3000", "NAIGLAVA-dash.techbyte.host"),
+        ("stackryze-v4", "http://188.245.207.225:2333", "youshallnotpass"),
+    )
+    for identifier, uri, password in public_nodes:
+        normalized_uri = uri.rstrip("/").lower()
+        if normalized_uri in seen_uris:
+            continue
+        nodes.append({"identifier": identifier, "uri": uri, "password": password})
+        seen_uris.add(normalized_uri)
+
+    print(f"[Music] 已載入 {len(nodes)} 個 Lavalink 候選節點（含免費公開備援）。")
+    return tuple(nodes)
 
 LAVALINK_NODES = _configured_lavalink_nodes()
 LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
