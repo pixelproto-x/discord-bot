@@ -38,6 +38,7 @@ jobs:
         run: |
           python - <<'PY'
           import asyncio
+          from unittest.mock import AsyncMock, patch
           import bot as bot_module
 
           modules = [
@@ -57,14 +58,17 @@ jobs:
               bot_module.web_tools,
               bot_module.hacks,
               bot_module.history,
+              bot_module.channel_backup,
               bot_module.browser_mic,
               bot_module.marriage,
               bot_module.economy,
           ]
 
           async def main():
-              for module in modules:
-                  await module.setup(bot_module.bot)
+              # Cog registration must not depend on public Lavalink servers being online.
+              with patch.object(bot_module.music.MusicCog, "setup_nodes", new_callable=AsyncMock):
+                  for module in modules:
+                      await module.setup(bot_module.bot)
 
               commands = list(bot_module.bot.tree.walk_commands())
               seen = set()
