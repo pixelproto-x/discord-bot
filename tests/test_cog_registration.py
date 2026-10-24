@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import discord
 from discord.ext import commands
@@ -35,8 +36,14 @@ class CogRegistrationTests(unittest.IsolatedAsyncioTestCase):
             bot_module.economy,
         )
         try:
-            for module in modules:
-                await module.setup(client)
+            # Cog registration must not depend on public Lavalink servers being online.
+            with patch.object(
+                bot_module.music.MusicCog,
+                "setup_nodes",
+                new_callable=AsyncMock,
+            ):
+                for module in modules:
+                    await module.setup(client)
 
             commands_registered = client.tree.get_commands()
             names = [command.name for command in commands_registered]
