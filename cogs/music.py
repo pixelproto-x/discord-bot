@@ -31,25 +31,11 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         nodes.append({"identifier": identifier, "uri": uri, "password": password})
         seen_uris.add(uri.rstrip("/").lower())
 
-    # Public community nodes. These are best-effort fallbacks: operators may
-    # change passwords, impose fair-use limits, or take nodes offline.
+    # Public fallback nodes currently listed by TriniumHost. Public nodes can
+    # change availability or credentials; configure your own nodes above for reliability.
     public_nodes = (
-        ("nazha-sg-1", "https://sg-1.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
-        ("nazha-sg-2", "https://sg-2.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
-        ("nazha-sg-3", "https://sg-3.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
-        ("nazha-global", "https://lavalink.nazha.online:443", "nazhafreelava"),
-        ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://dsc.gg/ajidevserver"),
-        ("ajiedev-v4", "https://lava-v4.ajieblogs.eu.org:443", "https://dsc.gg/ajidevserver"),
-        ("jirayu-v4", "http://lavalink.jirayu.net:13592", "youshallnotpass"),
-        ("muzykant-v4", "https://lavalink_v4.muzykant.xyz:443", "https://discord.gg/v6sdrD9kPh"),
-        ("disutils-1", "https://lavalink-1.is-it.pink:443", "https://disutils.com"),
-        ("disutils-2", "https://lavalink-2.is-it.pink:443", "https://disutils.com"),
-        ("disutils-3", "https://lavalink-3.is-it.pink:443", "https://disutils.com"),
-        ("disutils-4", "https://lavalink-4.is-it.pink:443", "https://disutils.com"),
-        ("disutils-5", "https://lavalink-5.is-it.pink:443", "https://disutils.com"),
-        ("oreshi-v4", "http://proxy.oreshi.com:2333", "https://discord.gg/RPCfvBSUuM"),
-        ("techbyte-v4", "http://lavahatry4.techbyte.host:3000", "NAIGLAVA-dash.techbyte.host"),
-        ("stackryze-v4", "http://188.245.207.225:2333", "youshallnotpass"),
+        ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
+        ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
     )
     for identifier, uri, password in public_nodes:
         normalized_uri = uri.rstrip("/").lower()
