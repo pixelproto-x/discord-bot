@@ -23,9 +23,19 @@ _CREDENTIAL_FORMATS = (
 )
 
 
-def redact_sensitive_text(value: object) -> str:
-    """Mask likely credentials in log text while preserving surrounding context."""
+def sanitize_log_text(value: object, *, max_length: int = 4000) -> str:
+    """Keep untrusted values on one bounded line to prevent log forging."""
     text = str(value)
+    text = text.replace("\\r", r"\\r").replace("\\n", r"\\n")
+    text = text.replace("\\x00", r"\\x00")
+    if len(text) > max_length:
+        text = text[:max_length] + "...[TRUNCATED]"
+    return text
+
+
+def redact_sensitive_text(value: object) -> str:
+    """Sanitize log input and mask likely credentials."""
+    text = sanitize_log_text(value)
     text = _SECRET_ASSIGNMENT.sub(lambda match: match.group(1) + match.group(2) + "[REDACTED]", text)
     text = _AUTHORIZATION.sub(lambda match: match.group(1) + "[REDACTED]", text)
     text = _BEARER.sub("Bearer [REDACTED]", text)
