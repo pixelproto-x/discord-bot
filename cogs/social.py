@@ -559,10 +559,22 @@ class PollCog(commands.Cog):
 class BirthdayCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.birthday_worker.start()
+
+    async def cog_load(self):
+        # Tests and setup-time registration can load cogs before the client logs in.
+        # Start the worker only after Discord is ready, unless the cog is loaded later.
+        if self.bot.is_ready() and not self.birthday_worker.is_running():
+            self.birthday_worker.start()
 
     def cog_unload(self):
-        self.birthday_worker.cancel()
+        if self.birthday_worker.is_running():
+            self.birthday_worker.cancel()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # on_ready may fire again after reconnects; avoid starting duplicate loops.
+        if not self.birthday_worker.is_running():
+            self.birthday_worker.start()
 
     @app_commands.command(name=app_commands.locale_str("set-birthday", zh_TW="設定生日"), description=app_commands.locale_str("記錄自己的生日，Bot 會在生日當天祝福你", zh_TW="記錄自己的生日，Bot 會在生日當天祝福你"))
     @app_commands.describe(month="出生月份", day="出生日期", public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
