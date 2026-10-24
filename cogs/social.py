@@ -557,8 +557,9 @@ class BirthdayCog(commands.Cog):
         self.birthday_worker.cancel()
 
     @app_commands.command(name=app_commands.locale_str("set-birthday", zh_TW="設定生日"), description=app_commands.locale_str("記錄自己的生日，Bot 會在生日當天祝福你", zh_TW="記錄自己的生日，Bot 會在生日當天祝福你"))
-    @app_commands.describe(month="出生月份", day="出生日期")
-    async def set_birthday(self, interaction: discord.Interaction, month: app_commands.Range[int, 1, 12], day: app_commands.Range[int, 1, 31]):
+    @app_commands.describe(month="出生月份", day="出生日期", public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def set_birthday(self, interaction: discord.Interaction, month: app_commands.Range[int, 1, 12], day: app_commands.Range[int, 1, 31], public: bool = True):
         import calendar
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
@@ -570,16 +571,17 @@ class BirthdayCog(commands.Cog):
         birthdays = storage.get_setting(interaction.guild.id, key, {})
         birthdays[str(interaction.user.id)] = {"month": month, "day": day}
         storage.set_setting(interaction.guild.id, key, birthdays)
-        await interaction.response.send_message(f"記好了！每年 {month} 月 {day} 日，我會在生日頻道祝你生日快樂。", ephemeral=True)
+        await interaction.response.send_message(f"記好了！每年 {month} 月 {day} 日，我會在生日頻道祝你生日快樂。", ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("birthday-channel", zh_TW="生日頻道"), description=app_commands.locale_str("設定 Bot 發送生日祝福的頻道", zh_TW="設定 Bot 發送生日祝福的頻道"))
-    @app_commands.describe(channel="要發送生日祝福的文字頻道")
-    async def set_birthday_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    @app_commands.describe(channel="要發送生日祝福的文字頻道", public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def set_birthday_channel(self, interaction: discord.Interaction, channel: discord.TextChannel, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("需要「管理伺服器」權限才能設定。", ephemeral=True)
             return
         storage.set_setting(interaction.guild.id, "birthday_channel_id", channel.id)
-        await interaction.response.send_message(f"生日祝福會發在 {channel.mention}。", ephemeral=True)
+        await interaction.response.send_message(f"生日祝福會發在 {channel.mention}。", ephemeral=not public)
 
     @tasks.loop(minutes=1)
     async def birthday_worker(self):
