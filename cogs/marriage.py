@@ -138,7 +138,9 @@ class MarriageCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("propose", zh_TW="求婚"), description=app_commands.locale_str("向伺服器裡的成員求婚，對方可以選同意或拒絕", zh_TW="向伺服器裡的成員求婚，對方可以選同意或拒絕"))
     @app_commands.describe(member="你要求婚的成員", message="你想對他說的話")
-    async def propose(self, interaction: discord.Interaction, member: discord.Member, message: str):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def propose(self, interaction: discord.Interaction, member: discord.Member, message: str, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個指令只能在伺服器裡使用。", ephemeral=True)
             return
@@ -189,18 +191,21 @@ class MarriageCog(commands.Cog):
             embed=embed,
             view=view,
             allowed_mentions=discord.AllowedMentions(users=[member]),
+            ephemeral=not public,
         )
 
     @app_commands.command(name=app_commands.locale_str("marriage", zh_TW="婚姻狀態"), description=app_commands.locale_str("查看你或其他成員的遊戲婚姻狀態", zh_TW="查看你或其他成員的遊戲婚姻狀態"))
     @app_commands.describe(member="想查看的成員，不填就是自己")
-    async def marriage_status(self, interaction: discord.Interaction, member: discord.Member | None = None):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def marriage_status(self, interaction: discord.Interaction, member: discord.Member | None = None, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個指令只能在伺服器裡使用。", ephemeral=True)
             return
         subject = member or interaction.user
         row = get_marriage(interaction.guild.id, subject.id)
         if not row:
-            await interaction.response.send_message(f"{subject.mention} 目前單身中 💌")
+            await interaction.response.send_message(f"{subject.mention} 目前單身中 💌", ephemeral=not public)
             return
         spouse_id = row["user2_id"] if row["user1_id"] == subject.id else row["user1_id"]
         spouse = interaction.guild.get_member(spouse_id)
@@ -211,10 +216,12 @@ class MarriageCog(commands.Cog):
             color=0xFF78B9,
         )
         embed.set_thumbnail(url=subject.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("divorce", zh_TW="離婚"), description=app_commands.locale_str("結束目前的遊戲婚姻關係", zh_TW="結束目前的遊戲婚姻關係"))
-    async def divorce(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def divorce(self, interaction: discord.Interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個指令只能在伺服器裡使用。", ephemeral=True)
             return
@@ -229,7 +236,8 @@ class MarriageCog(commands.Cog):
             )
         spouse_id = row["user2_id"] if row["user1_id"] == interaction.user.id else row["user1_id"]
         await interaction.response.send_message(
-            f"💔 {interaction.user.mention} 和 <@{spouse_id}> 已結束遊戲婚姻關係。只是遊戲設定，不影響現實。"
+            f"💔 {interaction.user.mention} 和 <@{spouse_id}> 已結束遊戲婚姻關係。只是遊戲設定，不影響現實。",
+            ephemeral=not public,
         )
 
 
