@@ -32,15 +32,17 @@ class VoiceCog(commands.Cog):
         return True
 
     @voice.command(name=app_commands.locale_str("temp", zh_TW="臨時語音"), description=app_commands.locale_str("在你目前的語音位置建立一個臨時語音頻道", zh_TW="在你目前的語音位置建立一個臨時語音頻道"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(name="頻道名稱")
-    async def temp(self, interaction, name: str = "臨時語音"):
+    async def temp(self, interaction, name: str = "臨時語音", public: bool = True):
         if not interaction.guild or not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("你要先進語音，我才知道要在哪裡建。", ephemeral=True)
             return
         source = interaction.user.voice.channel
         category = getattr(source, "category", None)
         channel = None
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
             channel = await interaction.guild.create_voice_channel(
                 name=name[:100],
@@ -50,7 +52,7 @@ class VoiceCog(commands.Cog):
             self.temp_channels.add(channel.id)
             storage.add_temp_channel(interaction.guild.id, channel.id)
             await interaction.user.move_to(channel)
-            await interaction.followup.send(f"好了，幫你開了 {channel.mention}。沒人了我會幫你清掉。")
+            await interaction.followup.send(f"好了，幫你開了 {channel.mention}。沒人了我會幫你清掉。", ephemeral=not public)
         except discord.Forbidden:
             if channel:
                 await self._delete_temp_channel(channel, reason="臨時語音建立未完成")
@@ -106,24 +108,30 @@ class VoiceCog(commands.Cog):
             await interaction.followup.send("Discord 連線失敗，請稍後再試。", ephemeral=True)
 
     @voice.command(name=app_commands.locale_str("notice", zh_TW="語音通知"), description=app_commands.locale_str("設定誰進出語音時要在哪個文字頻道通知", zh_TW="設定誰進出語音時要在哪個文字頻道通知"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(channel="通知頻道")
-    async def notice(self, interaction, channel: discord.TextChannel):
+    async def notice(self, interaction, channel: discord.TextChannel, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
             return
         storage.set_setting(interaction.guild.id, "voice_notice_channel_id", channel.id)
-        await interaction.response.send_message(f"好，以後語音進出會通知到 {channel.mention}。", ephemeral=True)
+        await interaction.response.send_message(f"好，以後語音進出會通知到 {channel.mention}。", ephemeral=not public)
 
     @voice.command(name=app_commands.locale_str("noticeoff", zh_TW="關閉語音通知"), description=app_commands.locale_str("關閉語音進出通知", zh_TW="關閉語音進出通知"))
-    async def noticeoff(self, interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def noticeoff(self, interaction, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
             return
         storage.set_setting(interaction.guild.id, "voice_notice_channel_id", 0)
-        await interaction.response.send_message("語音通知關掉了。", ephemeral=True)
+        await interaction.response.send_message("語音通知關掉了。", ephemeral=not public)
 
     @voice.command(name=app_commands.locale_str("stats", zh_TW="語音統計"), description=app_commands.locale_str("看看自己累積待在語音多久", zh_TW="看看自己累積待在語音多久"))
-    async def stats(self, interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def stats(self, interaction, public: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
@@ -131,7 +139,7 @@ class VoiceCog(commands.Cog):
         total = int(data["voice_seconds"])
         h, rem = divmod(total, 3600)
         m = rem // 60
-        await interaction.response.send_message(f"你總共待過語音 **{h} 小時 {m} 分**。")
+        await interaction.response.send_message(f"你總共待過語音 **{h} 小時 {m} 分**。", ephemeral=not public)
 
     @commands.Cog.listener()
     async def on_ready(self):
