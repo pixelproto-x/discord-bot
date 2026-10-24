@@ -14,23 +14,26 @@ from discord.ext import commands
 
 MAX_QUEUE_SIZE = 10000
 MAX_QUERY_LENGTH = 200
-LAVALINK_NODES = (
-    {
-        "identifier": "triniumhost-primary",
-        "uri": "https://lavalink-v4.triniumhost.indevs.in:443",
-        "password": "free",
-    },
-    {
-        "identifier": "millohost-fallback",
-        "uri": "https://lava-v4.millohost.my.id:443",
-        "password": "https://discord.gg/mjS5J2K3ep",
-    },
-    {
-        "identifier": "serenetia-fallback",
-        "uri": "https://lavalinkv4.serenetia.com:443",
-        "password": "https://dsc.gg/ajidevserver",
-    },
-)
+def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
+    """Load Lavalink endpoints and passwords from environment, never source code."""
+    nodes = []
+    for index in range(1, 4):
+        uri = os.getenv(f"LAVALINK_{index}_URI", "").strip()
+        password = os.getenv(f"LAVALINK_{index}_PASSWORD", "")
+        if not uri and not password:
+            continue
+        if not uri or not password:
+            print(f"[Music] LAVALINK_{index}_URI 和 LAVALINK_{index}_PASSWORD 必須一起設定。")
+            continue
+        nodes.append({
+            "identifier": os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}",
+            "uri": uri,
+            "password": password,
+        })
+    return tuple(nodes)
+
+
+LAVALINK_NODES = _configured_lavalink_nodes()
 LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
