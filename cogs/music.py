@@ -467,6 +467,8 @@ class MusicCog(commands.Cog):
             await message.reply("這個連結目前無法解析，或 Lavalink 節點暫時不可用。", mention_author=False)
 
     @commands.Cog.listener()
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild or not message.content:
             return
@@ -477,7 +479,7 @@ class MusicCog(commands.Cog):
 
     @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
     @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
-    async def play(self, interaction: discord.Interaction, query: str):
+    async def play(self, interaction, public: bool = True: discord.Interaction, query: str):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
             return
@@ -488,7 +490,7 @@ class MusicCog(commands.Cog):
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
             tracks = await self.resolve_query(query)
             if not tracks:
@@ -519,9 +521,9 @@ class MusicCog(commands.Cog):
                 suffix = ""
             session = self.sessions[interaction.guild.id]
             if started and session.current:
-                await interaction.followup.send(f"🎵 開始播放：**{track_title(session.current)}**{suffix}")
+                await interaction.followup.send(f"🎵 開始播放：**{track_title(session.current)}**{suffix}", ephemeral=not public)
             else:
-                await interaction.followup.send(f"已加入佇列：**{track_title(selected_tracks[0])}**{suffix}")
+                await interaction.followup.send(f"已加入佇列：**{track_title(selected_tracks[0])}**{suffix}", ephemeral=not public)
         except OverflowError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
         except Exception as exc:
@@ -549,6 +551,8 @@ class MusicCog(commands.Cog):
     @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
     @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def queue(self, interaction: discord.Interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
@@ -562,43 +566,51 @@ class MusicCog(commands.Cog):
         )
 
     @music.command(name=app_commands.locale_str("pause", zh_TW="暫停"), description=app_commands.locale_str("暫停目前歌曲", zh_TW="暫停目前歌曲"))
-    async def pause(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def pause(self, interaction, public: bool = True: discord.Interaction):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session or not session.player.playing:
             await interaction.response.send_message("現在沒有正在播放的歌。", ephemeral=True)
             return
         await session.player.pause(True)
-        await interaction.response.send_message("已暫停。")
+        await interaction.response.send_message("已暫停。", ephemeral=not public)
 
     @music.command(name=app_commands.locale_str("resume", zh_TW="繼續"), description=app_commands.locale_str("繼續播放歌曲", zh_TW="繼續播放歌曲"))
-    async def resume(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def resume(self, interaction, public: bool = True: discord.Interaction):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session or not session.player.paused:
             await interaction.response.send_message("現在沒有暫停中的歌。", ephemeral=True)
             return
         await session.player.pause(False)
-        await interaction.response.send_message("繼續播放。")
+        await interaction.response.send_message("繼續播放。", ephemeral=not public)
 
     @music.command(name=app_commands.locale_str("skip", zh_TW="跳過"), description=app_commands.locale_str("跳到下一首", zh_TW="跳到下一首"))
-    async def skip(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def skip(self, interaction, public: bool = True: discord.Interaction):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session or not session.current:
             await interaction.response.send_message("現在沒有歌曲可以跳過。", ephemeral=True)
             return
         session.skip_requested = True
         await session.player.stop()
-        await interaction.response.send_message("好，跳到下一首。")
+        await interaction.response.send_message("好，跳到下一首。", ephemeral=not public)
 
     @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("設定音量 0 到 100", zh_TW="設定音量 0 到 100"))
     @app_commands.describe(value="音量百分比")
-    async def volume(self, interaction: discord.Interaction, value: app_commands.Range[int, 0, 100]):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def volume(self, interaction, public: bool = True: discord.Interaction, value: app_commands.Range[int, 0, 100]):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session:
             await interaction.response.send_message("目前沒有音樂工作階段。", ephemeral=True)
             return
         session.volume = value
         await session.player.set_volume(value)
-        await interaction.response.send_message(f"音量已調整為 **{value}%**。")
+        await interaction.response.send_message(f"音量已調整為 **{value}%**。", ephemeral=not public)
 
     @music.command(name=app_commands.locale_str("loop", zh_TW="循環"), description=app_commands.locale_str("設定關閉、單曲或佇列循環", zh_TW="設定關閉、單曲或佇列循環"))
     @app_commands.describe(mode="循環模式")
@@ -607,25 +619,29 @@ class MusicCog(commands.Cog):
         app_commands.Choice(name="單曲", value="one"),
         app_commands.Choice(name="佇列", value="queue"),
     ])
-    async def loop(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def loop(self, interaction, public: bool = True: discord.Interaction, mode: app_commands.Choice[str]):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session:
             await interaction.response.send_message("目前沒有音樂工作階段。", ephemeral=True)
             return
         session.loop_mode = mode.value
         labels = {"off": "關閉", "one": "單曲", "queue": "佇列"}
-        await interaction.response.send_message(f"循環模式已設定為 **{labels[mode.value]}**。")
+        await interaction.response.send_message(f"循環模式已設定為 **{labels[mode.value]}**。", ephemeral=not public)
 
     @music.command(name=app_commands.locale_str("shuffle", zh_TW="隨機播放"), description=app_commands.locale_str("打亂目前等待中的歌曲", zh_TW="打亂目前等待中的歌曲"))
-    async def shuffle(self, interaction: discord.Interaction):
+    async def shuffle(self, interaction, public: bool = True: discord.Interaction):
         session = self.sessions.get(interaction.guild.id) if interaction.guild else None
         if not session or len(session.queue) < 2:
             await interaction.response.send_message("等待佇列至少要有兩首歌才能洗牌。", ephemeral=True)
             return
         random.shuffle(session.queue)
-        await interaction.response.send_message(f"已打亂 {len(session.queue)} 首等待中的歌曲。")
+        await interaction.response.send_message(f"已打亂 {len(session.queue)} 首等待中的歌曲。", ephemeral=not public)
 
     @commands.command(name="shuffle")
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def prefix_shuffle(self, ctx: commands.Context):
         if not ctx.guild:
             await ctx.reply("請在伺服器裡使用。", mention_author=False)
@@ -638,13 +654,13 @@ class MusicCog(commands.Cog):
         await ctx.reply(f"已打亂 {len(session.queue)} 首等待中的歌曲。", mention_author=False)
 
     @app_commands.command(name=app_commands.locale_str("join_voice", zh_TW="加入語音"), description=app_commands.locale_str("加入你目前所在的語音頻道", zh_TW="加入你目前所在的語音頻道"))
-    async def join_voice(self, interaction: discord.Interaction):
+    async def join_voice(self, interaction, public: bool = True: discord.Interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
             await interaction.response.send_message("你先加入一個語音頻道。", ephemeral=True)
             return
         try:
             await self.ensure_player(interaction.guild, interaction.user.voice.channel, interaction.channel_id)
-            await interaction.response.send_message(f"我加入了 {interaction.user.voice.channel.mention}。")
+            await interaction.response.send_message(f"我加入了 {interaction.user.voice.channel.mention}。", ephemeral=not public)
         except Exception as exc:
             print(f"[Music] 加入語音失敗：{type(exc).__name__}: {exc}")
             await interaction.response.send_message("加入語音失敗，請確認節點和 Bot 的語音權限。", ephemeral=True)
