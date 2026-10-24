@@ -295,10 +295,10 @@ class EconomyCog(commands.Cog):
         available = row["wallet"] if deposit else row["bank"]
         amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= 16 else 0
         if not valid_amount(amount):
-            await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=public)
+            await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=False)
             return
         if not self.store.move(target.guild.id, user.id, amount, deposit):
-            await self._reply(target, "餘額不足或超出系統上限，交易已取消。", public=public)
+            await self._reply(target, "餘額不足或超出系統上限，交易已取消。", public=False)
             return
         await self._reply(target, f"已{'存入銀行' if deposit else '提出現金'} **{amount:,}** 金幣。", public=public)
 
@@ -329,13 +329,13 @@ class EconomyCog(commands.Cog):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if member.bot or member.id == user.id:
-            await self._reply(target, "不能轉帳給自己或機器人。", public=public)
+            await self._reply(target, "不能轉帳給自己或機器人。", public=False)
             return
         if not valid_amount(amount):
-            await self._reply(target, "金額必須是大於 0 的正整數。", public=public)
+            await self._reply(target, "金額必須是大於 0 的正整數。", public=False)
             return
         if not self.store.transfer(target.guild.id, user.id, member.id, amount):
-            await self._reply(target, "餘額不足，或收款方資產已達上限；交易取消。", public=public)
+            await self._reply(target, "餘額不足，或收款方資產已達上限；交易取消。", public=False)
             return
         await self._reply(target, f"已轉帳給 {member.mention} **{amount:,}** 金幣，手續費 0%。", public=public)
 
@@ -355,14 +355,14 @@ class EconomyCog(commands.Cog):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if not valid_amount(amount):
-            await self._reply(target, "下注金額必須是大於 0 的正整數。", public=public)
+            await self._reply(target, "下注金額必須是大於 0 的正整數。", public=False)
             return
         player = (random.randint(1, 6), random.randint(1, 6))
         house = (random.randint(1, 6), random.randint(1, 6))
         a, b = sum(player), sum(house)
         payout = amount * 2 if a > b else amount if a == b else 0
         if not self.store.dice(target.guild.id, user.id, amount, payout):
-            await self._reply(target, "錢包餘額不足，或交易超出系統上限。", public=public)
+            await self._reply(target, "錢包餘額不足，或交易超出系統上限。", public=False)
             return
         result = f"你贏了，拿回 {amount * 2:,} 金幣（淨賺 {amount:,}）。" if a > b else f"平手，退回本金 {amount:,} 金幣。" if a == b else f"你輸了，下注的 {amount:,} 金幣被沒收。"
         await self._reply(target, f"🎲 你的骰子 {player[0]} + {player[1]} = **{a}**\n莊家骰子 {house[0]} + {house[1]} = **{b}**\n{result}", public=public)
@@ -383,7 +383,7 @@ class EconomyCog(commands.Cog):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if member.bot or member.id == user.id:
-            await self._reply(target, "不能搶劫自己或機器人。", public=public)
+            await self._reply(target, "不能搶劫自己或機器人。", public=False)
             return
         outcome, value = self.store.rob(target.guild.id, user.id, member.id, random.random() < 0.40,
                                         random.uniform(0.10, 0.30), random.uniform(0.10, 0.20))
