@@ -367,12 +367,16 @@ def build_history_embed(record: dict) -> discord.Embed:
         ]
     )
     embed.description = _clean_text("\n".join(parts), 4000)
-    embed.set_footer(
-        text=(
-            f"作者 ID：{record.get('author_id', '未知')} ・ "
-            f"頻道：#{record.get('channel_name') or record.get('channel_id', '未知')}"
-        )
-    )
+    channel_id = record.get("channel_id")
+    channel_name = str(record.get("channel_name") or "").strip()
+    if channel_id:
+        channel_label = f"<#{int(channel_id)}>"
+        if channel_name:
+            channel_label += f"（#{_clean_text(channel_name, 100)}）"
+    else:
+        channel_label = f"#{_clean_text(channel_name or '未知頻道', 100)}"
+    embed.add_field(name="📍 發送頻道", value=channel_label, inline=True)
+    embed.set_footer(text=f"作者 ID：{record.get('author_id', '未知')} ・ 訊息 ID：{record.get('message_id', '未知')}")
     return embed
 
 
