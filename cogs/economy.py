@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import sqlite3
+from decimal import Decimal
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -197,7 +198,7 @@ class EconomyStore:
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
             if success:
-                stolen = int(target["wallet"] * fraction)
+                stolen = int(Decimal(target["wallet"]) * Decimal(str(fraction)))
                 if robber["wallet"] + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
@@ -205,7 +206,7 @@ class EconomyStore:
                 con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] + stolen), robber_id))
                 result = ("success", stolen)
             else:
-                fine = min(robber["wallet"], max(1, int(robber["wallet"] * fine_fraction))) if robber["wallet"] else 0
+                fine = min(robber["wallet"], max(1, int(Decimal(robber["wallet"]) * Decimal(str(fine_fraction))))) if robber["wallet"] else 0
                 con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] - fine), robber_id))
                 result = ("failed", fine)
             if success:
@@ -325,7 +326,9 @@ class EconomyCog(commands.Cog):
         user = target.user if isinstance(target, discord.Interaction) else target.author
         row = self.store.get(target.guild.id, user.id)
         available = row["wallet"] if deposit else row["bank"]
-        amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= MAX_DIGITS else 0
+        amount = int(available) if raw.strip().lower() in {"all", "全部"} else parse_amount(raw)
+        if amount is None:
+            amount = 0
         if not valid_amount(amount):
             await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=False)
             return
