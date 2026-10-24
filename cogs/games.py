@@ -81,7 +81,8 @@ class GameCog(commands.Cog):
 
     @game.command(name="rps", description="和我猜拳，看看誰贏")
     @app_commands.describe(choice="剪刀、石頭或布")
-    async def rps(self, interaction: discord.Interaction, choice: str):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def rps(self, interaction: discord.Interaction, choice: str, public: bool = True):
         choice = choice.strip()
         if choice not in RPS:
             await interaction.response.send_message("打 剪刀、石頭 或 布 就好啦。", ephemeral=True)
@@ -97,11 +98,12 @@ class GameCog(commands.Cog):
             result = "我贏了 😎"
             won = False
         await self.finish_game(interaction, won)
-        await interaction.response.send_message(f"你出 **{choice}**，我出 **{bot_choice}**。{result}")
+        await interaction.response.send_message(f"你出 **{choice}**，我出 **{bot_choice}**。{result}", ephemeral=not public)
 
     @game.command(name="guess", description="猜 1 到 100，我會告訴你太大還太小")
     @app_commands.describe(number="你猜的數字")
-    async def guess(self, interaction: discord.Interaction, number: app_commands.Range[int, 1, 100]):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def guess(self, interaction: discord.Interaction, number: app_commands.Range[int, 1, 100], public: bool = True):
         key = self.session_key(interaction)
         state = self.guess_sessions.get(key)
         now = time.monotonic()
@@ -118,12 +120,13 @@ class GameCog(commands.Cog):
         if number == target:
             self.guess_sessions.pop(key, None)
             await self.finish_game(interaction, True)
-            await interaction.response.send_message(f"中了！就是 **{target}** 🎯")
+            await interaction.response.send_message(f"中了！就是 **{target}** 🎯", ephemeral=not public)
         else:
-            await interaction.response.send_message("太大了。" if number > target else "太小了。")
+            await interaction.response.send_message("太大了。" if number > target else "太小了。", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("trivia", zh_TW="知識問答"), description=app_commands.locale_str("來一題小常識", zh_TW="來一題小常識"))
-    async def trivia(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def trivia(self, interaction: discord.Interaction, public: bool = True):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
             await interaction.response.send_message("你已經有一個文字答案遊戲在跑了，先玩完那個。", ephemeral=True)
@@ -132,7 +135,7 @@ class GameCog(commands.Cog):
 
         question, options, answer = random.choice(TRIVIA)
         labels = "　".join(f"{i+1}. {x}" for i, x in enumerate(options))
-        await interaction.response.send_message(f"🧠 **{question}**\n{labels}\n\n直接回 1～4 就行。")
+        await interaction.response.send_message(f"🧠 **{question}**\n{labels}\n\n直接回 1～4 就行。", ephemeral=not public)
 
         def check(m):
             return (
@@ -145,15 +148,16 @@ class GameCog(commands.Cog):
             msg = await self.bot.wait_for("message", timeout=20, check=check)
             won = int(msg.content.strip()) - 1 == answer
             await self.finish_game(interaction, won)
-            await interaction.followup.send("答對了 👍" if won else f"答錯啦，答案是 **{options[answer]}**。")
+            await interaction.followup.send("答對了 👍" if won else f"答錯啦，答案是 **{options[answer]}**。", ephemeral=not public)
         except asyncio.TimeoutError:
             await self.finish_game(interaction, False)
-            await interaction.followup.send(f"時間到，答案是 **{options[answer]}**。")
+            await interaction.followup.send(f"時間到，答案是 **{options[answer]}**。", ephemeral=not public)
         finally:
             self.answer_sessions.discard(key)
 
     @game.command(name=app_commands.locale_str("blackjack", zh_TW="二十一點"), description=app_commands.locale_str("抽兩張牌，比比看誰比較接近 21", zh_TW="抽兩張牌，比比看誰比較接近 21"))
-    async def blackjack(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def blackjack(self, interaction: discord.Interaction, public: bool = True):
         deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10] * 4
         player = random.sample(deck, 2)
         bot_cards = random.sample(deck, 2)
@@ -173,11 +177,12 @@ class GameCog(commands.Cog):
             result = "你贏了！"
         else:
             result = "我贏了。"
-        await interaction.response.send_message(f"🃏 你：{player} = **{p}**\n我：{bot_cards} = **{b}**\n{result}")
+        await interaction.response.send_message(f"🃏 你：{player} = **{p}**\n我：{bot_cards} = **{b}**\n{result}", ephemeral=not public)
 
     @game.command(name="higherlower", description="猜下一個數字比現在高還是低")
     @app_commands.describe(choice="high 或 low")
-    async def higherlower(self, interaction: discord.Interaction, choice: str):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def higherlower(self, interaction: discord.Interaction, choice: str, public: bool = True):
         key = self.session_key(interaction)
         choice = choice.lower().strip()
         if choice not in {"high", "low", "高", "低"}:
@@ -206,11 +211,12 @@ class GameCog(commands.Cog):
         await self.finish_game(interaction, won)
         await interaction.response.send_message(
             f"現在是 **{current}**，下一張 **{next_value}**。你猜{'高' if chose_high else '低'}，{result}"
-        )
+        , ephemeral=not public)
 
     @game.command(name="wordle", description="玩簡單版 Wordle")
     @app_commands.describe(guess="第一次不填就開一局，之後輸入 5 個英文字母")
-    async def wordle(self, interaction: discord.Interaction, guess: str | None = None):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def wordle(self, interaction: discord.Interaction, guess: str | None = None, public: bool = True):
         key = self.session_key(interaction)
         state = self.wordle_sessions.get(key)
         now = time.monotonic()
@@ -222,7 +228,7 @@ class GameCog(commands.Cog):
         if not guess:
             word = random.choice(WORDLE_WORDS)
             self.wordle_sessions[key] = {"word": word, "tries": 0, "started": now}
-            await interaction.response.send_message("🟩 開局了，猜一個 5 個字母的英文單字。用 /game wordle guess:xxxxx 繼續。")
+            await interaction.response.send_message("🟩 開局了，猜一個 5 個字母的英文單字。用 /game wordle guess:xxxxx 繼續。", ephemeral=not public)
             return
         if not state:
             await interaction.response.send_message("先用 /game wordle 開一局。", ephemeral=True)
@@ -255,17 +261,18 @@ class GameCog(commands.Cog):
         if guess == word:
             self.wordle_sessions.pop(key, None)
             await self.finish_game(interaction, True)
-            await interaction.response.send_message(f"{''.join(marks)}\n中了！答案是 **{word}**。")
+            await interaction.response.send_message(f"{''.join(marks)}\n中了！答案是 **{word}**。", ephemeral=not public)
         elif state["tries"] >= 6:
             self.wordle_sessions.pop(key, None)
             await self.finish_game(interaction, False)
-            await interaction.response.send_message(f"{''.join(marks)}\n6 次用完，答案是 **{word}**。")
+            await interaction.response.send_message(f"{''.join(marks)}\n6 次用完，答案是 **{word}**。", ephemeral=not public)
         else:
-            await interaction.response.send_message(f"{''.join(marks)}\n還有 {6 - state['tries']} 次。")
+            await interaction.response.send_message(f"{''.join(marks)}\n還有 {6 - state['tries']} 次。", ephemeral=not public)
 
     @game.command(name="hangman", description="玩簡單版猜單字")
     @app_commands.describe(letter="第一次不填就開一局，之後輸入一個字母")
-    async def hangman(self, interaction: discord.Interaction, letter: str | None = None):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def hangman(self, interaction: discord.Interaction, letter: str | None = None, public: bool = True):
         key = self.session_key(interaction)
         state = self.hangman_sessions.get(key)
         now = time.monotonic()
@@ -277,7 +284,7 @@ class GameCog(commands.Cog):
         if not letter:
             word = random.choice(HANGMAN_WORDS)
             self.hangman_sessions[key] = {"word": word, "guessed": set(), "wrong": 0, "started": now}
-            await interaction.response.send_message("🎯 開局了，之後一個字母一個字母猜。")
+            await interaction.response.send_message("🎯 開局了，之後一個字母一個字母猜。", ephemeral=not public)
             return
         if not state:
             await interaction.response.send_message("先用 /game hangman 開一局。", ephemeral=True)
@@ -299,17 +306,18 @@ class GameCog(commands.Cog):
         if "_" not in display:
             self.hangman_sessions.pop(key, None)
             await self.finish_game(interaction, True)
-            await interaction.response.send_message(f"**{display}**\n猜到了！🎉")
+            await interaction.response.send_message(f"**{display}**\n猜到了！🎉", ephemeral=not public)
         elif state["wrong"] >= 6:
             self.hangman_sessions.pop(key, None)
             await self.finish_game(interaction, False)
-            await interaction.response.send_message(f"**{state['word']}**\n錯太多次了，這局沒了。")
+            await interaction.response.send_message(f"**{state['word']}**\n錯太多次了，這局沒了。", ephemeral=not public)
         else:
-            await interaction.response.send_message(f"**{display}**\n失誤：{state['wrong']}/6")
+            await interaction.response.send_message(f"**{display}**\n失誤：{state['wrong']}/6", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("reaction", zh_TW="反應力"), description=app_commands.locale_str("測你的反應速度", zh_TW="測你的反應速度"))
-    async def reaction(self, interaction: discord.Interaction):
-        await interaction.response.send_message("準備……")
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def reaction(self, interaction: discord.Interaction, public: bool = True):
+        await interaction.response.send_message("準備……", ephemeral=not public)
         await asyncio.sleep(random.uniform(1.5, 4))
         button = ui.Button(label="點我！", style=discord.ButtonStyle.success)
         view = ui.View(timeout=10)
@@ -342,7 +350,7 @@ class GameCog(commands.Cog):
             return None
         self.answer_sessions.add(key)
         try:
-            await interaction.response.send_message(prompt)
+            await interaction.response.send_message(prompt, ephemeral=not public)
 
             def check(m):
                 return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
@@ -351,18 +359,19 @@ class GameCog(commands.Cog):
                 msg = await self.bot.wait_for("message", timeout=timeout, check=check)
             except asyncio.TimeoutError:
                 await self.finish_game(interaction, False)
-                await interaction.followup.send("時間到，這局先算了。")
+                await interaction.followup.send("時間到，這局先算了。", ephemeral=not public)
                 return False
 
             won = expected(msg) if callable(expected) else msg.content.strip() == expected
             await self.finish_game(interaction, won)
-            await interaction.followup.send("答對！🎉" if won else "答錯啦。")
+            await interaction.followup.send("答對！🎉" if won else "答錯啦。", ephemeral=not public)
             return won
         finally:
             self.answer_sessions.discard(key)
 
     @game.command(name=app_commands.locale_str("typing", zh_TW="打字挑戰"), description=app_commands.locale_str("測測看你的打字速度", zh_TW="測測看你的打字速度"))
-    async def typing(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def typing(self, interaction: discord.Interaction, public: bool = True):
         phrase = random.choice(["discord 朋友群", "今天晚上開黑", "這局不要雷我", "Bot 又有新功能了"])
         started = time.perf_counter()
         key = self.answer_key(interaction)
@@ -371,7 +380,7 @@ class GameCog(commands.Cog):
             return
         self.answer_sessions.add(key)
         try:
-            await interaction.response.send_message(f"⌨️ 把下面這句原樣打回來：\n\n**{phrase}**")
+            await interaction.response.send_message(f"⌨️ 把下面這句原樣打回來：\n\n**{phrase}**", ephemeral=not public)
             def check(m):
                 return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
             try:
@@ -379,15 +388,16 @@ class GameCog(commands.Cog):
                 elapsed = time.perf_counter() - started
                 won = msg.content.strip() == phrase
                 await self.finish_game(interaction, won)
-                await interaction.followup.send(f"{'中了！' if won else '字打錯了。'} 用時 **{elapsed:.2f} 秒**。")
+                await interaction.followup.send(f"{'中了！' if won else '字打錯了。'} 用時 **{elapsed:.2f} 秒**。", ephemeral=not public)
             except asyncio.TimeoutError:
                 await self.finish_game(interaction, False)
-                await interaction.followup.send("太久啦，這局先算了。")
+                await interaction.followup.send("太久啦，這局先算了。", ephemeral=not public)
         finally:
             self.answer_sessions.discard(key)
 
     @game.command(name=app_commands.locale_str("memory", zh_TW="記憶力"), description=app_commands.locale_str("短暫記住一串圖案", zh_TW="短暫記住一串圖案"))
-    async def memory(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def memory(self, interaction: discord.Interaction, public: bool = True):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
             await interaction.response.send_message("你已經有一個文字答案遊戲在跑了，先玩完那個。", ephemeral=True)
@@ -396,7 +406,7 @@ class GameCog(commands.Cog):
         try:
             symbols = random.sample(["🍎", "🍋", "🍒", "⭐", "🎲", "🔥", "🎵", "🎮", "🐱", "🚀"], 6)
             answer = "".join(symbols)
-            await interaction.response.send_message("記住這串：\n" + " ".join(symbols))
+            await interaction.response.send_message("記住這串：\n" + " ".join(symbols), ephemeral=not public)
             await asyncio.sleep(3)
             try:
                 await interaction.edit_original_response(content="現在只剩下：⬜ ⬜ ⬜ ⬜ ⬜ ⬜\n把剛才順序打回來。")
@@ -408,15 +418,16 @@ class GameCog(commands.Cog):
                 msg = await self.bot.wait_for("message", timeout=15, check=check)
                 won = msg.content.replace(" ", "") == answer
                 await self.finish_game(interaction, won)
-                await interaction.followup.send("全對！🧠" if won else f"差一點，答案是 {answer}")
+                await interaction.followup.send("全對！🧠" if won else f"差一點，答案是 {answer}", ephemeral=not public)
             except asyncio.TimeoutError:
                 await self.finish_game(interaction, False)
-                await interaction.followup.send("時間到。")
+                await interaction.followup.send("時間到。", ephemeral=not public)
         finally:
             self.answer_sessions.discard(key)
 
     @game.command(name=app_commands.locale_str("math", zh_TW="數學挑戰"), description=app_commands.locale_str("算一道隨機心算題", zh_TW="算一道隨機心算題"))
-    async def math_game(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def math_game(self, interaction: discord.Interaction, public: bool = True):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
             await interaction.response.send_message("你已經有一個文字答案遊戲在跑了，先玩完那個。", ephemeral=True)
@@ -426,7 +437,7 @@ class GameCog(commands.Cog):
             a, b = random.randint(5, 40), random.randint(5, 40)
             op = random.choice(["+", "-", "*"])
             answer = a + b if op == "+" else a - b if op == "-" else a * b
-            await interaction.response.send_message(f"🧮 快算：**{a} {op} {b} = ?**")
+            await interaction.response.send_message(f"🧮 快算：**{a} {op} {b} = ?**", ephemeral=not public)
             def check(m):
                 return (
                     m.author.id == interaction.user.id
@@ -437,35 +448,40 @@ class GameCog(commands.Cog):
                 msg = await self.bot.wait_for("message", timeout=15, check=check)
                 won = int(msg.content.strip()) == answer
                 await self.finish_game(interaction, won)
-                await interaction.followup.send("答對！" if won else f"答錯，答案是 **{answer}**。")
+                await interaction.followup.send("答對！" if won else f"答錯，答案是 **{answer}**。", ephemeral=not public)
             except asyncio.TimeoutError:
                 await self.finish_game(interaction, False)
-                await interaction.followup.send(f"時間到，答案是 **{answer}**。")
+                await interaction.followup.send(f"時間到，答案是 **{answer}**。", ephemeral=not public)
         finally:
             self.answer_sessions.discard(key)
 
     @game.command(name=app_commands.locale_str("8ball", zh_TW="水晶球"), description=app_commands.locale_str("問我一個問題，我隨便回你", zh_TW="問我一個問題，我隨便回你"))
-    async def eightball(self, interaction: discord.Interaction, question: str):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def eightball(self, interaction: discord.Interaction, question: str, public: bool = True):
         answers = ["可以。", "大概可以吧。", "我覺得不行。", "等等再決定。", "看運氣。", "很有機會。", "不要問，做就對了。"]
-        await interaction.response.send_message(f"🎱 {random.choice(answers)}")
+        await interaction.response.send_message(f"🎱 {random.choice(answers)}", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("truth", zh_TW="真心話"), description=app_commands.locale_str("隨機抽一題真心話", zh_TW="隨機抽一題真心話"))
-    async def truth(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"🗣️ 真心話：{random.choice(TRUTH)}")
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def truth(self, interaction: discord.Interaction, public: bool = True):
+        await interaction.response.send_message(f"🗣️ 真心話：{random.choice(TRUTH)}", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("dare", zh_TW="大冒險"), description=app_commands.locale_str("隨機抽一個大冒險", zh_TW="隨機抽一個大冒險"))
-    async def dare(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"😈 大冒險：{random.choice(DARE)}")
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def dare(self, interaction: discord.Interaction, public: bool = True):
+        await interaction.response.send_message(f"😈 大冒險：{random.choice(DARE)}", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("wouldyourather", zh_TW="二選一"), description=app_commands.locale_str("二選一，看你選哪個", zh_TW="二選一，看你選哪個"))
-    async def wouldyourather(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def wouldyourather(self, interaction: discord.Interaction, public: bool = True):
         a, b = random.choice(WOULD)
-        await interaction.response.send_message(f"你選哪個？\n🅰️ {a}\n🅱️ {b}")
+        await interaction.response.send_message(f"你選哪個？\n🅰️ {a}\n🅱️ {b}", ephemeral=not public)
 
     @game.command(name=app_commands.locale_str("neverhaveiever", zh_TW="我從來沒有"), description=app_commands.locale_str("從沒做過這件事嗎", zh_TW="從沒做過這件事嗎"))
-    async def neverhaveiever(self, interaction: discord.Interaction):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def neverhaveiever(self, interaction: discord.Interaction, public: bool = True):
         items = ["沒熬夜到天亮過", "沒上課偷玩手機過", "沒把訊息傳錯人過", "沒玩遊戲玩到忘記時間過"]
-        await interaction.response.send_message(f"🙅 從來沒有… **{random.choice(items)}**")
+        await interaction.response.send_message(f"🙅 從來沒有… **{random.choice(items)}**", ephemeral=not public)
 
 
 async def setup(bot: commands.Bot):
