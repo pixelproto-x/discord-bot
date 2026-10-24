@@ -831,7 +831,7 @@ async def start_dashboard(bot):
     dashboard_url = f"http://127.0.0.1:{port}"
     print(f"\n[Dashboard] 一條魚 control panel: {dashboard_url}")
     auto_open = os.getenv("DASHBOARD_AUTO_OPEN", "1").strip().lower() not in {"0", "false", "no", "off"}
-    if auto_open and local_public_url:
+    if auto_open and (not public_url or local_public_url):
         try:
             await asyncio.to_thread(webbrowser.open, dashboard_url, new=2)
             print("[OK] 已自動開啟網頁控制台。")
