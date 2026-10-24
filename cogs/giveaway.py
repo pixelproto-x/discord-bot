@@ -70,8 +70,9 @@ class GiveawayCog(commands.Cog):
         )
 
     @giveaway.command(name=app_commands.locale_str("create", zh_TW="建立"), description=app_commands.locale_str("建立一個限時抽獎", zh_TW="建立一個限時抽獎"))
-    @app_commands.describe(prize="獎品", duration="例如 10m、1h、1d", winners="得獎人數")
-    async def create(self, interaction, prize: str, duration: str, winners: app_commands.Range[int,1,20] = 1):
+    @app_commands.describe(prize="獎品", duration="例如 10m、1h、1d", winners="得獎人數", public=app_commands.locale_str("是否公開顯示建立結果", zh_TW="是否公開顯示建立結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def create(self, interaction, prize: str, duration: str, winners: app_commands.Range[int,1,20] = 1, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("這個只有管理人員可以開。", ephemeral=True)
             return
@@ -97,7 +98,7 @@ class GiveawayCog(commands.Cog):
         except Exception:
             storage.delete_giveaway(gid)
             raise
-        await interaction.followup.send(f"抽獎開了，編號 {gid}。", ephemeral=True)
+        await interaction.followup.send(f"抽獎開了，編號 {gid}。", ephemeral=not public)
 
     @giveaway.command(name=app_commands.locale_str("reroll", zh_TW="重新抽獎"), description=app_commands.locale_str("重新抽一位新的得獎者", zh_TW="重新抽一位新的得獎者"))
     @app_commands.describe(giveaway_id="抽獎編號")
@@ -126,17 +127,18 @@ class GiveawayCog(commands.Cog):
         await interaction.response.send_message("🎉 重新抽到：" + " ".join(f"<@{uid}>" for uid in winners))
 
     @giveaway.command(name=app_commands.locale_str("end", zh_TW="結束"), description=app_commands.locale_str("提前結束抽獎並抽出得獎者", zh_TW="提前結束抽獎並抽出得獎者"))
-    @app_commands.describe(giveaway_id="抽獎編號")
-    async def end(self, interaction, giveaway_id: int):
+    @app_commands.describe(giveaway_id="抽獎編號", public=app_commands.locale_str("是否公開顯示結束結果", zh_TW="是否公開顯示結束結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def end(self, interaction, giveaway_id: int, public: bool = True):
         if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
             await interaction.response.send_message("這個只有管理人員可以用。", ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=not public)
         finished = await self.finish(giveaway_id, interaction.guild, manual=True)
         await interaction.followup.send(
             "抽獎已結束並完成抽選。" if finished
             else "找不到這個抽獎、它已經結束，或它不屬於這個伺服器。",
-            ephemeral=True,
+            ephemeral=(not public) if finished else True,
         )
 
     async def finish(self, giveaway_id, guild, manual=False):
