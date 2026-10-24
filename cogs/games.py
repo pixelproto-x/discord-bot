@@ -343,7 +343,7 @@ class GameCog(commands.Cog):
             await interaction.edit_original_response(content="太慢啦。", view=None)
             await self.finish_game(interaction, False)
 
-    async def run_answer_game(self, interaction, prompt, expected=None, timeout=30):
+    async def run_answer_game(self, interaction, prompt, expected=None, timeout=30, public=True):
         key = self.answer_key(interaction)
         if key in self.answer_sessions:
             await interaction.response.send_message("你已經有一個文字答案遊戲在跑了，先玩完那個。", ephemeral=True)
