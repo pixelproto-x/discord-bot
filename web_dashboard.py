@@ -6,7 +6,7 @@ import json
 import os
 import secrets
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from aiohttp import ClientSession, web
 import discord
 
@@ -226,6 +226,29 @@ def _verify_session(value):
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
 
+def _is_same_origin(origin, expected_origin):
+    """Return True only when an Origin header exactly matches the dashboard origin."""
+    if not isinstance(origin, str) or not origin or not isinstance(expected_origin, str) or not expected_origin:
+        return False
+    try:
+        supplied = urlsplit(origin)
+        expected = urlsplit(expected_origin)
+        if supplied.scheme not in ("http", "https") or not supplied.netloc:
+            return False
+        if supplied.username is not None or supplied.password is not None:
+            return False
+        if supplied.path or supplied.query or supplied.fragment:
+            return False
+        return (
+            supplied.scheme.lower() == expected.scheme.lower()
+            and supplied.netloc.lower() == expected.netloc.lower()
+            and expected.scheme.lower() in ("http", "https")
+            and bool(expected.netloc)
+        )
+    except ValueError:
+        return False
+
+
 def _apply_dashboard_security_headers(response, *, public_https=False):
     """Apply browser security headers without changing dashboard functionality."""
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -249,6 +272,12 @@ async def start_dashboard(bot):
     local_public_url = public_url.startswith(("http://127.0.0.1:", "http://localhost:"))
     valid_oauth_url = public_url.startswith("https://") or local_public_url
     oauth_enabled = bool(valid_oauth_url and oauth_client_id and oauth_client_secret and len(session_secret) >= 32)
+    parsed_public_url = urlsplit(public_url) if public_url else None
+    configured_origin = (
+        f"{parsed_public_url.scheme}://{parsed_public_url.netloc}"
+        if parsed_public_url and parsed_public_url.scheme and parsed_public_url.netloc
+        else ""
+    )
     app = web.Application(client_max_size=1024 * 32)
 
     async def add_security_headers(request, response):
@@ -268,6 +297,10 @@ async def start_dashboard(bot):
             return await handler(request)
         session_uid = _verify_session(request.cookies.get("dashboard_session", ""))
         if session_uid is not None:
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                expected_origin = configured_origin or f"{request.scheme}://{request.host}"
+                if not _is_same_origin(request.headers.get("Origin", ""), expected_origin):
+                    return _json_error("跨來源請求已拒絕，請重新載入控制台後再試。", 403)
             request["dashboard_user_id"] = session_uid
             return await handler(request)
         supplied = request.headers.get("X-Control-Token", "")
