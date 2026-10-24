@@ -192,6 +192,17 @@ $("micStopBtn").onclick=async()=>{
 def _json_error(message, status=400):
     return web.json_response({"error": message}, status=status)
 
+
+async def _read_json_object(request):
+    """Parse a JSON request body and reject malformed or non-object payloads."""
+    try:
+        data = await _read_json_object(request)
+    except Exception as exc:
+        raise ValueError("請求必須包含有效的 JSON 物件。") from exc
+    if not isinstance(data, dict):
+        raise ValueError("請求必須包含有效的 JSON 物件。")
+    return data
+
 def _get_channel(bot, channel_id):
     try:
         channel_id = int(channel_id)
@@ -507,7 +518,7 @@ async def start_dashboard(bot):
 
     async def send_voice_message(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel_id = int(data.get("channel_id", ""))
             content = str(data.get("content", "")).strip()
         except (ValueError, TypeError):
@@ -531,7 +542,7 @@ async def start_dashboard(bot):
 
     async def start_browser_mic(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel_id = int(data.get("channel_id", ""))
         except (ValueError, TypeError):
             return _json_error("請先選擇語音房間。")
@@ -548,7 +559,7 @@ async def start_dashboard(bot):
 
     async def stop_browser_mic(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel_id = int(data.get("channel_id", ""))
         except (ValueError, TypeError):
             return _json_error("語音房間 ID 格式錯誤。")
@@ -589,7 +600,7 @@ async def start_dashboard(bot):
 
     async def select_target(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             guild_id = int(data.get("guild_id", ""))
             channel_id = int(data.get("channel_id", ""))
         except (ValueError, TypeError):
@@ -608,7 +619,7 @@ async def start_dashboard(bot):
 
     async def send_message(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel = _get_channel(bot, data.get("channel_id"))
             content = str(data.get("content", "")).strip()
         except (ValueError, TypeError):
@@ -627,7 +638,7 @@ async def start_dashboard(bot):
 
     async def reply_message(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel = _get_channel(bot, data.get("channel_id"))
             message_id = int(data.get("message_id", ""))
             content = str(data.get("content", "")).strip()
@@ -703,7 +714,7 @@ async def start_dashboard(bot):
     app.router.add_post("/api/send", send_message)
     async def delete_message(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel = _get_channel(bot, data.get("channel_id"))
             message_id = int(data.get("message_id", ""))
         except (ValueError, TypeError):
@@ -740,7 +751,7 @@ async def start_dashboard(bot):
 
     async def mimic_message(request):
         try:
-            data = await request.json()
+            data = await _read_json_object(request)
             channel = _get_channel(bot, data.get("channel_id"))
             prompt = str(data.get("prompt", "")).strip()
         except (ValueError, TypeError):
