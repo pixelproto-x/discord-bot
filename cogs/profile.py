@@ -141,7 +141,7 @@ class ProfileCog(commands.Cog):
     @app_commands.rename(public="公開")
     async def banner(self, interaction, member: discord.Member | None = None, public: bool = True):
         target = member or interaction.user
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=not public, thinking=True)
         try:
             user = await self.bot.fetch_user(target.id)
             if not user.banner:
@@ -149,7 +149,7 @@ class ProfileCog(commands.Cog):
                 return
             embed = discord.Embed(title=f"{target.display_name} 的 Banner", color=0x5865F2)
             embed.set_image(url=user.banner.with_size(1024).url)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=not public)
         except Exception as exc:
             print(f"Banner fetch error: {exc}")
             await interaction.followup.send("Banner 這次沒抓到，再試一次。", ephemeral=True)
