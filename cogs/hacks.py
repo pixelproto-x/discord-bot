@@ -52,8 +52,9 @@ class Hacks(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("tts_setup", zh_TW="設定文字朗讀"), description=app_commands.locale_str("指定文字頻道與要朗讀的成員", zh_TW="指定文字頻道與要朗讀的成員"))
     @app_commands.guild_only()
-    @app_commands.describe(channel="要監聽的文字頻道", member="發言時要朗讀的成員")
-    async def tts_setup(self, interaction: discord.Interaction, channel: discord.TextChannel, member: discord.Member):
+    @app_commands.describe(channel="要監聽的文字頻道", member="發言時要朗讀的成員", public=app_commands.locale_str("是否公開顯示設定結果", zh_TW="是否公開顯示設定結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def tts_setup(self, interaction: discord.Interaction, channel: discord.TextChannel, member: discord.Member, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("請在伺服器內使用。", ephemeral=True)
             return
@@ -70,12 +71,14 @@ class Hacks(commands.Cog):
         await interaction.response.send_message(
             f"已設定文字朗讀：只監聽 {channel.mention} 中 {member.mention} 的訊息。"
             "Bot 會在該成員所在的語音頻道朗讀，單次最多 50 字。",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @app_commands.command(name=app_commands.locale_str("tts_off", zh_TW="關閉文字朗讀"), description=app_commands.locale_str("關閉本伺服器的文字朗讀", zh_TW="關閉本伺服器的文字朗讀"))
     @app_commands.guild_only()
-    async def tts_off(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示設定結果", zh_TW="是否公開顯示設定結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def tts_off(self, interaction: discord.Interaction, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("請在伺服器內使用。", ephemeral=True)
             return
@@ -85,7 +88,7 @@ class Hacks(commands.Cog):
         settings = self._read_tts_settings()
         settings.pop(str(interaction.guild.id), None)
         self._write_tts_settings(settings)
-        await interaction.response.send_message("已關閉本伺服器的文字朗讀。", ephemeral=True)
+        await interaction.response.send_message("已關閉本伺服器的文字朗讀。", ephemeral=not public)
 
     async def _generate_tts_audio(self, text: str, audio_path: str):
         """Prefer Google Cloud TTS when configured; keep Edge TTS as a safe fallback."""
@@ -411,7 +414,9 @@ class Hacks(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("backup-keys", zh_TW="查看備份密鑰"), description=app_commands.locale_str("查看已保存的伺服器備份密鑰", zh_TW="查看已保存的伺服器備份密鑰"))
     @app_commands.guild_only()
-    async def backup_keys(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示備份密鑰（可能讓其他人看到）", zh_TW="是否公開顯示備份密鑰（可能讓其他人看到）"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def backup_keys(self, interaction: discord.Interaction, public: bool = False):
         if not await self._authorize(interaction):
             return
         try:
@@ -443,9 +448,9 @@ class Hacks(commands.Cog):
                 current += line + "\n"
             if current:
                 chunks.append(current)
-            await interaction.response.send_message(chunks[0], ephemeral=True)
+            await interaction.response.send_message(chunks[0], ephemeral=not public)
             for chunk in chunks[1:]:
-                await interaction.followup.send(chunk, ephemeral=True)
+                await interaction.followup.send(chunk, ephemeral=not public)
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             await interaction.response.send_message(f"讀取備份密鑰失敗：{exc}", ephemeral=True)
 
