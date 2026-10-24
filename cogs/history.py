@@ -562,7 +562,9 @@ class History(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("history", zh_TW="訊息紀錄"),
         description="查詢已刪除的訊息歷史紀錄",
     )
-    async def history(self, interaction: discord.Interaction) -> None:
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def history(self, interaction: discord.Interaction, public: bool = True) -> None:
         if interaction.user.id != HISTORY_ALLOWED_USER_ID:
             await interaction.response.send_message(
                 "你沒有使用此指令的權限。", ephemeral=True
@@ -580,7 +582,7 @@ class History(commands.Cog):
         await interaction.response.send_message(
             embed=view.current_embed(),
             view=view,
-            ephemeral=True,
+            ephemeral=not public,
         )
 
 
