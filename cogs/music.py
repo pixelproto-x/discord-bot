@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import random
 import re
@@ -272,7 +273,7 @@ class MusicCog(commands.Cog):
         self.node_error: str | None = None
 
     async def setup_nodes(self):
-        """建立主要節點與備援節點；每個節點都使用 300 秒閒置逾時。"""
+        """建立音樂節點；失效公開節點只嘗試一次，避免重試刷屏。"""
         if wavelink.Pool.nodes:
             print("[Music] Lavalink 節點池已存在，略過重複初始化。")
             return
@@ -282,28 +283,36 @@ class MusicCog(commands.Cog):
             print(f"[Music] {self.node_error}")
             return
 
+        # Wavelink 會把每個公開節點的連線失敗逐條寫入日誌。
+        # 降低其 logger 等級，只保留本函式下方的一行摘要。
+        logging.getLogger("wavelink").setLevel(logging.CRITICAL)
+
         nodes = [
             wavelink.Node(
                 identifier=config["identifier"],
                 uri=config["uri"],
                 password=config["password"],
                 inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
-                retries=3,
+                retries=0,
             )
             for config in LAVALINK_NODES
         ]
 
         try:
             await wavelink.Pool.connect(nodes=nodes, client=self.bot)
-            connected = list(wavelink.Pool.nodes.values())
+        except Exception:
+            # 單一節點不可用時，不讓音樂服務影響 Discord Bot 啟動。
+            pass
+
+        connected = list(wavelink.Pool.nodes.values())
+        configured_count = len(nodes)
+        failed_count = max(0, configured_count - len(connected))
+        if connected:
             self.node_error = None
-            print(
-                "[Music] Lavalink 節點池初始化完成："
-                + ", ".join(f"{node.identifier} ({node.uri})" for node in connected)
-            )
-        except Exception as exc:
-            self.node_error = f"{type(exc).__name__}: {exc}"
-            print(f"[Music] Lavalink 節點池初始化失敗：{self.node_error}")
+            print(f"[Music] 音樂節點可用：{len(connected)}/{configured_count}；已略過 {failed_count} 個失敗節點。")
+        else:
+            self.node_error = "目前沒有可用的 Lavalink 節點。"
+            print(f"[Music] 沒有可用音樂節點，已略過 {failed_count} 個失敗節點；機器人其他功能照常啟動。")
 
     async def cog_load(self):
         await self.setup_nodes()
