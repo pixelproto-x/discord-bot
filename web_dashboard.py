@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from urllib.parse import urlencode, urlsplit
@@ -283,6 +284,28 @@ def _is_allowed_websocket_origin(origin, expected_origin):
     return _is_same_origin(origin, expected_origin)
 
 
+def _dashboard_content_security_policy():
+    """Allow only the dashboard's exact inline script and deny plugin/base injection."""
+    scripts = re.findall(r"<script>(.*?)</script>", PAGE, flags=re.DOTALL)
+    script_hashes = [
+        base64.b64encode(hashlib.sha256(script.encode("utf-8")).digest()).decode("ascii")
+        for script in scripts
+    ]
+    script_source = " ".join("'sha256-" + value + "'" for value in script_hashes)
+    return (
+        "default-src 'self'; "
+        "script-src " + (script_source or "'none'") + "; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self' ws: wss:; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self' https://discord.com"
+    )
+
+
 def _apply_dashboard_security_headers(response, *, public_https=False):
     """Apply browser security headers without changing dashboard functionality."""
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -290,6 +313,7 @@ def _apply_dashboard_security_headers(response, *, public_https=False):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     response.headers["Cache-Control"] = "no-store"
+    response.headers["Content-Security-Policy"] = _dashboard_content_security_policy()
     if public_https:
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
 
