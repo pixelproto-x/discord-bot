@@ -1155,7 +1155,7 @@ class SearchCog(commands.Cog):
 
             entries = (data or {}).get("entries", [])[:5]
             if not entries:
-                await interaction.followup.send("沒找到東西。", ephemeral=not public)
+                await interaction.followup.send("沒找到東西。", ephemeral=True)
                 return
 
             lines = []
@@ -1170,7 +1170,7 @@ class SearchCog(commands.Cog):
             await interaction.followup.send("🔎 YouTube 搜尋結果：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"YouTube search error: {exc}")
-            await interaction.followup.send("YouTube 搜尋這次沒回來。", ephemeral=not public)
+            await interaction.followup.send("YouTube 搜尋這次沒回來。", ephemeral=True)
 
     @search.command(name=app_commands.locale_str("wikipedia", zh_TW="維基百科"), description=app_commands.locale_str("搜尋 Wikipedia", zh_TW="搜尋 Wikipedia"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
@@ -1200,7 +1200,7 @@ class SearchCog(commands.Cog):
 
             items = data.get("query", {}).get("search", [])
             if not items:
-                await interaction.followup.send("Wikipedia 沒找到。", ephemeral=not public)
+                await interaction.followup.send("Wikipedia 沒找到。", ephemeral=True)
                 return
 
             lines = [
@@ -1210,7 +1210,7 @@ class SearchCog(commands.Cog):
             await interaction.followup.send("📖 找到這些：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"Wikipedia search error: {exc}")
-            await interaction.followup.send("Wikipedia 現在沒回應。", ephemeral=not public)
+            await interaction.followup.send("Wikipedia 現在沒回應。", ephemeral=True)
 
     @search.command(name=app_commands.locale_str("github", zh_TW="專案搜尋"), description=app_commands.locale_str("搜尋 GitHub 公開專案", zh_TW="搜尋 GitHub 公開專案"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
@@ -1243,7 +1243,7 @@ class SearchCog(commands.Cog):
 
             items = data.get("items", [])
             if not items:
-                await interaction.followup.send("GitHub 沒找到。", ephemeral=not public)
+                await interaction.followup.send("GitHub 沒找到。", ephemeral=True)
                 return
 
             lines = [
@@ -1253,7 +1253,7 @@ class SearchCog(commands.Cog):
             await interaction.followup.send("💻 GitHub 搜尋結果：\n" + "\n".join(lines), ephemeral=not public)
         except Exception as exc:
             print(f"GitHub search error: {exc}")
-            await interaction.followup.send("GitHub 搜尋這次失敗了。", ephemeral=not public)
+            await interaction.followup.send("GitHub 搜尋這次失敗了。", ephemeral=True)
 
     @image.command(name=app_commands.locale_str("resize", zh_TW="調整圖片尺寸"), description=app_commands.locale_str("把圖片縮到指定寬度", zh_TW="把圖片縮到指定寬度"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示結果", zh_TW="是否公開顯示結果"))
