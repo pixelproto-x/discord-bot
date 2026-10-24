@@ -7,6 +7,7 @@ import os
 import secrets
 import time
 from urllib.parse import urlencode, urlsplit
+from dashboard_rate_limit import SlidingWindowRateLimiter
 from aiohttp import ClientSession, web
 import discord
 
@@ -283,6 +284,7 @@ async def start_dashboard(bot):
         if parsed_public_url and parsed_public_url.scheme and parsed_public_url.netloc
         else ""
     )
+    auth_rate_limiter = SlidingWindowRateLimiter(limit=10, window_seconds=60)
     app = web.Application(client_max_size=1024 * 32)
 
     async def add_security_headers(request, response):
@@ -309,9 +311,23 @@ async def start_dashboard(bot):
             request["dashboard_user_id"] = session_uid
             return await handler(request)
         supplied = request.headers.get("X-Control-Token", "")
+        if supplied:
+            # Behind a reverse proxy, only trust forwarded client addresses when
+            # the operator explicitly confirms that the proxy overwrites the header.
+            client_key = request.remote or "unknown"
+            if os.getenv("DASHBOARD_TRUST_PROXY", "").strip().lower() in ("1", "true", "yes"):
+                forwarded = request.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+                if forwarded:
+                    client_key = forwarded
+            if auth_rate_limiter.is_limited(client_key):
+                return _json_error("控制 Key 嘗試次數過多，請稍後再試。", 429)
         if hmac.compare_digest(supplied, token):
+            if supplied:
+                auth_rate_limiter.reset(client_key)
             request["dashboard_user_id"] = DASHBOARD_OWNER_ID
             return await handler(request)
+        if supplied:
+            auth_rate_limiter.record(client_key)
         return _json_error("請先使用已加入白名單的 Discord 帳號登入。", 401)
 
     app.middlewares.append(auth_middleware)
