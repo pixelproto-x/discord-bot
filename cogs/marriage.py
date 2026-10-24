@@ -138,9 +138,7 @@ class MarriageCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("propose", zh_TW="求婚"), description=app_commands.locale_str("向伺服器裡的成員求婚，對方可以選同意或拒絕", zh_TW="向伺服器裡的成員求婚，對方可以選同意或拒絕"))
     @app_commands.describe(member="你要求婚的成員", message="你想對他說的話")
-    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
-    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
-    async def propose(self, interaction: discord.Interaction, member: discord.Member, message: str, public: bool = True):
+    async def propose(self, interaction: discord.Interaction, member: discord.Member, message: str):
         if not interaction.guild:
             await interaction.response.send_message("這個指令只能在伺服器裡使用。", ephemeral=True)
             return
@@ -191,7 +189,7 @@ class MarriageCog(commands.Cog):
             embed=embed,
             view=view,
             allowed_mentions=discord.AllowedMentions(users=[member]),
-            ephemeral=not public,
+            ephemeral=False,
         )
 
     @app_commands.command(name=app_commands.locale_str("marriage", zh_TW="婚姻狀態"), description=app_commands.locale_str("查看你或其他成員的遊戲婚姻狀態", zh_TW="查看你或其他成員的遊戲婚姻狀態"))
