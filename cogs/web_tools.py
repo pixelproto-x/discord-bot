@@ -24,7 +24,8 @@ class WebToolsCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("websearch", zh_TW="網路搜尋"), description=app_commands.locale_str("搜尋公開網頁並整理結果", zh_TW="搜尋公開網頁並整理結果"))
     @app_commands.describe(query="要搜尋的問題或關鍵字")
-    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def websearch(self, interaction: discord.Interaction, query: str, public: bool = True):
         query = query.strip()
         if not query or len(query) > 400:
@@ -89,7 +90,7 @@ class WebToolsCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         try:
             result = await asyncio.wait_for(
                 self.client.images.generate(
