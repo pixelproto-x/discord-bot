@@ -497,8 +497,9 @@ class SettingsCog(commands.Cog):
         )
 
     @settings.command(name=app_commands.locale_str("autorole", zh_TW="自動身分組"), description=app_commands.locale_str("設定新人加入後自動拿到的身分組", zh_TW="設定新人加入後自動拿到的身分組"))
-    @app_commands.describe(role="新人要拿的身分組")
-    async def autorole(self, interaction, role: discord.Role | None = None):
+    @app_commands.describe(role="新人要拿的身分組", public=app_commands.locale_str("是否公開顯示設定結果", zh_TW="是否公開顯示設定結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def autorole(self, interaction, role: discord.Role | None = None, public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
             return
@@ -508,11 +509,12 @@ class SettingsCog(commands.Cog):
                 await interaction.response.send_message("這個身分組不能自動發放（可能有管理權限），或它比 Bot 高，或 Bot 缺少管理身分組權限。", ephemeral=True)
                 return
         storage.set_setting(interaction.guild.id, "autorole_id", role.id if role else 0)
-        await interaction.response.send_message(f"新人身分組已{'設成 ' + role.mention if role else '關閉'}。", ephemeral=True)
+        await interaction.response.send_message(f"新人身分組已{'設成 ' + role.mention if role else '關閉'}。", ephemeral=not public)
 
     @settings.command(name=app_commands.locale_str("welcome", zh_TW="歡迎訊息"), description=app_commands.locale_str("設定新人加入時的歡迎訊息", zh_TW="設定新人加入時的歡迎訊息"))
-    @app_commands.describe(channel="歡迎頻道", message="訊息，可用 {user} 和 {server}")
-    async def welcome(self, interaction, channel: discord.TextChannel | None = None, message: str = "歡迎 {user} 來到 {server}！"):
+    @app_commands.describe(channel="歡迎頻道", message="訊息，可用 {user} 和 {server}", public=app_commands.locale_str("是否公開顯示設定結果", zh_TW="是否公開顯示設定結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def welcome(self, interaction, channel: discord.TextChannel | None = None, message: str = "歡迎 {user} 來到 {server}！", public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
             return
@@ -533,8 +535,9 @@ class SettingsCog(commands.Cog):
         )
 
     @settings.command(name=app_commands.locale_str("goodbye", zh_TW="離開訊息"), description=app_commands.locale_str("設定成員離開時的通知", zh_TW="設定成員離開時的通知"))
-    @app_commands.describe(channel="離開通知頻道", message="訊息，可用 {user} 和 {server}")
-    async def goodbye(self, interaction, channel: discord.TextChannel | None = None, message: str = "{user} 離開了，掰。"):
+    @app_commands.describe(channel="離開通知頻道", message="訊息，可用 {user} 和 {server}", public=app_commands.locale_str("是否公開顯示設定結果", zh_TW="是否公開顯示設定結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def goodbye(self, interaction, channel: discord.TextChannel | None = None, message: str = "{user} 離開了，掰。", public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定要管理伺服器權限。", ephemeral=True)
             return
