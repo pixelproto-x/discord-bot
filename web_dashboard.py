@@ -172,6 +172,31 @@ def _get_channel(bot, channel_id):
         return channel
     return None
 
+async def _find_message_in_readable_channels(bot, selected_channel, message_id):
+    """Find a message, checking the selected channel before searching other channels."""
+    candidates = [selected_channel]
+    seen = set()
+    for guild in bot.guilds:
+        candidates.extend(guild.text_channels)
+        candidates.extend(guild.threads)
+
+    for candidate in candidates:
+        if candidate.id in seen:
+            continue
+        seen.add(candidate.id)
+        guild = getattr(candidate, "guild", None)
+        me = getattr(guild, "me", None) if guild else None
+        perms = candidate.permissions_for(me) if me else None
+        if not perms or not perms.view_channel or not perms.read_message_history:
+            continue
+        try:
+            return candidate, await candidate.fetch_message(message_id)
+        except (discord.NotFound, discord.Forbidden):
+            continue
+        except discord.HTTPException:
+            continue
+    return None, None
+
 def _session_secret():
     return os.getenv("DASHBOARD_SESSION_SECRET", "")
 
@@ -560,32 +585,9 @@ async def start_dashboard(bot):
         if not channel:
             return _json_error("找不到可用的文字頻道。", 404)
 
-        target = None
-        search_channels = [channel]
-        seen = {channel.id}
-        # A copied Discord message ID is globally unique; the selected channel
-        # may not be the message's actual channel. Search every readable channel.
-        for guild in bot.guilds:
-            search_channels.extend(guild.text_channels)
-            search_channels.extend(guild.threads)
-
-        for candidate in search_channels:
-            if candidate.id in seen:
-                continue
-            seen.add(candidate.id)
-            me = candidate.guild.me
-            perms = candidate.permissions_for(me) if me else None
-            if not perms or not perms.view_channel or not perms.read_message_history:
-                continue
-            try:
-                target = await candidate.fetch_message(message_id)
-                channel = candidate
-                break
-            except (discord.NotFound, discord.Forbidden):
-                continue
-            except discord.HTTPException:
-                continue
-
+        channel, target = await _find_message_in_readable_channels(
+            bot, channel, message_id
+        )
         if target is None:
             return _json_error(
                 "找不到這則訊息。請確認訊息 ID 正確、訊息仍存在，而且 Bot 有權查看該頻道及讀取訊息歷史。",
