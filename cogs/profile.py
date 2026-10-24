@@ -73,7 +73,7 @@ class ProfileCog(commands.Cog):
     ])
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def leaderboard(self, interaction, kind, public: bool = True: app_commands.Choice[str] | None = None):
+    async def leaderboard(self, interaction, kind: app_commands.Choice[str] | None = None, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
@@ -96,7 +96,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("userinfo", zh_TW="成員資訊"), description=app_commands.locale_str("查看一位成員的基本 Discord 資訊", zh_TW="查看一位成員的基本 Discord 資訊"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def userinfo(self, interaction, member, public: bool = True: discord.Member | None = None):
+    async def userinfo(self, interaction, member: discord.Member | None = None, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("成員資訊只能在伺服器裡查看。", ephemeral=True)
             return
@@ -112,7 +112,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("serverinfo", zh_TW="伺服器資訊"), description=app_commands.locale_str("看看這個伺服器的基本資訊", zh_TW="看看這個伺服器的基本資訊"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def serverinfo(self, interaction), public: bool = True:
+    async def serverinfo(self, interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
@@ -130,7 +130,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("avatar", zh_TW="查看頭像"), description=app_commands.locale_str("查看自己或別人的大圖頭像", zh_TW="查看自己或別人的大圖頭像"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def avatar(self, interaction, member, public: bool = True: discord.Member | None = None):
+    async def avatar(self, interaction, member: discord.Member | None = None, public: bool = True):
         target = member or interaction.user
         embed = discord.Embed(title=f"{target.display_name} 的頭像", color=0x5865F2)
         embed.set_image(url=target.display_avatar.with_size(1024).url)
@@ -139,7 +139,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("banner", zh_TW="查看橫幅"), description=app_commands.locale_str("查看成員的 Discord Banner", zh_TW="查看成員的 Discord Banner"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def banner(self, interaction, member, public: bool = True: discord.Member | None = None):
+    async def banner(self, interaction, member: discord.Member | None = None, public: bool = True):
         target = member or interaction.user
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
@@ -156,7 +156,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("achievements", zh_TW="成就"), description=app_commands.locale_str("看看自己目前解鎖了哪些成就", zh_TW="看看自己目前解鎖了哪些成就"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def achievements(self, interaction), public: bool = True:
+    async def achievements(self, interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
@@ -181,7 +181,7 @@ class ProfileCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("membercount", zh_TW="成員數量"), description=app_commands.locale_str("看看伺服器現在有多少成員", zh_TW="看看伺服器現在有多少成員"))
     @app_commands.describe(public="公開或僅自己可見")
     @app_commands.rename(public="公開")
-    async def membercount(self, interaction), public: bool = True:
+    async def membercount(self, interaction, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
