@@ -31,6 +31,7 @@ class CogRegistrationTests(unittest.IsolatedAsyncioTestCase):
             bot_module.web_tools,
             bot_module.hacks,
             bot_module.history,
+            bot_module.channel_backup,
             bot_module.browser_mic,
             bot_module.marriage,
             bot_module.economy,
