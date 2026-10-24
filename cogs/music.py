@@ -263,6 +263,11 @@ class MusicCog(commands.Cog):
             print("[Music] Lavalink 節點池已存在，略過重複初始化。")
             return
 
+        if not LAVALINK_NODES:
+            self.node_error = "尚未設定 Lavalink 節點；請在 .env 設定 LAVALINK_1_URI 與 LAVALINK_1_PASSWORD。"
+            print(f"[Music] {self.node_error}")
+            return
+
         nodes = [
             wavelink.Node(
                 identifier=config["identifier"],
