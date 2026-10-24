@@ -1294,7 +1294,8 @@ class SearchCog(commands.Cog):
 
             await interaction.followup.send(
                 f"好了，縮成 {width} × {height}。",
-                file=discord.File(out, "resized.png", ephemeral=not public),
+                file=discord.File(out, "resized.png"),
+                ephemeral=not public,
             )
         except Exception as exc:
             print(f"Image resize error: {exc}")
