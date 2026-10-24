@@ -6,6 +6,9 @@ import time
 import logging
 import logging.handlers
 from pathlib import Path
+import shutil
+import socket
+import subprocess
 import sys
 import threading
 
@@ -1078,10 +1081,56 @@ async def before_reminder_worker():
     await bot.wait_until_ready()
 
 
+def _start_ollama_if_needed():
+    """Start the local Ollama server when installed, without opening another console."""
+    if os.getenv("OLLAMA_AUTOSTART", "1").strip().lower() in {"0", "false", "no", "off"}:
+        print("[啟動] OLLAMA_AUTOSTART 已關閉，略過 Ollama 自動啟動。")
+        return
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().lower()
+    if not (base_url.startswith("http://127.0.0.1:") or base_url.startswith("http://localhost:")):
+        print("[啟動] OLLAMA_BASE_URL 不是本機網址，略過 Ollama 自動啟動。")
+        return
+
+    try:
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
+            print("[OK] Ollama 已在執行。")
+            return
+    except OSError:
+        pass
+
+    executable = shutil.which("ollama")
+    if not executable:
+        candidates = [
+            Path(os.getenv("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+            Path(os.getenv("ProgramFiles", r"C:\\Program Files")) / "Ollama" / "ollama.exe",
+        ]
+        executable = next((str(path) for path in candidates if path.is_file()), None)
+
+    if not executable:
+        print("[提示] 找不到 Ollama，跳過自動啟動；Discord Bot 仍會繼續啟動。")
+        return
+
+    try:
+        options = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "close_fds": True,
+        }
+        if os.name == "nt":
+            options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([executable, "serve"], **options)
+        print("[啟動] 已要求 Ollama 背景啟動。")
+    except OSError as exc:
+        print(f"[提示] Ollama 自動啟動失敗：{type(exc).__name__}；Discord Bot 仍會繼續啟動。")
+
+
 def main():
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_TOKEN 未設定。")
+    _start_ollama_if_needed()
     bot.run(token)
 
 
