@@ -307,7 +307,7 @@ class UtilityCog(commands.Cog):
     @app_commands.describe(city="例如 Taipei、Taichung、Changhua")
     @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
     async def weather(self, interaction: discord.Interaction, city: str, public: bool = True):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
         url = "https://wttr.in/" + urllib.parse.quote(city) + "?format=j1"
         try:
             async with aiohttp.ClientSession() as session:
@@ -361,7 +361,7 @@ class UtilityCog(commands.Cog):
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         buf.seek(0)
-        await interaction.response.send_message("好了，QR Code 在這。", file=discord.File(buf, "qrcode.png"))
+        await interaction.response.send_message("好了，QR Code 在這。", file=discord.File(buf, "qrcode.png"), ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("time", zh_TW="現在時間"), description=app_commands.locale_str("看看現在台灣時間", zh_TW="查看台灣目前時間"))
     @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
