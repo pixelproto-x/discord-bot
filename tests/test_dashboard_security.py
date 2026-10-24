@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from web_dashboard import (
+    PAGE,
     SlidingWindowRateLimiter,
     _apply_dashboard_security_headers,
     _dashboard_content_security_policy,
@@ -35,7 +36,7 @@ class DashboardSecurityHeaderTests(unittest.TestCase):
         self.assertNotIn("Strict-Transport-Security", response.headers)
 
     def test_csp_hash_allows_only_the_exact_dashboard_inline_script(self):
-        scripts = re.findall(r"<script>(.*?)</script>", __import__("web_dashboard").PAGE, flags=re.DOTALL)
+        scripts = re.findall(r"<script>(.*?)</script>", PAGE, flags=re.DOTALL)
         self.assertEqual(len(scripts), 1)
         digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
         policy = _dashboard_content_security_policy()
