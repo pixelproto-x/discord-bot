@@ -7,7 +7,6 @@ import os
 import secrets
 import time
 from urllib.parse import urlencode, urlsplit
-from dashboard_rate_limit import SlidingWindowRateLimiter
 from aiohttp import ClientSession, web
 import discord
 
@@ -18,6 +17,35 @@ DASHBOARD_WHITELIST_IDS = {
     if value.strip().isdecimal() and int(value.strip()) > 0
 }
 DASHBOARD_OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
+
+class SlidingWindowRateLimiter:
+    def __init__(self, *, limit, window_seconds, max_keys=4096):
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.max_keys = max_keys
+        self.attempts = {}
+
+    def is_limited(self, key):
+        now = time.monotonic()
+        recent = [stamp for stamp in self.attempts.get(key, []) if now - stamp < self.window_seconds]
+        if recent:
+            self.attempts[key] = recent
+        else:
+            self.attempts.pop(key, None)
+        return len(recent) >= self.limit
+
+    def record(self, key):
+        now = time.monotonic()
+        recent = [stamp for stamp in self.attempts.get(key, []) if now - stamp < self.window_seconds]
+        recent.append(now)
+        self.attempts[key] = recent
+        if len(self.attempts) > self.max_keys:
+            oldest = min(self.attempts, key=lambda item: self.attempts[item][-1])
+            if oldest != key:
+                self.attempts.pop(oldest, None)
+
+    def reset(self, key):
+        self.attempts.pop(key, None)
 
 PAGE = r"""<!doctype html>
 <html lang="zh-Hant">
