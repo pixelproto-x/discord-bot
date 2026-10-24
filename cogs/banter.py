@@ -184,7 +184,8 @@ class LocalBanterCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("local-ai", zh_TW="本機智慧"), description=app_commands.locale_str("測試本機幹話 AI 是否正常", zh_TW="測試本機幹話 AI 是否正常"))
     @app_commands.describe(message="想讓 AI 接的話")
-    async def localai(self, interaction: discord.Interaction, message: str = "講一句有梗的幹話"):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def localai(self, interaction: discord.Interaction, message: str = "講一句有梗的幹話", public: bool = True):
         await interaction.response.defer(thinking=True)
         try:
             context = await collect_server_chat_context(
