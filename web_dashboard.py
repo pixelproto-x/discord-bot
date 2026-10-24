@@ -177,7 +177,7 @@ def _session_secret():
 
 def _sign_session(user_id):
     secret = _session_secret().encode()
-    payload = base64.urlsafe_b64encode(json.dumps({"uid": int(user_id), "exp": int(time.time()) + 12 * 3600}, separators=(",", ":")).encode()).decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps({"uid": int(user_id), "exp": int(time.time()) + 30 * 24 * 3600}, separators=(",", ":")).encode()).decode().rstrip("=")
     signature = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
     return payload + "." + signature
 
@@ -248,7 +248,7 @@ async def start_dashboard(bot):
             return web.Response(text="Discord OAuth 尚未設定。請設定 DASHBOARD_PUBLIC_URL、DISCORD_OAUTH_CLIENT_ID、DISCORD_OAUTH_CLIENT_SECRET 與至少 32 字元的 DASHBOARD_SESSION_SECRET。", status=503, content_type="text/plain", charset="utf-8")
         state = secrets.token_urlsafe(24)
         redirect_uri = public_url + "/oauth/callback"
-        params = {"client_id": oauth_client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": "identify", "state": state, "prompt": "consent"}
+        params = {"client_id": oauth_client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": "identify", "state": state}
         response = web.HTTPFound("https://discord.com/oauth2/authorize?" + urlencode(params))
         response.set_cookie("dashboard_oauth_state", state, max_age=600, httponly=True, secure=not local_public_url, samesite="Lax", path="/")
         raise response
@@ -283,7 +283,7 @@ async def start_dashboard(bot):
             response.del_cookie("dashboard_oauth_state", path="/")
             return response
         response = web.HTTPFound("/")
-        response.set_cookie("dashboard_session", _sign_session(user_id), max_age=12 * 3600, httponly=True, secure=not local_public_url, samesite="Lax", path="/")
+        response.set_cookie("dashboard_session", _sign_session(user_id), max_age=30 * 24 * 3600, httponly=True, secure=not local_public_url, samesite="Lax", path="/")
         response.del_cookie("dashboard_oauth_state", path="/")
         raise response
 
