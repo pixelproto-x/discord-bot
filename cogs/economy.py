@@ -197,16 +197,16 @@ class EconomyCog(commands.Cog):
             await target.reply(msg, mention_author=False)
         return False
 
-    async def _reply(self, target, content, *, embed=None):
+    async def _reply(self, target, content, *, embed=None, public=True):
         if isinstance(target, discord.Interaction):
             if target.response.is_done():
-                await target.followup.send(content, embed=embed, ephemeral=False)
+                await target.followup.send(content, embed=embed, ephemeral=not public)
             else:
-                await target.response.send_message(content, embed=embed, ephemeral=False)
+                await target.response.send_message(content, embed=embed, ephemeral=not public)
         else:
             await target.reply(content, embed=embed, mention_author=False)
 
-    async def _wallet(self, target, member=None):
+    async def _wallet(self, target, member=None, public=True):
         if not await self._guild(target):
             return
         user = member or (target.user if isinstance(target, discord.Interaction) else target.author)
@@ -216,18 +216,20 @@ class EconomyCog(commands.Cog):
         embed.add_field(name="現金", value=f"{row['wallet']:,} 金幣")
         embed.add_field(name="銀行存款", value=f"{row['bank']:,} 金幣")
         embed.add_field(name="總資產", value=f"{row['wallet'] + row['bank']:,} 金幣", inline=False)
-        await self._reply(target, "", embed=embed)
+        await self._reply(target, "", embed=embed, public=public)
 
     @app_commands.command(name=app_commands.locale_str("wallet", zh_TW="錢包"), description="查看成員的現金與銀行存款")
     @app_commands.describe(member="不填則查看自己")
-    async def wallet_slash(self, interaction: discord.Interaction, member: discord.Member | None = None):
-        await self._wallet(interaction, member)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def wallet_slash(self, interaction: discord.Interaction, member: discord.Member | None = None, public: bool = True):
+        await self._wallet(interaction, member, public)
 
     @commands.command(name="錢包")
     async def wallet_prefix(self, ctx, member: discord.Member | None = None):
         await self._wallet(ctx, member)
 
-    async def _earn(self, target, kind):
+    async def _earn(self, target, kind, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
@@ -251,35 +253,41 @@ class EconomyCog(commands.Cog):
         ok, detail = self.store.claim(target.guild.id, user.id, kind, amount)
         if not ok:
             message = "錢包已達系統上限，無法增加金幣。" if detail == -1 else f"冷卻中，還要等 **{cooldown_text(detail)}**。"
-            await self._reply(target, message)
+            await self._reply(target, message, public=public)
             return
-        await self._reply(target, f"**{title}**\n{line}，獲得 **{amount:,}** 金幣。")
+        await self._reply(target, f"**{title}**\n{line}，獲得 **{amount:,}** 金幣。", public=public)
 
     @app_commands.command(name=app_commands.locale_str("daily", zh_TW="簽到"), description="每日簽到領取 500 至 1500 金幣")
-    async def daily_slash(self, interaction: discord.Interaction):
-        await self._earn(interaction, "daily")
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def daily_slash(self, interaction: discord.Interaction, public: bool = True):
+        await self._earn(interaction, "daily", public)
 
     @commands.command(name="簽到")
     async def daily_prefix(self, ctx):
         await self._earn(ctx, "daily")
 
     @app_commands.command(name=app_commands.locale_str("work", zh_TW="打工"), description="打工賺取 100 至 400 金幣")
-    async def work_slash(self, interaction: discord.Interaction):
-        await self._earn(interaction, "work")
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def work_slash(self, interaction: discord.Interaction, public: bool = True):
+        await self._earn(interaction, "work", public)
 
     @commands.command(name="打工")
     async def work_prefix(self, ctx):
         await self._earn(ctx, "work")
 
     @app_commands.command(name=app_commands.locale_str("fish", zh_TW="釣魚"), description="釣魚取得隨機金幣")
-    async def fish_slash(self, interaction: discord.Interaction):
-        await self._earn(interaction, "fish")
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def fish_slash(self, interaction: discord.Interaction, public: bool = True):
+        await self._earn(interaction, "fish", public)
 
     @commands.command(name="釣魚")
     async def fish_prefix(self, ctx):
         await self._earn(ctx, "fish")
 
-    async def _bank(self, target, raw, deposit):
+    async def _bank(self, target, raw, deposit, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
@@ -287,17 +295,19 @@ class EconomyCog(commands.Cog):
         available = row["wallet"] if deposit else row["bank"]
         amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= 16 else 0
         if not valid_amount(amount):
-            await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。")
+            await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=public)
             return
         if not self.store.move(target.guild.id, user.id, amount, deposit):
-            await self._reply(target, "餘額不足或超出系統上限，交易已取消。")
+            await self._reply(target, "餘額不足或超出系統上限，交易已取消。", public=public)
             return
-        await self._reply(target, f"已{'存入銀行' if deposit else '提出現金'} **{amount:,}** 金幣。")
+        await self._reply(target, f"已{'存入銀行' if deposit else '提出現金'} **{amount:,}** 金幣。", public=public)
 
     @app_commands.command(name=app_commands.locale_str("deposit", zh_TW="存錢"), description="將現金存入銀行")
     @app_commands.describe(amount="正整數，或 all 代表全部")
-    async def deposit_slash(self, interaction: discord.Interaction, amount: str):
-        await self._bank(interaction, amount, True)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def deposit_slash(self, interaction: discord.Interaction, amount: str, public: bool = True):
+        await self._bank(interaction, amount, True, public)
 
     @commands.command(name="存錢")
     async def deposit_prefix(self, ctx, amount: str):
@@ -305,69 +315,75 @@ class EconomyCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("withdraw", zh_TW="提款"), description="從銀行提出現金")
     @app_commands.describe(amount="正整數，或 all 代表全部")
-    async def withdraw_slash(self, interaction: discord.Interaction, amount: str):
-        await self._bank(interaction, amount, False)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def withdraw_slash(self, interaction: discord.Interaction, amount: str, public: bool = True):
+        await self._bank(interaction, amount, False, public)
 
     @commands.command(name="提款")
     async def withdraw_prefix(self, ctx, amount: str):
         await self._bank(ctx, amount, False)
 
-    async def _transfer(self, target, member, amount):
+    async def _transfer(self, target, member, amount, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if member.bot or member.id == user.id:
-            await self._reply(target, "不能轉帳給自己或機器人。")
+            await self._reply(target, "不能轉帳給自己或機器人。", public=public)
             return
         if not valid_amount(amount):
-            await self._reply(target, "金額必須是大於 0 的正整數。")
+            await self._reply(target, "金額必須是大於 0 的正整數。", public=public)
             return
         if not self.store.transfer(target.guild.id, user.id, member.id, amount):
-            await self._reply(target, "餘額不足，或收款方資產已達上限；交易取消。")
+            await self._reply(target, "餘額不足，或收款方資產已達上限；交易取消。", public=public)
             return
-        await self._reply(target, f"已轉帳給 {member.mention} **{amount:,}** 金幣，手續費 0%。")
+        await self._reply(target, f"已轉帳給 {member.mention} **{amount:,}** 金幣，手續費 0%。", public=public)
 
     @app_commands.command(name=app_commands.locale_str("transfer", zh_TW="轉帳"), description="轉帳給另一位成員")
     @app_commands.describe(member="收款成員", amount="大於 0 的整數金額")
-    async def transfer_slash(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        await self._transfer(interaction, member, amount)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def transfer_slash(self, interaction: discord.Interaction, member: discord.Member, amount: int, public: bool = True):
+        await self._transfer(interaction, member, amount, public)
 
     @commands.command(name="轉帳")
     async def transfer_prefix(self, ctx, member: discord.Member, amount: int):
         await self._transfer(ctx, member, amount)
 
-    async def _dice(self, target, amount):
+    async def _dice(self, target, amount, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if not valid_amount(amount):
-            await self._reply(target, "下注金額必須是大於 0 的正整數。")
+            await self._reply(target, "下注金額必須是大於 0 的正整數。", public=public)
             return
         player = (random.randint(1, 6), random.randint(1, 6))
         house = (random.randint(1, 6), random.randint(1, 6))
         a, b = sum(player), sum(house)
         payout = amount * 2 if a > b else amount if a == b else 0
         if not self.store.dice(target.guild.id, user.id, amount, payout):
-            await self._reply(target, "錢包餘額不足，或交易超出系統上限。")
+            await self._reply(target, "錢包餘額不足，或交易超出系統上限。", public=public)
             return
         result = f"你贏了，拿回 {amount * 2:,} 金幣（淨賺 {amount:,}）。" if a > b else f"平手，退回本金 {amount:,} 金幣。" if a == b else f"你輸了，下注的 {amount:,} 金幣被沒收。"
-        await self._reply(target, f"🎲 你的骰子 {player[0]} + {player[1]} = **{a}**\n莊家骰子 {house[0]} + {house[1]} = **{b}**\n{result}")
+        await self._reply(target, f"🎲 你的骰子 {player[0]} + {player[1]} = **{a}**\n莊家骰子 {house[0]} + {house[1]} = **{b}**\n{result}", public=public)
 
     @app_commands.command(name=app_commands.locale_str("economy_dice", zh_TW="骰子"), description="與莊家比骰子大小並下注")
     @app_commands.describe(amount="大於 0 的整數下注金額")
-    async def dice_slash(self, interaction: discord.Interaction, amount: int):
-        await self._dice(interaction, amount)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def dice_slash(self, interaction: discord.Interaction, amount: int, public: bool = True):
+        await self._dice(interaction, amount, public)
 
     @commands.command(name="骰子")
     async def dice_prefix(self, ctx, amount: int):
         await self._dice(ctx, amount)
 
-    async def _rob(self, target, member):
+    async def _rob(self, target, member, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
         if member.bot or member.id == user.id:
-            await self._reply(target, "不能搶劫自己或機器人。")
+            await self._reply(target, "不能搶劫自己或機器人。", public=public)
             return
         outcome, value = self.store.rob(target.guild.id, user.id, member.id, random.random() < 0.40,
                                         random.uniform(0.10, 0.30), random.uniform(0.10, 0.20))
@@ -379,12 +395,14 @@ class EconomyCog(commands.Cog):
             message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{value:,}** 金幣。"
         else:
             message = f"搶劫失敗！你被罰款 **{value:,}** 金幣（以錢包現金為限）。"
-        await self._reply(target, message)
+        await self._reply(target, message, public=public)
 
     @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
     @app_commands.describe(member="要搶劫的成員")
-    async def rob_slash(self, interaction: discord.Interaction, member: discord.Member):
-        await self._rob(interaction, member)
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def rob_slash(self, interaction: discord.Interaction, member: discord.Member, public: bool = True):
+        await self._rob(interaction, member, public)
 
     @commands.command(name="搶劫")
     async def rob_prefix(self, ctx, member: discord.Member):
