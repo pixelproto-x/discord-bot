@@ -196,7 +196,7 @@ def _json_error(message, status=400):
 async def _read_json_object(request):
     """Parse a JSON request body and reject malformed or non-object payloads."""
     try:
-        data = await _read_json_object(request)
+        data = await request.json()
     except Exception as exc:
         raise ValueError("請求必須包含有效的 JSON 物件。") from exc
     if not isinstance(data, dict):
