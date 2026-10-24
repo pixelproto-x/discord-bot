@@ -25,6 +25,11 @@ DELETE_DELAY = 0.4
 CREATE_DELAY = 0.4
 
 
+def is_backup_apply_confirmed(value: str | None) -> bool:
+    """Require an explicit confirmation phrase before destructive server restore."""
+    return isinstance(value, str) and value.strip() == "RESTORE"
+
+
 class Hacks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -594,10 +599,18 @@ class Hacks(commands.Cog):
         except (OSError, TypeError, ValueError, json.JSONDecodeError, discord.HTTPException) as exc:
             await interaction.followup.send(f"備份失敗：{exc}", ephemeral=True)
 
-    @app_commands.command(name=app_commands.locale_str("apply", zh_TW="套用伺服器備份"), description=app_commands.locale_str("清空目前伺服器頻道及可管理身分組，再套用指定備份", zh_TW="清空目前伺服器頻道及可管理身分組，再套用指定備份"))
+    @app_commands.command(name=app_commands.locale_str("apply", zh_TW="套用伺服器備份"), description=app_commands.locale_str("先確認再清空目前伺服器頻道及可管理身分組，並套用指定備份", zh_TW="先確認再清空目前伺服器頻道及可管理身分組，並套用指定備份"))
     @app_commands.guild_only()
-    @app_commands.describe(key="8 碼備份 Key；留空則使用最近一次備份")
-    async def apply(self, interaction: discord.Interaction, key: str | None = None):
+    @app_commands.describe(
+        key="8 碼備份 Key；留空則使用最近一次備份",
+        confirm_text="必須輸入 RESTORE 才會執行破壞性還原",
+    )
+    async def apply(
+        self,
+        interaction: discord.Interaction,
+        key: str | None = None,
+        confirm_text: str | None = None,
+    ):
         if not await self._authorize(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -620,6 +633,21 @@ class Hacks(commands.Cog):
             channels_data = payload.get("channels", [])
             if not isinstance(roles_data, list) or not isinstance(channels_data, list):
                 await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
+                return
+
+            if not is_backup_apply_confirmed(confirm_text):
+                manageable_roles = sum(
+                    1 for role in guild.roles
+                    if not role.is_default() and not role.managed and guild.me and role < guild.me.top_role
+                )
+                await interaction.followup.send(
+                    f"已找到備份「{str(payload.get('server_name') or '未命名伺服器')[:100]}」。"
+                    f"目前伺服器有 {len(guild.channels)} 個頻道，約 {manageable_roles} 個可管理身分組；"
+                    f"確認後會嘗試刪除這些項目，再從備份重建。\n"
+                    "這個操作可能無法完全復原。若確定要繼續，請重新執行指令並將 confirm_text 設為 RESTORE。"
+                    "未輸入正確確認文字，因此目前沒有修改伺服器。",
+                    ephemeral=True,
+                )
                 return
 
             # Restore the name first, then each asset independently so one unsupported
