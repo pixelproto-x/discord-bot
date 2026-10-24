@@ -467,8 +467,6 @@ class MusicCog(commands.Cog):
             await message.reply("這個連結目前無法解析，或 Lavalink 節點暫時不可用。", mention_author=False)
 
     @commands.Cog.listener()
-    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
-    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild or not message.content:
             return
@@ -478,7 +476,8 @@ class MusicCog(commands.Cog):
         await self.play_query_from_message(message, match.group(0).rstrip(".,!?)]}，。！？"))
 
     @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
-    @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址")
+    @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址", public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def play(self, interaction: discord.Interaction, query: str, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("請在伺服器裡使用。", ephemeral=True)
@@ -494,7 +493,7 @@ class MusicCog(commands.Cog):
         try:
             tracks = await self.resolve_query(query)
             if not tracks:
-                await interaction.followup.send("找不到歌曲；如果是 Spotify，節點必須安裝支援 Spotify 的 LavaSrc 外掛。")
+                await interaction.followup.send("找不到歌曲；如果是 Spotify，節點必須安裝支援 Spotify 的 LavaSrc 外掛。", ephemeral=not public)
                 return
             is_url = bool(re.match(r"^https?://", query, re.IGNORECASE))
             is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
@@ -507,7 +506,7 @@ class MusicCog(commands.Cog):
                 )
                 if len(tracks) > 25:
                     names += f"\n…共找到 {len(tracks)} 首；Discord 一則訊息最多提供 25 個直接選歌按鈕。"
-                await interaction.followup.send(f"🎵 找到這些，點你要的：\n{names}"[:1900], view=view)
+                await interaction.followup.send(f"🎵 找到這些，點你要的：\n{names}"[:1900], view=view, ephemeral=not public)
                 return
             selected_tracks = tracks if is_playlist else tracks[:1]
             count, started = await self.enqueue_tracks(
@@ -640,8 +639,6 @@ class MusicCog(commands.Cog):
         await interaction.response.send_message(f"已打亂 {len(session.queue)} 首等待中的歌曲。", ephemeral=not public)
 
     @commands.command(name="shuffle")
-    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
-    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def prefix_shuffle(self, ctx: commands.Context):
         if not ctx.guild:
             await ctx.reply("請在伺服器裡使用。", mention_author=False)
@@ -654,6 +651,8 @@ class MusicCog(commands.Cog):
         await ctx.reply(f"已打亂 {len(session.queue)} 首等待中的歌曲。", mention_author=False)
 
     @app_commands.command(name=app_commands.locale_str("join_voice", zh_TW="加入語音"), description=app_commands.locale_str("加入你目前所在的語音頻道", zh_TW="加入你目前所在的語音頻道"))
+    @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def join_voice(self, interaction: discord.Interaction, public: bool = True):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
             await interaction.response.send_message("你先加入一個語音頻道。", ephemeral=True)
