@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import re
 import unittest
 from types import SimpleNamespace
 
@@ -6,6 +9,7 @@ from unittest.mock import patch
 from web_dashboard import (
     SlidingWindowRateLimiter,
     _apply_dashboard_security_headers,
+    _dashboard_content_security_policy,
     _is_allowed_websocket_origin,
     _is_same_origin,
 )
@@ -25,7 +29,20 @@ class DashboardSecurityHeaderTests(unittest.TestCase):
             "camera=(), microphone=(self), geolocation=()",
         )
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertIn("Content-Security-Policy", response.headers)
+        self.assertIn("object-src 'none'", response.headers["Content-Security-Policy"])
+        self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
         self.assertNotIn("Strict-Transport-Security", response.headers)
+
+    def test_csp_hash_allows_only_the_exact_dashboard_inline_script(self):
+        scripts = re.findall(r"<script>(.*?)</script>", __import__("web_dashboard").PAGE, flags=re.DOTALL)
+        self.assertEqual(len(scripts), 1)
+        digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
+        policy = _dashboard_content_security_policy()
+        self.assertIn("'sha256-" + digest + "'", policy)
+        script_directive = next(part for part in policy.split(";") if part.strip().startswith("script-src"))
+        self.assertNotIn("'unsafe-inline'", script_directive)
+        self.assertIn("base-uri 'none'", policy)
 
     def test_hsts_is_only_enabled_for_public_https(self):
         response = SimpleNamespace(headers={})
