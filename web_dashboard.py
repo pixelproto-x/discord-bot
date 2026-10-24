@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import time
+import webbrowser
 from urllib.parse import urlencode, urlsplit
 from aiohttp import ClientSession, web
 import discord
@@ -827,7 +828,15 @@ async def start_dashboard(bot):
 
     bot._dashboard_runner = runner
     bot._dashboard_token = token
-    print(f"\n[Dashboard] 一條魚 control panel: http://127.0.0.1:{port}")
+    dashboard_url = f"http://127.0.0.1:{port}"
+    print(f"\n[Dashboard] 一條魚 control panel: {dashboard_url}")
+    auto_open = os.getenv("DASHBOARD_AUTO_OPEN", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if auto_open and not public_url:
+        try:
+            await asyncio.to_thread(webbrowser.open, dashboard_url, new=2)
+            print("[OK] 已自動開啟網頁控制台。")
+        except Exception as exc:
+            print(f"[提示] 無法自動開啟瀏覽器：{type(exc).__name__}；可手動開啟 {dashboard_url}")
     if not public_url and port != configured_port:
         print(f"[Dashboard] IMPORTANT: another process is using port {configured_port}; use this new URL, not the old browser tab.")
     if public_url:
