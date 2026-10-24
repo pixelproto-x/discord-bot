@@ -24,7 +24,8 @@ class WebToolsCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("websearch", zh_TW="網路搜尋"), description=app_commands.locale_str("搜尋公開網頁並整理結果", zh_TW="搜尋公開網頁並整理結果"))
     @app_commands.describe(query="要搜尋的問題或關鍵字")
-    async def websearch(self, interaction: discord.Interaction, query: str):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def websearch(self, interaction: discord.Interaction, query: str, public: bool = True):
         query = query.strip()
         if not query or len(query) > 400:
             await interaction.response.send_message("請輸入 1 到 400 字的搜尋內容", ephemeral=True)
@@ -63,19 +64,20 @@ class WebToolsCog(commands.Cog):
                     snippet = re.sub(r"\s+", " ", snippet).strip()
                 rows.append(f"**{title or '網頁結果'}**\n{href}\n{snippet[:260]}")
             if not rows:
-                await interaction.followup.send("這次沒有抓到搜尋結果，請換個關鍵字再試。")
+                await interaction.followup.send("這次沒有抓到搜尋結果，請換個關鍵字再試。", ephemeral=not public)
                 return
             await interaction.followup.send(
                 f"搜尋：{query[:200]}\n\n" + "\n\n".join(rows),
                 allowed_mentions=discord.AllowedMentions.none(),
-            )
+            , ephemeral=not public)
         except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as exc:
             print(f"[WebSearch] {type(exc).__name__}: {exc}")
-            await interaction.followup.send("目前無法完成網路搜尋，請稍後再試。")
+            await interaction.followup.send("目前無法完成網路搜尋，請稍後再試。", ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("generate_image", zh_TW="生成圖片"), description=app_commands.locale_str("使用 OpenAI 依文字描述生成圖片", zh_TW="使用 OpenAI 依文字描述生成圖片"))
     @app_commands.describe(prompt="想生成的圖片內容")
-    async def generate_image(self, interaction: discord.Interaction, prompt: str):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def generate_image(self, interaction: discord.Interaction, prompt: str, public: bool = True):
         prompt = prompt.strip()
         if not prompt or len(prompt) > 1000:
             await interaction.response.send_message("請輸入 1 到 1000 字的圖片描述", ephemeral=True)
@@ -99,22 +101,22 @@ class WebToolsCog(commands.Cog):
             item = result.data[0] if result.data else None
             encoded = getattr(item, "b64_json", None) if item else None
             if not encoded:
-                await interaction.followup.send("圖片服務沒有回傳可用的圖片資料。")
+                await interaction.followup.send("圖片服務沒有回傳可用的圖片資料。", ephemeral=not public)
                 return
             import base64
             raw = base64.b64decode(encoded, validate=True)
             if len(raw) > 10 * 1024 * 1024:
-                await interaction.followup.send("生成的圖片太大，無法直接上傳。")
+                await interaction.followup.send("生成的圖片太大，無法直接上傳。", ephemeral=not public)
                 return
             file = discord.File(io.BytesIO(raw), filename="generated-image.png")
-            await interaction.followup.send(file=file, allowed_mentions=discord.AllowedMentions.none())
+            await interaction.followup.send(file=file, allowed_mentions=discord.AllowedMentions.none(), ephemeral=not public)
         except asyncio.TimeoutError:
-            await interaction.followup.send("圖片生成超時，請稍後再試。")
+            await interaction.followup.send("圖片生成超時，請稍後再試。", ephemeral=not public)
         except Exception as exc:
             print(f"[ImageGeneration] {type(exc).__name__}")
             await interaction.followup.send(
                 "圖片生成失敗。請確認 OpenAI API 金鑰、帳戶額度與圖片模型權限。"
-            )
+            , ephemeral=not public)
 
 
 async def setup(bot: commands.Bot):
