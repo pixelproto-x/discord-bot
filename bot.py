@@ -1081,6 +1081,55 @@ async def before_reminder_worker():
     await bot.wait_until_ready()
 
 
+def _is_local_port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def _start_companion_services():
+    """Start the user's sibling FreeMindAI service and economy editor on Windows."""
+    if os.name != "nt":
+        return
+
+    project_dir = Path(__file__).resolve().parent
+    create_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
+    ai_dir = project_dir.parent / "FreeMindAI-main"
+    ai_runner = ai_dir / "run.bat"
+    if _is_local_port_open(8080):
+        print("[OK] FreeMindAI 連線埠 8080 已開啟，略過重複啟動。")
+    elif ai_runner.is_file():
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/d", "/k", f'cd /d "{ai_dir}" && call run.bat'],
+                cwd=str(ai_dir),
+                creationflags=create_console,
+            )
+            print("[啟動] 已另開視窗啟動 FreeMindAI。")
+        except OSError as exc:
+            print(f"[提示] FreeMindAI 自動啟動失敗：{type(exc).__name__}。")
+    else:
+        print("[提示] 找不到旁邊的 FreeMindAI-main\\run.bat，略過 FreeMindAI 自動啟動。")
+
+    economy_editor = project_dir / "economy_editor.py"
+    if economy_editor.is_file():
+        try:
+            subprocess.Popen(
+                [
+                    "cmd.exe", "/d", "/k",
+                    f'cd /d "{project_dir}" && "{sys.executable}" "economy_editor.py"',
+                ],
+                cwd=str(project_dir),
+                creationflags=create_console,
+            )
+            print("[啟動] 已另開視窗啟動 Economy Editor。")
+        except OSError as exc:
+            print(f"[提示] Economy Editor 自動啟動失敗：{type(exc).__name__}。")
+
+
 def _start_ollama_if_needed():
     """Start the local Ollama server when installed, without opening another console."""
     if os.getenv("OLLAMA_AUTOSTART", "1").strip().lower() in {"0", "false", "no", "off"}:
@@ -1103,7 +1152,7 @@ def _start_ollama_if_needed():
     if not executable:
         candidates = [
             Path(os.getenv("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-            Path(os.getenv("ProgramFiles", r"C:\\Program Files")) / "Ollama" / "ollama.exe",
+            Path(os.getenv("ProgramFiles", r"C:\Program Files")) / "Ollama" / "ollama.exe",
         ]
         executable = next((str(path) for path in candidates if path.is_file()), None)
 
@@ -1130,6 +1179,7 @@ def main():
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_TOKEN 未設定。")
+    _start_companion_services()
     _start_ollama_if_needed()
     bot.run(token)
 
