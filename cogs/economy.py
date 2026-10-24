@@ -11,7 +11,8 @@ from discord import app_commands
 from discord.ext import commands
 
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
-MAX_BALANCE = 9_000_000_000_000_000
+MAX_DIGITS = 2000
+MAX_BALANCE = int("9" * MAX_DIGITS)
 UTC = timezone.utc
 COOLDOWNS = {"daily": 86400, "work": 60, "fish": 30, "rob": 600}
 WORK_LINES = [
@@ -42,6 +43,14 @@ def parse_time(value):
         return None
 
 
+def parse_amount(value):
+    raw = str(value).strip()
+    if not raw.isascii() or not raw.isdecimal() or not 1 <= len(raw) <= MAX_DIGITS:
+        return None
+    amount = int(raw)
+    return amount if 0 < amount <= MAX_BALANCE else None
+
+
 def valid_amount(value):
     return type(value) is int and 0 < value <= MAX_BALANCE
 
@@ -64,11 +73,33 @@ class EconomyStore:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
                     guild_id INTEGER,
-                    wallet INTEGER NOT NULL DEFAULT 1000 CHECK(wallet >= 0),
-                    bank INTEGER NOT NULL DEFAULT 0 CHECK(bank >= 0),
+                    wallet TEXT NOT NULL DEFAULT '1000',
+                    bank TEXT NOT NULL DEFAULT '0',
                     last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
                 )
             """)
+            columns = {row["name"]: row for row in con.execute("PRAGMA table_info(users)")}
+            # Existing INTEGER-affinity tables can still store decimal strings, but
+            # rebuild to TEXT affinity so all 2000 digits remain exact.
+            if columns.get("wallet") and "INT" in str(columns["wallet"]["type"]).upper():
+                con.execute("BEGIN IMMEDIATE")
+                con.execute("""
+                    CREATE TABLE users_bigint (
+                        user_id INTEGER PRIMARY KEY,
+                        guild_id INTEGER,
+                        wallet TEXT NOT NULL DEFAULT '1000',
+                        bank TEXT NOT NULL DEFAULT '0',
+                        last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
+                    )
+                """)
+                con.execute("""
+                    INSERT INTO users_bigint
+                    SELECT user_id, guild_id, CAST(wallet AS TEXT), CAST(bank AS TEXT),
+                           last_daily, last_work, last_fish, last_rob FROM users
+                """)
+                con.execute("DROP TABLE users")
+                con.execute("ALTER TABLE users_bigint RENAME TO users")
+                con.commit()
 
     def connect(self):
         con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
@@ -100,11 +131,12 @@ class EconomyStore:
             if last and now < last + timedelta(seconds=COOLDOWNS[kind]):
                 con.rollback()
                 return False, max(1, int((last + timedelta(seconds=COOLDOWNS[kind]) - now).total_seconds()))
-            if row["wallet"] + amount > MAX_BALANCE:
+            wallet = int(row["wallet"])
+            if wallet + amount > MAX_BALANCE:
                 con.rollback()
                 return False, -1
-            con.execute(f"UPDATE users SET wallet=wallet+?, {column}=? WHERE user_id=?",
-                        (amount, now.isoformat(), user_id))
+            con.execute(f"UPDATE users SET wallet=?, {column}=? WHERE user_id=?",
+                        (str(wallet + amount), now.isoformat(), user_id))
             con.commit()
             return True, amount
 
@@ -114,14 +146,13 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute(f"SELECT {source}, {destination} FROM users WHERE user_id=?", (user_id,)).fetchone()
-            if amount > row[source]:
+            source_value = int(row[source])
+            destination_value = int(row[destination])
+            if amount > source_value or destination_value + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            if row[destination] + amount > MAX_BALANCE:
-                con.rollback()
-                return False
-            con.execute(f"UPDATE users SET {source}={source}-?, {destination}={destination}+? WHERE user_id=?",
-                        (amount, amount, user_id))
+            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE user_id=?",
+                        (str(source_value - amount), str(destination_value + amount), user_id))
             con.commit()
             return True
 
@@ -130,13 +161,13 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
-            a = con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"]
-            b = con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"]
+            a = int(con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"])
+            b = int(con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"])
             if a < amount or b + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=wallet-? WHERE user_id=?", (amount, sender))
-            con.execute("UPDATE users SET wallet=wallet+? WHERE user_id=?", (amount, receiver))
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(a - amount), sender))
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(b + amount), receiver))
             con.commit()
             return True
 
@@ -145,10 +176,11 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
-            if row["wallet"] < amount or row["wallet"] - amount + payout > MAX_BALANCE:
+            wallet = int(row["wallet"])
+            if wallet < amount or wallet - amount + payout > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=wallet-?+? WHERE user_id=?", (amount, payout, user_id))
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(wallet - amount + payout), user_id))
             con.commit()
             return True
 
@@ -169,12 +201,12 @@ class EconomyStore:
                 if robber["wallet"] + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
-                con.execute("UPDATE users SET wallet=wallet-? WHERE user_id=?", (stolen, target_id))
-                con.execute("UPDATE users SET wallet=wallet+? WHERE user_id=?", (stolen, robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target["wallet"] - stolen), target_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] + stolen), robber_id))
                 result = ("success", stolen)
             else:
                 fine = min(robber["wallet"], max(1, int(robber["wallet"] * fine_fraction))) if robber["wallet"] else 0
-                con.execute("UPDATE users SET wallet=wallet-? WHERE user_id=?", (fine, robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] - fine), robber_id))
                 result = ("failed", fine)
             if success:
                 con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
@@ -293,7 +325,7 @@ class EconomyCog(commands.Cog):
         user = target.user if isinstance(target, discord.Interaction) else target.author
         row = self.store.get(target.guild.id, user.id)
         available = row["wallet"] if deposit else row["bank"]
-        amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= 16 else 0
+        amount = available if raw.strip().lower() in {"all", "全部"} else int(raw) if raw.isascii() and raw.isdecimal() and len(raw) <= MAX_DIGITS else 0
         if not valid_amount(amount):
             await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=False)
             return
@@ -331,8 +363,9 @@ class EconomyCog(commands.Cog):
         if member.bot or member.id == user.id:
             await self._reply(target, "不能轉帳給自己或機器人。", public=False)
             return
-        if not valid_amount(amount):
-            await self._reply(target, "金額必須是大於 0 的正整數。", public=False)
+        amount = parse_amount(amount)
+        if amount is None:
+            await self._reply(target, f"金額必須是 1 至 {MAX_DIGITS} 位數的正整數。", public=False)
             return
         if not self.store.transfer(target.guild.id, user.id, member.id, amount):
             await self._reply(target, "餘額不足，或收款方資產已達上限；交易取消。", public=False)
@@ -343,19 +376,20 @@ class EconomyCog(commands.Cog):
     @app_commands.describe(member="收款成員", amount="大於 0 的整數金額")
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
-    async def transfer_slash(self, interaction: discord.Interaction, member: discord.Member, amount: int, public: bool = True):
+    async def transfer_slash(self, interaction: discord.Interaction, member: discord.Member, amount: str, public: bool = True):
         await self._transfer(interaction, member, amount, public)
 
     @commands.command(name="轉帳")
-    async def transfer_prefix(self, ctx, member: discord.Member, amount: int):
+    async def transfer_prefix(self, ctx, member: discord.Member, amount: str):
         await self._transfer(ctx, member, amount)
 
     async def _dice(self, target, amount, public=True):
         if not await self._guild(target):
             return
         user = target.user if isinstance(target, discord.Interaction) else target.author
-        if not valid_amount(amount):
-            await self._reply(target, "下注金額必須是大於 0 的正整數。", public=False)
+        amount = parse_amount(amount)
+        if amount is None:
+            await self._reply(target, f"下注金額必須是 1 至 {MAX_DIGITS} 位數的正整數。", public=False)
             return
         player = (random.randint(1, 6), random.randint(1, 6))
         house = (random.randint(1, 6), random.randint(1, 6))
@@ -371,11 +405,11 @@ class EconomyCog(commands.Cog):
     @app_commands.describe(amount="大於 0 的整數下注金額")
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
-    async def dice_slash(self, interaction: discord.Interaction, amount: int, public: bool = True):
+    async def dice_slash(self, interaction: discord.Interaction, amount: str, public: bool = True):
         await self._dice(interaction, amount, public)
 
     @commands.command(name="骰子")
-    async def dice_prefix(self, ctx, amount: int):
+    async def dice_prefix(self, ctx, amount: str):
         await self._dice(ctx, amount)
 
     async def _rob(self, target, member, public=True):
