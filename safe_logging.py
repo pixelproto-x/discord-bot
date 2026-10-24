@@ -26,8 +26,8 @@ _CREDENTIAL_FORMATS = (
 def sanitize_log_text(value: object, *, max_length: int = 4000) -> str:
     """Keep untrusted values on one bounded line to prevent log forging."""
     text = str(value)
-    text = text.replace("\\r", r"\\r").replace("\\n", r"\\n")
-    text = text.replace("\\x00", r"\\x00")
+    text = text.replace("\r", r"\r").replace("\n", r"\n")
+    text = text.replace("\x00", r"\x00")
     if len(text) > max_length:
         text = text[:max_length] + "...[TRUNCATED]"
     return text
