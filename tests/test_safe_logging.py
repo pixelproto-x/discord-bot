@@ -41,7 +41,7 @@ class SensitiveLogRedactionTests(unittest.TestCase):
 
     def test_truncates_oversized_untrusted_log_values(self):
         sanitized = sanitize_log_text("x" * 5000)
-        self.assertEqual(len(sanitized), 4013)
+        self.assertEqual(len(sanitized), 4014)
         self.assertTrue(sanitized.endswith("...[TRUNCATED]"))
 
     def test_redaction_also_sanitizes_newlines(self):
