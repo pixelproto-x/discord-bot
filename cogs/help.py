@@ -198,11 +198,13 @@ class HelpView(discord.ui.View):
 
 class HelpCog(commands.Cog):
     @app_commands.command(name="help", description="查看 Bot 功能和每個功能在做什麼")
-    async def help_command(self, interaction):
+    @app_commands.describe(public="公開或僅自己可見")
+    @app_commands.rename(public="公開")
+    async def help_command(self, interaction, public: bool = True):
         await interaction.response.send_message(
             embed=help_embed(),
             view=HelpView(interaction.user.id),
-            ephemeral=True,
+            ephemeral=not public,
         )
 
 
