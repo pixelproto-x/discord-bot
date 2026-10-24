@@ -172,34 +172,37 @@ jobs:
         run: |
           python - <<'PY'
           import asyncio
+          from unittest.mock import AsyncMock, patch
           import bot as bot_module
           from cogs.help import CATEGORIES
 
           async def main():
-              for module in [
-                  bot_module.utility,
-                  bot_module.social,
-                  bot_module.games,
-                  bot_module.music,
-                  bot_module.moderation,
-                  bot_module.profile,
-                  bot_module.voice,
-                  bot_module.giveaway,
-                  bot_module.media,
-                  bot_module.settings,
-                  bot_module.banter,
-                  bot_module.speech_control,
-                  bot_module.help_cog,
-                  bot_module.web_tools,
-                  bot_module.hacks,
-                  bot_module.history,
-                  bot_module.channel_backup,
-                  bot_module.browser_mic,
-                  bot_module.marriage,
-                  bot_module.economy,
-              ]:
-                  if module.__name__ != "cogs.help":
-                      await module.setup(bot_module.bot)
+              # Avoid waiting on public Lavalink services during command-catalog validation.
+              with patch.object(bot_module.music.MusicCog, "setup_nodes", new_callable=AsyncMock):
+                  for module in [
+                      bot_module.utility,
+                      bot_module.social,
+                      bot_module.games,
+                      bot_module.music,
+                      bot_module.moderation,
+                      bot_module.profile,
+                      bot_module.voice,
+                      bot_module.giveaway,
+                      bot_module.media,
+                      bot_module.settings,
+                      bot_module.banter,
+                      bot_module.speech_control,
+                      bot_module.help_cog,
+                      bot_module.web_tools,
+                      bot_module.hacks,
+                      bot_module.history,
+                      bot_module.channel_backup,
+                      bot_module.browser_mic,
+                      bot_module.marriage,
+                      bot_module.economy,
+                  ]:
+                      if module.__name__ != "cogs.help":
+                          await module.setup(bot_module.bot)
 
               registered = {
                   command.qualified_name
