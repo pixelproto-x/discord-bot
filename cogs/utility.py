@@ -113,7 +113,7 @@ class UtilityCog(commands.Cog):
             return
         await interaction.response.send_message(
             f"好，幫你記著了。⏰ {after} 後提醒你「{message}」\n提醒編號：{rid}",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @remind.command(name=app_commands.locale_str("list", zh_TW="列表"), description=app_commands.locale_str("看看自己現在有哪些提醒", zh_TW="查看提醒"))
@@ -132,7 +132,7 @@ class UtilityCog(commands.Cog):
             left = max(1, int(row["due_at"] - now))
             eta = f"{left} 秒" if left < 60 else f"{left//60} 分" if left < 3600 else f"{left//3600} 小時"
             lines.append(f"{row['id']} · {eta}後 · {row['message']}")
-        await interaction.response.send_message("你現在的提醒：\n" + "\n".join(lines), ephemeral=True)
+        await interaction.response.send_message("你現在的提醒：\n" + "\n".join(lines), ephemeral=not public)
 
     @remind.command(name=app_commands.locale_str("cancel", zh_TW="取消"), description=app_commands.locale_str("取消自己的一個提醒", zh_TW="取消提醒"))
     @app_commands.describe(reminder_id="提醒編號")
@@ -142,7 +142,7 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message("這個要在伺服器裡用喔。", ephemeral=True)
             return
         if storage.cancel_reminder(interaction.guild.id, interaction.user.id, reminder_id):
-            await interaction.response.send_message("好，這個提醒幫你取消了。", ephemeral=True)
+            await interaction.response.send_message("好，這個提醒幫你取消了。", ephemeral=not public)
         else:
             await interaction.response.send_message("找不到這個提醒，可能已經到時間或被取消了。", ephemeral=True)
 
@@ -172,7 +172,7 @@ class UtilityCog(commands.Cog):
             return
         await interaction.response.send_message(
             f"開始啦，{duration} 後提醒你。⏳\n提醒編號：{rid}",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @app_commands.command(name=app_commands.locale_str("countdown", zh_TW="倒數"), description=app_commands.locale_str("建立一個短倒數", zh_TW="建立短倒數"))
@@ -197,7 +197,7 @@ class UtilityCog(commands.Cog):
             return
         await interaction.response.send_message(
             f"倒數 {seconds} 秒，開始。\n提醒編號：{rid}",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @app_commands.command(name=app_commands.locale_str("calc", zh_TW="計算"), description=app_commands.locale_str("算數學，直接輸入一般算式", zh_TW="計算一般數學算式"))
@@ -240,7 +240,7 @@ class UtilityCog(commands.Cog):
     @app_commands.command(name=app_commands.locale_str("coin", zh_TW="丟硬幣"), description=app_commands.locale_str("丟硬幣看正面還是反面", zh_TW="隨機決定硬幣正反面"))
     @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
     async def coin(self, interaction: discord.Interaction, public: bool = True):
-        await interaction.response.send_message(random.choice(["🪙 正面！", "🪙 反面！"]))
+        await interaction.response.send_message(random.choice(["🪙 正面！", "🪙 反面！"]), ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("dice", zh_TW="擲骰子"), description=app_commands.locale_str("丟骰子，預設六面", zh_TW="擲指定面數的骰子"))
     @app_commands.describe(sides="骰子面數，2 到 100")
