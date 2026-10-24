@@ -249,6 +249,11 @@ def _is_same_origin(origin, expected_origin):
         return False
 
 
+def _is_allowed_websocket_origin(origin, expected_origin):
+    """Require browser WebSocket handshakes to originate from the dashboard itself."""
+    return _is_same_origin(origin, expected_origin)
+
+
 def _apply_dashboard_security_headers(response, *, public_https=False):
     """Apply browser security headers without changing dashboard functionality."""
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -489,6 +494,9 @@ async def start_dashboard(bot):
         return web.json_response({"message": "已停止麥克風傳聲。" if stopped else "目前沒有啟動中的瀏覽器麥克風。"})
 
     async def browser_mic_stream(request):
+        expected_origin = configured_origin or f"{request.scheme}://{request.host}"
+        if not _is_allowed_websocket_origin(request.headers.get("Origin", ""), expected_origin):
+            return _json_error("麥克風串流拒絕非控制台來源的連線。", 403)
         ticket = request.query.get("ticket", "")
         speech = bot.get_cog("BrowserMicCog")
         guild_id = speech.consume_ticket(ticket) if speech and ticket else None
