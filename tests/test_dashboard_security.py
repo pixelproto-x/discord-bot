@@ -1,7 +1,14 @@
 import unittest
 from types import SimpleNamespace
 
-from web_dashboard import _apply_dashboard_security_headers, _is_allowed_websocket_origin, _is_same_origin
+from unittest.mock import patch
+
+from web_dashboard import (
+    SlidingWindowRateLimiter,
+    _apply_dashboard_security_headers,
+    _is_allowed_websocket_origin,
+    _is_same_origin,
+)
 
 
 class DashboardSecurityHeaderTests(unittest.TestCase):
@@ -69,6 +76,37 @@ class DashboardOriginValidationTests(unittest.TestCase):
                 "https://control.example.com",
             )
         )
+
+
+class DashboardRateLimitTests(unittest.TestCase):
+    def test_limits_after_ten_failed_attempts_and_expires_old_attempts(self):
+        limiter = SlidingWindowRateLimiter(limit=3, window_seconds=60)
+        with patch("web_dashboard.time.monotonic", return_value=100):
+            limiter.record("client")
+            limiter.record("client")
+            self.assertFalse(limiter.is_limited("client"))
+            limiter.record("client")
+            self.assertTrue(limiter.is_limited("client"))
+        with patch("web_dashboard.time.monotonic", return_value=161):
+            self.assertFalse(limiter.is_limited("client"))
+
+    def test_reset_clears_attempts(self):
+        limiter = SlidingWindowRateLimiter(limit=2, window_seconds=60)
+        with patch("web_dashboard.time.monotonic", return_value=100):
+            limiter.record("client")
+            limiter.record("client")
+            self.assertTrue(limiter.is_limited("client"))
+            limiter.reset("client")
+            self.assertFalse(limiter.is_limited("client"))
+
+    def test_keys_are_isolated_and_memory_is_bounded(self):
+        limiter = SlidingWindowRateLimiter(limit=1, window_seconds=60, max_keys=2)
+        with patch("web_dashboard.time.monotonic", side_effect=[1, 2, 3, 3, 3]):
+            limiter.record("first")
+            limiter.record("second")
+            limiter.record("third")
+            self.assertLessEqual(len(limiter.attempts), 2)
+            self.assertFalse(limiter.is_limited("first"))
 
 
 if __name__ == "__main__":
