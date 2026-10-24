@@ -128,8 +128,9 @@ class SpeechControlCog(commands.Cog):
         return True
 
     @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）", zh_TW="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）"))
-    @app_commands.describe(text="要讓機器人唸出的內容")
-    async def speak(self, interaction: discord.Interaction, text: str):
+    @app_commands.describe(text="要讓機器人唸出的內容", public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def speak(self, interaction: discord.Interaction, text: str, public: bool = True):
         if not await self.owner_check(interaction):
             return
         member = interaction.user
@@ -149,7 +150,7 @@ class SpeechControlCog(commands.Cog):
             return
 
         guild = interaction.guild
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         voice_client = guild.voice_client
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             await interaction.followup.send("我現在正在播放音訊。先用 /speech-stop 停止，再讓我講下一句。", ephemeral=True)
@@ -179,7 +180,7 @@ class SpeechControlCog(commands.Cog):
 
             source = discord.FFmpegPCMAudio(filename, executable=ffmpeg, options="-vn")
             voice_client.play(source, after=after_playback)
-            await interaction.followup.send(f"好，我開始唸了：\n> {text[:180]}", ephemeral=True)
+            await interaction.followup.send(f"好，我開始唸了：\n> {text[:180]}", ephemeral=not public)
         except Exception as exc:
             print(f"[Speech] failed: {type(exc).__name__}")
             await self._cleanup(guild.id, filename)
@@ -410,7 +411,9 @@ class SpeechControlCog(commands.Cog):
                     break
 
     @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止 LogRelay 正在唸的語音（主人專用）", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
-    async def speech_stop(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def speech_stop(self, interaction: discord.Interaction, public: bool = True):
         if not await self.owner_check(interaction):
             return
         guild = interaction.guild
@@ -424,10 +427,12 @@ class SpeechControlCog(commands.Cog):
             await self._finish_mic(guild.id, mic_source)
         if guild.id in self.active_guilds:
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
-        await interaction.response.send_message("好，停止了。", ephemeral=True)
+        await interaction.response.send_message("好，停止了。", ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）", zh_TW="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）"))
-    async def speech_leave(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def speech_leave(self, interaction: discord.Interaction, public: bool = True):
         if not await self.owner_check(interaction):
             return
         guild = interaction.guild
@@ -446,7 +451,7 @@ class SpeechControlCog(commands.Cog):
             if mic_source:
                 await self._finish_mic(guild.id, mic_source)
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
-        await interaction.response.send_message("已處理。", ephemeral=True)
+        await interaction.response.send_message("已處理。", ephemeral=not public)
 
 
 async def setup(bot: commands.Bot):
