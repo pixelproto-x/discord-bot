@@ -1388,11 +1388,16 @@ class SearchCog(commands.Cog):
             extracted = "\n".join(
                 text.strip() for text in texts if text.strip()
             )[:1800]
-            await interaction.followup.send(
-                ("抓到的文字：\n" + extracted, ephemeral=not public)
-                if extracted
-                else "這張圖沒抓到文字。"
-            )
+            if extracted:
+                await interaction.followup.send(
+                    "抓到的文字：\n" + extracted,
+                    ephemeral=not public,
+                )
+            else:
+                await interaction.followup.send(
+                    "這張圖沒抓到文字。",
+                    ephemeral=not public,
+                )
         except Exception as exc:
             print(f"OCR error: {exc}")
             await interaction.followup.send("OCR 這次失敗了，再試一次。", ephemeral=True)
