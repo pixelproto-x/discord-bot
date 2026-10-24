@@ -531,7 +531,7 @@ class SettingsCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "welcome_message", message)
         await interaction.response.send_message(
             f"歡迎訊息{'開好了，會發到 ' + channel.mention if channel else '關掉了'}。",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @settings.command(name=app_commands.locale_str("goodbye", zh_TW="離開訊息"), description=app_commands.locale_str("設定成員離開時的通知", zh_TW="設定成員離開時的通知"))
@@ -554,7 +554,7 @@ class SettingsCog(commands.Cog):
         storage.set_setting(interaction.guild.id, "goodbye_message", message)
         await interaction.response.send_message(
             f"離開通知{'開好了，會發到 ' + channel.mention if channel else '關掉了'}。",
-            ephemeral=True,
+            ephemeral=not public,
         )
 
     @note.command(name=app_commands.locale_str("add", zh_TW="新增"), description=app_commands.locale_str("存一筆只有自己看得到的筆記", zh_TW="存一筆只有自己看得到的筆記"))
