@@ -218,13 +218,15 @@ class AutoReplyCog(commands.Cog):
         await interaction.response.send_modal(AutoReplyAddModal())
 
     @autoreply.command(name=app_commands.locale_str("remove", zh_TW="移除"), description=app_commands.locale_str("刪掉一組自動回覆", zh_TW="刪掉一組自動回覆"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(rule_id="自動回覆編號")
-    async def remove(self, interaction: discord.Interaction, rule_id: int):
+    async def remove(self, interaction: discord.Interaction, rule_id: int, public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有管理人員可以改。", ephemeral=True)
             return
         ok = storage.delete_autoreply(interaction.guild.id, rule_id)
-        await interaction.response.send_message("刪掉了。" if ok else "找不到這個編號。", ephemeral=True)
+        await interaction.response.send_message("刪掉了。" if ok else "找不到這個編號。", ephemeral=(not public) if ok else True)
 
     @autoreply.command(name=app_commands.locale_str("list", zh_TW="列表"), description=app_commands.locale_str("看看目前設定了哪些自動回覆", zh_TW="看看目前設定了哪些自動回覆"))
     async def list_rules(self, interaction: discord.Interaction):
@@ -243,8 +245,10 @@ class AutoReplyCog(commands.Cog):
         await interaction.response.send_message("\n".join(lines[:12]), ephemeral=True)
 
     @autoreply.command(name=app_commands.locale_str("edit", zh_TW="編輯"), description=app_commands.locale_str("修改既有自動回覆", zh_TW="修改既有自動回覆"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(rule_id="編號", trigger="新的觸發文字", response="新的回覆", exact="新的匹配方式")
-    async def edit(self, interaction: discord.Interaction, rule_id: int, trigger: str | None = None, response: str | None = None, exact: bool | None = None):
+    async def edit(self, interaction: discord.Interaction, rule_id: int, trigger: str | None = None, response: str | None = None, exact: bool | None = None, public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有管理人員可以改。", ephemeral=True)
             return
@@ -260,26 +264,30 @@ class AutoReplyCog(commands.Cog):
             response = response.strip()
         mode = "exact" if exact else "contains" if exact is not None else None
         ok = storage.update_autoreply(interaction.guild.id, rule_id, trigger, response, mode)
-        await interaction.response.send_message("改好了。" if ok else "找不到這個編號。", ephemeral=True)
+        await interaction.response.send_message("改好了。" if ok else "找不到這個編號。", ephemeral=(not public) if ok else True)
 
 
     @autoreply.command(name=app_commands.locale_str("on", zh_TW="開啟"), description=app_commands.locale_str("重新開啟一組已經關掉的自動回覆", zh_TW="重新開啟一組已經關掉的自動回覆"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(rule_id="自動回覆編號")
-    async def enable(self, interaction: discord.Interaction, rule_id: int):
+    async def enable(self, interaction: discord.Interaction, rule_id: int, public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有管理人員可以改。", ephemeral=True)
             return
         ok = storage.update_autoreply(interaction.guild.id, rule_id, enabled=1)
-        await interaction.response.send_message("開回來了。" if ok else "找不到這個編號。", ephemeral=True)
+        await interaction.response.send_message("開回來了。" if ok else "找不到這個編號。", ephemeral=(not public) if ok else True)
 
     @autoreply.command(name=app_commands.locale_str("off", zh_TW="關閉"), description=app_commands.locale_str("暫時關掉一組自動回覆，不用刪除", zh_TW="暫時關掉一組自動回覆，不用刪除"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(rule_id="自動回覆編號")
-    async def disable(self, interaction: discord.Interaction, rule_id: int):
+    async def disable(self, interaction: discord.Interaction, rule_id: int, public: bool = True):
         if not self.admin(interaction):
             await interaction.response.send_message("這個設定只有管理人員可以改。", ephemeral=True)
             return
         ok = storage.update_autoreply(interaction.guild.id, rule_id, enabled=0)
-        await interaction.response.send_message("先關掉了。" if ok else "找不到這個編號。", ephemeral=True)
+        await interaction.response.send_message("先關掉了。" if ok else "找不到這個編號。", ephemeral=(not public) if ok else True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
