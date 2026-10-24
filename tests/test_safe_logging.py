@@ -1,0 +1,42 @@
+import unittest
+
+from safe_logging import redact_sensitive_text
+
+
+class SensitiveLogRedactionTests(unittest.TestCase):
+    def test_redacts_secret_environment_assignments(self):
+        value = "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuv DISCORD_TOKEN=topsecret"
+        redacted = redact_sensitive_text(value)
+        self.assertNotIn("sk-proj-abcdefghijklmnopqrstuv", redacted)
+        self.assertNotIn("topsecret", redacted)
+        self.assertIn("OPENAI_API_KEY=[REDACTED]", redacted)
+        self.assertIn("DISCORD_TOKEN=[REDACTED]", redacted)
+
+    def test_redacts_authorization_and_bearer_values(self):
+        value = "Authorization: Bearer abc.def.ghi"
+        redacted = redact_sensitive_text(value)
+        self.assertNotIn("abc.def.ghi", redacted)
+        self.assertIn("[REDACTED]", redacted)
+
+    def test_redacts_discord_webhook_urls(self):
+        value = "request failed https://discord.com/api/webhooks/123456789012345678/verySecretWebhookToken"
+        redacted = redact_sensitive_text(value)
+        self.assertNotIn("verySecretWebhookToken", redacted)
+        self.assertIn("[REDACTED_DISCORD_WEBHOOK_URL]", redacted)
+
+    def test_redacts_common_provider_key_formats(self):
+        for secret in (
+            "sk-abcdefghijklmnopqrstuv",
+            "AIza12345678901234567890123456789012",
+            "gsk_abcdefghijklmnopqrstuvwxyz123456",
+        ):
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, redact_sensitive_text(f"provider error: {secret}"))
+
+    def test_keeps_ordinary_diagnostic_text(self):
+        value = "Slash command error: database is temporarily unavailable"
+        self.assertEqual(redact_sensitive_text(value), value)
+
+
+if __name__ == "__main__":
+    unittest.main()
