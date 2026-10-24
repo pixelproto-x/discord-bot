@@ -119,15 +119,15 @@ class SpeechControlCog(commands.Cog):
             return None
 
     async def owner_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != OWNER_ID:
-            await interaction.response.send_message("這個語音控制功能只有 Bot 主人能用。", ephemeral=True)
-            return False
         if not interaction.guild:
             await interaction.response.send_message("請在 Discord 伺服器裡使用。", ephemeral=True)
             return False
+        if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("這個語音控制指令需要「管理伺服器」權限。", ephemeral=True)
+            return False
         return True
 
-    @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）", zh_TW="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）"))
+    @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓一條魚在你的語音頻道唸出指定文字", zh_TW="讓 LogRelay 在你的語音頻道唸出指定文字（主人專用）"))
     @app_commands.describe(text="要讓機器人唸出的內容", public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speak(self, interaction: discord.Interaction, text: str, public: bool = True):
@@ -158,7 +158,7 @@ class SpeechControlCog(commands.Cog):
 
         filename = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(prefix="yitiaoyu_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             communicate = edge_tts.Communicate(text, DEFAULT_VOICE)
             await communicate.save(filename)
@@ -220,7 +220,7 @@ class SpeechControlCog(commands.Cog):
 
         filename = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="logrelay_dashboard_tts_", suffix=".mp3", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(prefix="yitiaoyu_dashboard_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
 
@@ -240,7 +240,7 @@ class SpeechControlCog(commands.Cog):
                     asyncio.run_coroutine_threadsafe(self._cleanup(guild.id, filename), loop)
 
             voice_client.play(discord.FFmpegPCMAudio(filename, executable=ffmpeg, options="-vn"), after=after_playback)
-            return True, f"LogRelay 已加入「{channel.name}」，正在朗讀：{text[:120]}"
+            return True, f"一條魚 已加入「{channel.name}」，正在朗讀：{text[:120]}"
         except discord.Forbidden:
             await self._cleanup(guild.id, filename)
             return False, "Discord 拒絕 Bot 連線或說話，請檢查語音房間權限。"
@@ -410,7 +410,7 @@ class SpeechControlCog(commands.Cog):
                 except OSError:
                     break
 
-    @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止 LogRelay 正在唸的語音（主人專用）", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
+    @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止一條魚正在唸的語音或麥克風", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speech_stop(self, interaction: discord.Interaction, public: bool = True):
@@ -429,7 +429,7 @@ class SpeechControlCog(commands.Cog):
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
         await interaction.response.send_message("好，停止了。", ephemeral=not public)
 
-    @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）", zh_TW="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）"))
+    @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓一條魚離開語音頻道", zh_TW="讓 LogRelay 離開語音頻道（主人專用；會停止目前音訊）"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speech_leave(self, interaction: discord.Interaction, public: bool = True):
