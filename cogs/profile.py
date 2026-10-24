@@ -37,7 +37,8 @@ class ProfileCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("profile", zh_TW="個人檔案"), description=app_commands.locale_str("看看自己的等級、聊天、語音和遊戲資料", zh_TW="看看自己的等級、聊天、語音和遊戲資料"))
     @app_commands.describe(member="不填就是看自己")
-    async def profile(self, interaction: discord.Interaction, member: discord.Member | None = None):
+    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
+    async def profile(self, interaction: discord.Interaction, member: discord.Member | None = None, public: bool = True):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
@@ -59,7 +60,7 @@ class ProfileCog(commands.Cog):
         if data["games_won"] >= 10: achievements.append("遊戲常勝軍")
         if data["voice_seconds"] >= 36000: achievements.append("語音 10 小時")
         embed.add_field(name="成就", value="、".join(achievements[-6:]) if achievements else "還沒解鎖，再玩玩看。", inline=True)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("leaderboard", zh_TW="排行榜"), description=app_commands.locale_str("看看伺服器目前的各種排行榜", zh_TW="看看伺服器目前的各種排行榜"))
     @app_commands.describe(kind="排行類型")
@@ -88,7 +89,7 @@ class ProfileCog(commands.Cog):
                 value = fmt_seconds(value)
             lines.append(f"**{index}.** {name} — {value}")
         title = {"xp":"XP 排行", "msg_count":"聊天排行", "voice_seconds":"語音排行", "games_won":"遊戲勝場排行", "games_played":"遊戲場次排行"}[field]
-        await interaction.response.send_message("🏆 **" + title + "**\n" + "\n".join(lines))
+        await interaction.response.send_message("🏆 **" + title + "**\n" + "\n".join(lines), ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("userinfo", zh_TW="成員資訊"), description=app_commands.locale_str("查看一位成員的基本 Discord 資訊", zh_TW="查看一位成員的基本 Discord 資訊"))
     async def userinfo(self, interaction, member: discord.Member | None = None):
@@ -102,7 +103,7 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="加入伺服器", value=discord.utils.format_dt(target.joined_at, "R") if target.joined_at else "不知道", inline=True)
         roles = [r.mention for r in target.roles[1:]][-10:]
         embed.add_field(name="身分組", value=" ".join(roles) if roles else "沒有額外身分組", inline=False)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("serverinfo", zh_TW="伺服器資訊"), description=app_commands.locale_str("看看這個伺服器的基本資訊", zh_TW="看看這個伺服器的基本資訊"))
     async def serverinfo(self, interaction):
@@ -118,14 +119,14 @@ class ProfileCog(commands.Cog):
         embed.add_field(name="語音頻道", value=str(len(guild.voice_channels)), inline=True)
         embed.add_field(name="身分組", value=str(len(guild.roles)), inline=True)
         embed.add_field(name="建立時間", value=discord.utils.format_dt(guild.created_at, "D"), inline=True)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("avatar", zh_TW="查看頭像"), description=app_commands.locale_str("查看自己或別人的大圖頭像", zh_TW="查看自己或別人的大圖頭像"))
     async def avatar(self, interaction, member: discord.Member | None = None):
         target = member or interaction.user
         embed = discord.Embed(title=f"{target.display_name} 的頭像", color=0x5865F2)
         embed.set_image(url=target.display_avatar.with_size(1024).url)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("banner", zh_TW="查看橫幅"), description=app_commands.locale_str("查看成員的 Discord Banner", zh_TW="查看成員的 Discord Banner"))
     async def banner(self, interaction, member: discord.Member | None = None):
@@ -163,14 +164,14 @@ class ProfileCog(commands.Cog):
         text = "已解鎖：\n" + ("\n".join(unlocked) if unlocked else "還沒有，慢慢玩就有了。")
         if locked:
             text += "\n\n還沒解鎖：\n" + "\n".join(locked)
-        await interaction.response.send_message(text)
+        await interaction.response.send_message(text, ephemeral=not public)
 
     @app_commands.command(name=app_commands.locale_str("membercount", zh_TW="成員數量"), description=app_commands.locale_str("看看伺服器現在有多少成員", zh_TW="看看伺服器現在有多少成員"))
     async def membercount(self, interaction):
         if not interaction.guild:
             await interaction.response.send_message("這個要在伺服器裡用。", ephemeral=True)
             return
-        await interaction.response.send_message(f"現在這個伺服器有 **{interaction.guild.member_count}** 位成員。")
+        await interaction.response.send_message(f"現在這個伺服器有 **{interaction.guild.member_count}** 位成員。", ephemeral=not public)
 
 
 async def setup(bot):
