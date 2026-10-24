@@ -24,7 +24,15 @@ class CogRegistrationTests(unittest.IsolatedAsyncioTestCase):
             bot_module.giveaway,
             bot_module.media,
             bot_module.settings,
+            bot_module.banter,
+            bot_module.speech_control,
             bot_module.help_cog,
+            bot_module.web_tools,
+            bot_module.hacks,
+            bot_module.history,
+            bot_module.browser_mic,
+            bot_module.marriage,
+            bot_module.economy,
         )
         try:
             for module in modules:
