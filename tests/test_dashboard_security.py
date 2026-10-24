@@ -13,7 +13,35 @@ from web_dashboard import (
     _dashboard_content_security_policy,
     _is_allowed_websocket_origin,
     _is_same_origin,
+    _read_json_object,
 )
+
+
+class DashboardJSONBodyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_accepts_json_object(self):
+        class Request:
+            async def json(self):
+                return {"channel_id": "123"}
+
+        self.assertEqual(await _read_json_object(Request()), {"channel_id": "123"})
+
+    async def test_rejects_malformed_or_wrong_content_type(self):
+        class Request:
+            async def json(self):
+                raise ValueError("parser detail must not leak")
+
+        with self.assertRaisesRegex(ValueError, "有效的 JSON 物件"):
+            await _read_json_object(Request())
+
+    async def test_rejects_valid_json_that_is_not_an_object(self):
+        for payload in (None, [], ["unexpected"], "text", 42, True):
+            with self.subTest(payload=payload):
+                class Request:
+                    async def json(self):
+                        return payload
+
+                with self.assertRaisesRegex(ValueError, "有效的 JSON 物件"):
+                    await _read_json_object(Request())
 
 
 class DashboardSecurityHeaderTests(unittest.TestCase):
