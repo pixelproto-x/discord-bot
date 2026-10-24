@@ -226,6 +226,17 @@ def _verify_session(value):
     except (ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
 
+def _apply_dashboard_security_headers(response, *, public_https=False):
+    """Apply browser security headers without changing dashboard functionality."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
+    response.headers["Cache-Control"] = "no-store"
+    if public_https:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+
+
 async def start_dashboard(bot):
     if getattr(bot, "_dashboard_runner", None):
         return
@@ -239,6 +250,14 @@ async def start_dashboard(bot):
     valid_oauth_url = public_url.startswith("https://") or local_public_url
     oauth_enabled = bool(valid_oauth_url and oauth_client_id and oauth_client_secret and len(session_secret) >= 32)
     app = web.Application(client_max_size=1024 * 32)
+
+    async def add_security_headers(request, response):
+        _apply_dashboard_security_headers(
+            response,
+            public_https=public_url.startswith("https://"),
+        )
+
+    app.on_response_prepare.append(add_security_headers)
 
     @web.middleware
     async def auth_middleware(request, handler):
