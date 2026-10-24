@@ -30,7 +30,7 @@ class WebToolsCog(commands.Cog):
         if not query or len(query) > 400:
             await interaction.response.send_message("請輸入 1 到 400 字的搜尋內容", ephemeral=True)
             return
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True, ephemeral=not public)
         url = "https://html.duckduckgo.com/html/?q=" + quote(query)
         headers = {"User-Agent": "Mozilla/5.0 (compatible; LogRelayBot/1.0)"}
         timeout = aiohttp.ClientTimeout(total=15)
@@ -69,7 +69,8 @@ class WebToolsCog(commands.Cog):
             await interaction.followup.send(
                 f"搜尋：{query[:200]}\n\n" + "\n\n".join(rows),
                 allowed_mentions=discord.AllowedMentions.none(),
-            , ephemeral=not public)
+                ephemeral=not public,
+            )
         except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as exc:
             print(f"[WebSearch] {type(exc).__name__}: {exc}")
             await interaction.followup.send("目前無法完成網路搜尋，請稍後再試。", ephemeral=not public)
@@ -115,8 +116,9 @@ class WebToolsCog(commands.Cog):
         except Exception as exc:
             print(f"[ImageGeneration] {type(exc).__name__}")
             await interaction.followup.send(
-                "圖片生成失敗。請確認 OpenAI API 金鑰、帳戶額度與圖片模型權限。"
-            , ephemeral=not public)
+                "圖片生成失敗。請確認 OpenAI API 金鑰、帳戶額度與圖片模型權限。",
+                ephemeral=not public,
+            )
 
 
 async def setup(bot: commands.Bot):
