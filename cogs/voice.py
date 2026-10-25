@@ -91,8 +91,20 @@ class VoiceCog(commands.Cog):
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             voice_client = interaction.guild.voice_client
-            if voice_client and voice_client.is_connected():
-                if voice_client.channel.id == channel.id:
+            connected = False
+            if voice_client:
+                try:
+                    import wavelink
+                    if isinstance(voice_client, wavelink.Player):
+                        connected = bool(getattr(voice_client, "connected", False))
+                    else:
+                        connected = bool(voice_client.is_connected())
+                except ImportError:
+                    connected = bool(getattr(voice_client, "is_connected", lambda: False)())
+                except Exception:
+                    connected = False
+            if connected:
+                if voice_client.channel and voice_client.channel.id == channel.id:
                     await interaction.followup.send(f"我已經在 {channel.mention} 裡了。", ephemeral=True)
                     return
                 await voice_client.move_to(channel)
