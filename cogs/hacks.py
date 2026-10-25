@@ -38,10 +38,16 @@ _CHANNEL_INTEGER_FIELDS = (
     "video_quality_mode", "default_sort_order", "default_layout",
 )
 
-def _normalize_backup_integers(item: dict, fields: tuple[str, ...]) -> bool:
+def _normalize_backup_integers(
+    item: dict, fields: tuple[str, ...], *, optional_fields: tuple[str, ...] = (),
+) -> bool:
     for field in fields:
-        if field not in item or item[field] is None:
+        if field not in item:
             continue
+        if item[field] is None:
+            if field in optional_fields:
+                continue
+            return False
         try:
             item[field] = int(item[field])
         except (TypeError, ValueError, OverflowError):
@@ -72,7 +78,10 @@ def validate_backup_payload(payload: object) -> str | None:
             return "備份中含有不支援的頻道類型，未修改伺服器。"
         if not isinstance(channel.get("name"), str) or not channel["name"].strip():
             return "備份中有缺少名稱的頻道，未修改伺服器。"
-        if not _normalize_backup_integers(channel, _CHANNEL_INTEGER_FIELDS):
+        if not _normalize_backup_integers(
+            channel, _CHANNEL_INTEGER_FIELDS,
+            optional_fields=("video_quality_mode", "default_sort_order", "default_layout"),
+        ):
             return "備份中的頻道數值格式不正確，未修改伺服器。"
         overwrites = channel.get("overwrites", [])
         if not isinstance(overwrites, list) or any(not isinstance(item, dict) for item in overwrites):
@@ -94,6 +103,7 @@ def validate_backup_payload(payload: object) -> str | None:
         settings,
         ("verification_level", "default_notifications", "explicit_content_filter",
          "afk_timeout", "default_role_permissions", "system_channel_flags"),
+        optional_fields=("system_channel_flags",),
     ):
         return "備份中的伺服器設定數值格式不正確，未修改伺服器。"
     locale = settings.get("preferred_locale")
