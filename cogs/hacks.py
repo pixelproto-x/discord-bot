@@ -55,6 +55,14 @@ def _normalize_backup_integers(
     return True
 
 
+def _ordinary_backup_channels(channels_data):
+    """Select every non-category channel type supported by the restore path."""
+    return [
+        item for item in channels_data
+        if item.get("type") in {"text", "announcement", "voice", "stage", "forum"}
+    ]
+
+
 def validate_backup_payload(payload: object) -> str | None:
     """Validate and normalize structures used after destructive restore begins."""
     if not isinstance(payload, dict):
@@ -976,9 +984,7 @@ class Hacks(commands.Cog):
                 except (discord.HTTPException, discord.Forbidden, KeyError, TypeError, ValueError):
                     continue
 
-            ordinary_channels = [
-                item for item in channels_data if item.get("type") in {"text", "voice", "stage", "forum"}
-            ]
+            ordinary_channels = _ordinary_backup_channels(channels_data)
             ordinary_channels.sort(
                 key=lambda item: (item.get("category_id") is not None, item.get("position", 0))
             )
