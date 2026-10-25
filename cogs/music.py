@@ -331,9 +331,23 @@ class MusicCog(commands.Cog):
             await self._discard_failed_node(node)
             return False
 
-        # Pool.connect can leave a failed node registered in the pool. Only
-        # accept a fully connected node; resolve_query filters by this status.
-        if node.status is not wavelink.NodeStatus.CONNECTED:
+        # Pool.connect returns after the websocket handshake is created, before
+        # Lavalink's asynchronous "ready" event necessarily arrives. Wait for
+        # CONNECTED instead of either accepting CONNECTING or discarding a healthy node.
+        async def wait_for_ready() -> bool:
+            while node.status is wavelink.NodeStatus.CONNECTING:
+                await asyncio.sleep(0.05)
+            return node.status is wavelink.NodeStatus.CONNECTED
+
+        try:
+            connected = await asyncio.wait_for(
+                wait_for_ready(),
+                timeout=LAVALINK_CONNECT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            connected = False
+
+        if not connected:
             await self._discard_failed_node(node)
             return False
         return True
