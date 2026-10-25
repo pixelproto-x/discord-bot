@@ -165,7 +165,7 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [queued_song])
         restored_player.set_volume.assert_awaited_once_with(77)
         restored_player.play.assert_awaited_once_with(song, start=42000, paused=False)
-        music_channel.connect.assert_awaited_once_with(cls=music.wavelink.Player, self_deaf=False)
+        music_channel.connect.assert_awaited_once_with(cls=type(restored_player), self_deaf=False)
         self.assertNotIn(guild.id, cog.local_audio_handoffs)
 
     async def test_new_music_connection_does_not_self_deafen(self):
