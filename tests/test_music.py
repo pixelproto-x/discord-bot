@@ -49,6 +49,7 @@ class MusicInputValidationTests(unittest.TestCase):
             "https://music.youtube.com/watch?v=abc&list=PL123",
             "https://open.spotify.com/playlist/abc",
             "https://open.spotify.com/album/abc",
+            "https://open.spotify.com/intl-zh/album/abc",
         ):
             with self.subTest(url=url):
                 self.assertTrue(music.is_collection_url(url))
