@@ -14,6 +14,10 @@ NODES = (
     ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
     ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
     ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
+    ("jirayu-v4", "https://lavalink.jirayu.net:443", "youshallnotpass"),
+    ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
+    ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
+    ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
 )
 QUERY = "ytsearch:Daft Punk One More Time"
 TIMEOUT = aiohttp.ClientTimeout(total=12, connect=5, sock_read=8)
