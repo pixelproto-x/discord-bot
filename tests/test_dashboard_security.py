@@ -61,7 +61,7 @@ class DashboardSingleTabTests(unittest.TestCase):
         self.assertIn('type:"takeover-dashboard-tabs"', PAGE)
         self.assertIn('self.clients.matchAll({type: "window", includeUncontrolled: true})', DASHBOARD_TAB_MANAGER_SCRIPT)
         self.assertIn('client.navigate(new URL("/__dashboard_replaced", expectedOrigin).href)', DASHBOARD_TAB_MANAGER_SCRIPT)
-        self.assertIn('"/__dashboard_replaced"', DASHBOARD_RETIRED_PAGE)
+        self.assertIn("控制台已更新", DASHBOARD_RETIRED_PAGE)
         self.assertIn('url=about:blank', DASHBOARD_RETIRED_PAGE)
 
     def test_tab_manager_only_navigates_dashboard_root_tabs_for_its_origin(self):
