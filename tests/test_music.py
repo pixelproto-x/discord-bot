@@ -81,6 +81,16 @@ class MusicTrackDisplayTests(unittest.TestCase):
         self.assertEqual(track_url(track), "")
         self.assertEqual(track_duration(track), "直播／未知長度")
 
+    def test_invalid_track_durations_have_safe_fallbacks(self):
+        from types import SimpleNamespace
+
+        for length in ("not-a-number", None, -1000):
+            with self.subTest(length=length):
+                self.assertEqual(
+                    track_duration(SimpleNamespace(length=length)),
+                    "直播／未知長度",
+                )
+
     def test_untrusted_track_title_cannot_ping_mentions_or_inject_new_lines(self):
         from types import SimpleNamespace
 
