@@ -141,9 +141,13 @@ def track_url(track) -> str:
 
 def track_duration(track) -> str:
     length = getattr(track, "length", None)
-    if not length:
+    try:
+        milliseconds = int(length)
+    except (TypeError, ValueError, OverflowError):
         return "直播／未知長度"
-    seconds = int(length) // 1000
+    if milliseconds <= 0:
+        return "直播／未知長度"
+    seconds = milliseconds // 1000
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
