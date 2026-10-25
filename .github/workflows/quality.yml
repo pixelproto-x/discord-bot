@@ -27,6 +27,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_dashboard_security.py' -v
       - name: Run safe logging regression tests
         run: python -m unittest discover -s tests -p 'test_safe_logging.py' -v
+      - name: Run complete regression test suite
+        run: python -m unittest discover -s tests -v
       - name: Static undefined-name check
         run: |
           pip install ruff
