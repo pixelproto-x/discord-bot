@@ -35,8 +35,12 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
     # Public fallback nodes currently listed by TriniumHost. Public nodes can
     # change availability or credentials; configure your own nodes above for reliability.
     public_nodes = (
+        # TriniumHost publishes these nodes as online, but individual source lookups
+        # can still time out. Keep independent endpoints available as fallbacks.
         ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
         ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
+        ("triniumhost-nodelink", "https://nodelink.triniumhost.indevs.in:443", "free"),
+        ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
     )
     for identifier, uri, password in public_nodes:
         normalized_uri = uri.rstrip("/").lower()
@@ -53,7 +57,7 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 # A dead public node must never hold up the rest of the bot's startup. This
 # bounds the first websocket attempt; retries are disabled on every node below.
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
-MUSIC_SEARCH_TIMEOUT_SECONDS = 8
+MUSIC_SEARCH_TIMEOUT_SECONDS = 15
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
     re.IGNORECASE,
@@ -549,16 +553,21 @@ class MusicCog(commands.Cog):
             # Resolve links on every connected node, but never reinterpret a URL as a keyword.
             return await self._search_nodes(value, nodes)
 
-        # Public Lavalink nodes can return an empty YouTube search when that source is
-        # rate-limited. Try every connected node before falling back to SoundCloud search.
+        # Try YouTube first, then YouTube Music, before the SoundCloud fallback.
+        # Public nodes can be slow under load, so each source gets a bounded timeout.
         tracks = await self._search_nodes(f"ytsearch:{value}", nodes)
         if tracks:
             return tracks
 
-        print("[Music] YouTube 搜尋沒有結果，正在改查 SoundCloud。")
+        print("[Music] YouTube 搜尋失敗，改查 YouTube Music。")
+        tracks = await self._search_nodes(f"ytmsearch:{value}", nodes)
+        if tracks:
+            return tracks
+
+        print("[Music] YouTube Music 搜尋失敗，正在改查 SoundCloud。")
         tracks = await self._search_nodes(f"scsearch:{value}", nodes)
         if not tracks:
-            print(f"[Music] YouTube 與 SoundCloud 都沒有搜尋結果：{value[:80]}")
+            print(f"[Music] YouTube、YouTube Music 與 SoundCloud 都沒有可用結果：{value[:80]}")
         return tracks
 
     async def enqueue_tracks(
