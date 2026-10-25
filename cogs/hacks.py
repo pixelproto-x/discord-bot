@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import secrets
+import threading
 import aiohttp
 import os
 import tempfile
@@ -21,6 +22,7 @@ from discord.ext import commands
 
 OWNER_ID = 1140900506198351924
 BACKUP_PATH = Path(__file__).resolve().parent.parent / "server_backups.json"
+_BACKUP_STORE_LOCK = threading.Lock()
 DELETE_DELAY = 0.4
 CREATE_DELAY = 0.4
 
@@ -268,35 +270,54 @@ class Hacks(commands.Cog):
     @staticmethod
     def _write_database(data):
         BACKUP_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = BACKUP_PATH.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_path.replace(BACKUP_PATH)
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=BACKUP_PATH.parent,
+                prefix=f".{BACKUP_PATH.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                temp_file.write(json.dumps(data, ensure_ascii=False, indent=2))
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            temp_path.replace(BACKUP_PATH)
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @staticmethod
     def _store_backup_payload(payload):
-        """Persist one backup without overwriting another concurrent /sync result."""
-        database = Hacks._read_database()
-        server_id = str(payload.get("server_id", ""))
-        server_name = payload.get("server_name")
-        for saved_key, saved_payload in database["servers"].items():
-            if not isinstance(saved_payload, dict):
-                continue
-            if (
-                (server_id and str(saved_payload.get("server_id", "")) == server_id)
-                or (
-                    not saved_payload.get("server_id")
-                    and saved_payload.get("server_name") == server_name
-                )
-            ):
-                return saved_key, False
+        """Persist one backup without losing updates from concurrent calls in this process."""
+        with _BACKUP_STORE_LOCK:
+            database = Hacks._read_database()
+            server_id = str(payload.get("server_id", ""))
+            server_name = payload.get("server_name")
+            for saved_key, saved_payload in database["servers"].items():
+                if not isinstance(saved_payload, dict):
+                    continue
+                if (
+                    (server_id and str(saved_payload.get("server_id", "")) == server_id)
+                    or (
+                        not saved_payload.get("server_id")
+                        and saved_payload.get("server_name") == server_name
+                    )
+                ):
+                    return saved_key, False
 
-        key = secrets.token_hex(4)
-        while key in database["servers"]:
             key = secrets.token_hex(4)
-        database["servers"][key] = payload
-        database["last_backup_key"] = key
-        Hacks._write_database(database)
-        return key, True
+            while key in database["servers"]:
+                key = secrets.token_hex(4)
+            database["servers"][key] = payload
+            database["last_backup_key"] = key
+            Hacks._write_database(database)
+            return key, True
 
     @staticmethod
     def _overwrite_to_json(overwrites):
