@@ -12,6 +12,7 @@ import aiohttp
 
 NODES = (
     ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
+    ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
     ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
     ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
     ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
