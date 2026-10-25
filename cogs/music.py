@@ -500,7 +500,7 @@ class MusicCog(commands.Cog):
         async def search_node(node):
             try:
                 result = await asyncio.wait_for(
-                    wavelink.Playable.search(identifier, node=node),
+                    wavelink.Playable.search(identifier, source=None, node=node),
                     timeout=MUSIC_SEARCH_TIMEOUT_SECONDS,
                 )
                 if not result:
@@ -647,7 +647,7 @@ class MusicCog(commands.Cog):
 
         query = " ".join(part for part in (title, author) if part)[:MAX_QUERY_LENGTH]
         try:
-            result = await wavelink.Playable.search(f"scsearch:{query}")
+            result = await wavelink.Playable.search(f"scsearch:{query}", source=None)
             candidates = list(getattr(result, "tracks", result) or [])
         except Exception as exc:
             print(f"[Music] SoundCloud 備援搜尋失敗：{type(exc).__name__}: {exc}")
