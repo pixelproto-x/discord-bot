@@ -245,8 +245,11 @@ class MusicQueueView(discord.ui.View):
         content = self.cog.render_queue(session)
         if notice:
             content = f"{notice}\n\n{content}"
-        await interaction.response.edit_message(content=content[:1900],
-                                                view=MusicQueueView(self.cog, self.guild_id, self.requester_id))
+        view = MusicQueueView(self.cog, self.guild_id, self.requester_id)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(content=content[:1900], view=view)
+        else:
+            await interaction.response.edit_message(content=content[:1900], view=view)
 
     @discord.ui.button(label="下一首", style=discord.ButtonStyle.primary, row=1)
     async def next_track(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -254,9 +257,15 @@ class MusicQueueView(discord.ui.View):
         if not session or not session.current:
             await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
             return
+        await interaction.response.defer()
         session.skip_requested = True
-        await session.player.stop()
-        await self.refresh(interaction, "已切到下一首。")
+        try:
+            await session.player.stop()
+            await self.refresh(interaction, "已切到下一首。")
+        except Exception as exc:
+            session.skip_requested = False
+            print(f"[Music] 控制台跳過失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("跳過失敗，請稍後再試。", ephemeral=True)
 
     @discord.ui.button(label="暫停／繼續", style=discord.ButtonStyle.secondary, row=1)
     async def toggle_pause(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -265,8 +274,13 @@ class MusicQueueView(discord.ui.View):
             await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
             return
         paused = bool(getattr(session.player, "paused", False))
-        await session.player.pause(not paused)
-        await self.refresh(interaction, "已繼續播放。" if paused else "已暫停。")
+        await interaction.response.defer()
+        try:
+            await session.player.pause(not paused)
+            await self.refresh(interaction, "已繼續播放。" if paused else "已暫停。")
+        except Exception as exc:
+            print(f"[Music] 控制台暫停／繼續失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("操作失敗，請稍後再試。", ephemeral=True)
 
     @discord.ui.button(label="倒退 5 秒", style=discord.ButtonStyle.secondary, row=1)
     async def rewind_five(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -275,12 +289,13 @@ class MusicQueueView(discord.ui.View):
             await interaction.response.send_message("目前沒有正在播放的歌曲。", ephemeral=True)
             return
         position = int(getattr(session.player, "position", 0) or 0)
+        await interaction.response.defer()
         try:
             await session.player.seek(max(0, position - 5000))
             await self.refresh(interaction, "已倒退 5 秒。")
         except Exception as exc:
             print(f"[Music] 倒退失敗：{type(exc).__name__}: {exc}")
-            await interaction.response.send_message("這個來源不支援倒退，或播放器暫時無法定位。", ephemeral=True)
+            await interaction.followup.send("這個來源不支援倒退，或播放器暫時無法定位。", ephemeral=True)
 
     @discord.ui.button(label="更新清單", style=discord.ButtonStyle.success, row=1)
     async def refresh_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -492,44 +507,45 @@ class MusicCog(commands.Cog):
         return True
 
     async def ensure_player(self, guild: discord.Guild, channel: discord.VoiceChannel | discord.StageChannel, text_channel_id: int) -> MusicSession:
-        if guild.id in self.local_audio_handoffs:
-            raise RuntimeError("目前正在播放本機語音或傳送麥克風，結束後才能播放音樂。")
-        session = self.sessions.get(guild.id)
-        voice_client = guild.voice_client
-        if isinstance(voice_client, wavelink.Player):
-            player = voice_client
-            if player.channel != channel:
-                if session and (session.current or session.queue):
-                    raise RuntimeError("我正在其他語音頻道播放音樂，不能直接切換。")
-                await player.move_to(channel)
-        else:
-            player = await channel.connect(cls=wavelink.Player, self_deaf=False)
-        if session is None:
-            session = MusicSession(player=player)
-            self.sessions[guild.id] = session
-        elif session.player is not player:
-            # A voice disconnect can leave a session holding its old player.
-            # Replacing that session would silently discard the current track,
-            # the remaining queue, and its loop/volume settings.
-            interrupted_track = session.current
-            session.player = player
-            session.handoff = False
-            session.skip_requested = False
-            if interrupted_track is not None:
-                # Repeated plays of the same URI are valid queue entries;
-                # only avoid reinserting the exact same track object.
-                already_queued = any(
-                    queued_track is interrupted_track for queued_track in session.queue
-                )
-                if not already_queued:
-                    session.queue.insert(0, interrupted_track)
-                session.current = None
-        session.text_channel_id = text_channel_id
-        try:
-            await player.set_volume(session.volume)
-        except Exception:
-            pass
-        return session
+        async with self.locks[guild.id]:
+            if guild.id in self.local_audio_handoffs:
+                raise RuntimeError("目前正在播放本機語音或傳送麥克風，結束後才能播放音樂。")
+            session = self.sessions.get(guild.id)
+            voice_client = guild.voice_client
+            if isinstance(voice_client, wavelink.Player):
+                player = voice_client
+                if player.channel != channel:
+                    if session and (session.current or session.queue):
+                        raise RuntimeError("我正在其他語音頻道播放音樂，不能直接切換。")
+                    await player.move_to(channel)
+            else:
+                player = await channel.connect(cls=wavelink.Player, self_deaf=False)
+            if session is None:
+                session = MusicSession(player=player)
+                self.sessions[guild.id] = session
+            elif session.player is not player:
+                # A voice disconnect can leave a session holding its old player.
+                # Replacing that session would silently discard the current track,
+                # the remaining queue, and its loop/volume settings.
+                interrupted_track = session.current
+                session.player = player
+                session.handoff = False
+                session.skip_requested = False
+                if interrupted_track is not None:
+                    # Repeated plays of the same URI are valid queue entries;
+                    # only avoid reinserting the exact same track object.
+                    already_queued = any(
+                        queued_track is interrupted_track for queued_track in session.queue
+                    )
+                    if not already_queued:
+                        session.queue.insert(0, interrupted_track)
+                    session.current = None
+            session.text_channel_id = text_channel_id
+            try:
+                await player.set_volume(session.volume)
+            except Exception:
+                pass
+            return session
 
     async def _search_nodes(self, identifier: str, nodes: tuple) -> list:
         """Search connected Lavalink nodes concurrently and use the first non-empty result."""
@@ -1029,8 +1045,13 @@ class MusicCog(commands.Cog):
         if not session or not session.player.playing:
             await interaction.response.send_message("現在沒有正在播放的歌。", ephemeral=True)
             return
-        await session.player.pause(True)
-        await interaction.response.send_message("已暫停。", ephemeral=not public)
+        await interaction.response.defer(ephemeral=not public, thinking=True)
+        try:
+            await session.player.pause(True)
+            await interaction.followup.send("已暫停。", ephemeral=not public)
+        except Exception as exc:
+            print(f"[Music] 暫停失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("暫停失敗，請稍後再試。", ephemeral=True)
 
     @music.command(name=app_commands.locale_str("resume", zh_TW="繼續"), description=app_commands.locale_str("繼續播放歌曲", zh_TW="繼續播放歌曲"))
     @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
@@ -1040,8 +1061,13 @@ class MusicCog(commands.Cog):
         if not session or not session.player.paused:
             await interaction.response.send_message("現在沒有暫停中的歌。", ephemeral=True)
             return
-        await session.player.pause(False)
-        await interaction.response.send_message("繼續播放。", ephemeral=not public)
+        await interaction.response.defer(ephemeral=not public, thinking=True)
+        try:
+            await session.player.pause(False)
+            await interaction.followup.send("繼續播放。", ephemeral=not public)
+        except Exception as exc:
+            print(f"[Music] 繼續播放失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("繼續播放失敗，請稍後再試。", ephemeral=True)
 
     @music.command(name=app_commands.locale_str("skip", zh_TW="跳過"), description=app_commands.locale_str("跳到下一首", zh_TW="跳到下一首"))
     @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
@@ -1051,9 +1077,15 @@ class MusicCog(commands.Cog):
         if not session or not session.current:
             await interaction.response.send_message("現在沒有歌曲可以跳過。", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=not public, thinking=True)
         session.skip_requested = True
-        await session.player.stop()
-        await interaction.response.send_message("好，跳到下一首。", ephemeral=not public)
+        try:
+            await session.player.stop()
+            await interaction.followup.send("好，跳到下一首。", ephemeral=not public)
+        except Exception as exc:
+            session.skip_requested = False
+            print(f"[Music] 跳過歌曲失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("跳過失敗，請稍後再試。", ephemeral=True)
 
     @music.command(name=app_commands.locale_str("volume", zh_TW="音量"), description=app_commands.locale_str("設定音量 0 到 100", zh_TW="設定音量 0 到 100"))
     @app_commands.describe(value="音量百分比")
@@ -1064,9 +1096,14 @@ class MusicCog(commands.Cog):
         if not session:
             await interaction.response.send_message("目前沒有音樂工作階段。", ephemeral=True)
             return
-        session.volume = value
-        await session.player.set_volume(value)
-        await interaction.response.send_message(f"音量已調整為 **{value}%**。", ephemeral=not public)
+        await interaction.response.defer(ephemeral=not public, thinking=True)
+        try:
+            await session.player.set_volume(value)
+            session.volume = value
+            await interaction.followup.send(f"音量已調整為 **{value}%**。", ephemeral=not public)
+        except Exception as exc:
+            print(f"[Music] 音量調整失敗：{type(exc).__name__}: {exc}")
+            await interaction.followup.send("音量調整失敗，請稍後再試。", ephemeral=True)
 
     @music.command(name=app_commands.locale_str("loop", zh_TW="循環"), description=app_commands.locale_str("設定關閉、單曲或佇列循環", zh_TW="設定關閉、單曲或佇列循環"))
     @app_commands.describe(mode="循環模式")
@@ -1116,12 +1153,13 @@ class MusicCog(commands.Cog):
         if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
             await interaction.response.send_message("你先加入一個語音頻道。", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=not public, thinking=True)
         try:
             await self.ensure_player(interaction.guild, interaction.user.voice.channel, interaction.channel_id)
-            await interaction.response.send_message(f"我加入了 {interaction.user.voice.channel.mention}。", ephemeral=not public)
+            await interaction.followup.send(f"我加入了 {interaction.user.voice.channel.mention}。", ephemeral=not public)
         except Exception as exc:
             print(f"[Music] 加入語音失敗：{type(exc).__name__}: {exc}")
-            await interaction.response.send_message("加入語音失敗，請確認節點和 Bot 的語音權限。", ephemeral=True)
+            await interaction.followup.send("加入語音失敗，請確認節點和 Bot 的語音權限。", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
