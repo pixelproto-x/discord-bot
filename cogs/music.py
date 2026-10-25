@@ -57,7 +57,7 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 # Bound startup attempts, but allow a node that was successfully connected to
 # recover from later transient disconnects. Wavelink retries=0 permanently
 # closes a node after a disconnect, which is too brittle for public services.
-LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
+LAVALINK_CONNECT_TIMEOUT_SECONDS = 8
 MUSIC_SEARCH_TIMEOUT_SECONDS = 12
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
