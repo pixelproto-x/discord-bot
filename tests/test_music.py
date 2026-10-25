@@ -699,5 +699,71 @@ class MusicPlaybackFlowIntegrationTests(unittest.IsolatedAsyncioTestCase):
         player.set_volume.assert_awaited_once_with(80)
         player.play.assert_awaited_once_with(track)
 
+
+class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stale_queue_select_never_removes_a_different_track(self):
+        from types import SimpleNamespace
+
+        first = SimpleNamespace(title="First track", uri="https://example.com/first")
+        second = SimpleNamespace(title="Second track", uri="https://example.com/second")
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(player=SimpleNamespace(), queue=[first, second])
+        cog.sessions[12345] = session
+        select = music.MusicQueueSelect(cog, 12345, requester_id=77)
+        select._values = ["0"]
+
+        # Another interaction changes the queue after the menu was rendered.
+        session.queue.pop(0)
+        response = SimpleNamespace(send_message=AsyncMock())
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=77),
+            response=response,
+        )
+
+        await select.callback(interaction)
+
+        response.send_message.assert_awaited_once_with(
+            "清單已變動，請重新開啟控制台。",
+            ephemeral=True,
+        )
+        self.assertEqual(session.queue, [second])
+
+
+class MusicLoopRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_single_track_repeat_advances_to_waiting_queue(self):
+        from types import SimpleNamespace
+
+        current = SimpleNamespace(title="Current track")
+        queued = SimpleNamespace(title="Queued track")
+        player = SimpleNamespace(
+            guild=SimpleNamespace(id=54321),
+            play=AsyncMock(side_effect=[RuntimeError("repeat failed"), None]),
+        )
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(
+            player=player,
+            queue=[queued],
+            current=current,
+            loop_mode="one",
+        )
+        cog.sessions[54321] = session
+
+        await cog.on_wavelink_track_end(
+            SimpleNamespace(
+                player=player,
+                track=current,
+                original=current,
+                reason="FINISHED",
+            )
+        )
+
+        self.assertEqual(
+            [call.args[0] for call in player.play.await_args_list],
+            [current, queued],
+        )
+        self.assertIs(session.current, queued)
+        self.assertEqual(session.queue, [])
+
+
 if __name__ == "__main__":
     unittest.main()
