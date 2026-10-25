@@ -1,5 +1,6 @@
 import json
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -46,6 +47,29 @@ class BackupStoreTests(unittest.TestCase):
                 self.assertEqual(duplicate_key, key)
                 data = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(len(data["servers"]), 1)
+
+
+    def test_concurrent_stores_preserve_every_server_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "server_backups.json"
+            payloads = [
+                {"server_id": str(server_id), "server_name": f"server-{server_id}"}
+                for server_id in range(100, 124)
+            ]
+            with patch("cogs.hacks.BACKUP_PATH", path):
+                with ThreadPoolExecutor(max_workers=12) as executor:
+                    results = list(executor.map(Hacks._store_backup_payload, payloads))
+
+                self.assertTrue(all(saved for _, saved in results))
+                data = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(len(data["servers"]), len(payloads))
+                self.assertEqual(
+                    {item["server_id"] for item in data["servers"].values()},
+                    {item["server_id"] for item in payloads},
+                )
+                self.assertEqual(data["last_backup_key"], results[-1][0])
+                self.assertFalse(list(Path(tmp).glob("*.tmp")))
+                self.assertFalse(list(Path(tmp).glob(".*.tmp")))
 
 
 if __name__ == "__main__":
