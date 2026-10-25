@@ -31,6 +31,93 @@ def is_backup_apply_confirmed(value: str | None) -> bool:
     """Require an explicit confirmation phrase before destructive server restore."""
     return isinstance(value, str) and value.strip() == "RESTORE"
 
+_ROLE_INTEGER_FIELDS = ("permissions", "color", "position", "creation_order")
+_CHANNEL_INTEGER_FIELDS = (
+    "position", "slowmode_delay", "default_auto_archive_duration",
+    "default_thread_slowmode_delay", "bitrate", "user_limit",
+    "video_quality_mode", "default_sort_order", "default_layout",
+)
+
+def _normalize_backup_integers(item: dict, fields: tuple[str, ...]) -> bool:
+    for field in fields:
+        if field not in item or item[field] is None:
+            continue
+        try:
+            item[field] = int(item[field])
+        except (TypeError, ValueError, OverflowError):
+            return False
+    return True
+
+
+def validate_backup_payload(payload: object) -> str | None:
+    """Validate and normalize structures used after destructive restore begins."""
+    if not isinstance(payload, dict):
+        return "備份資料格式不正確。"
+    roles = payload.get("roles", [])
+    channels = payload.get("channels", [])
+    if not isinstance(roles, list) or not isinstance(channels, list):
+        return "備份資料中的身分組或頻道清單格式不正確。"
+    if any(not isinstance(item, dict) for item in roles):
+        return "備份中的身分組資料格式不正確，未修改伺服器。"
+    if any(not isinstance(item, dict) for item in channels):
+        return "備份中的頻道資料格式不正確，未修改伺服器。"
+    for role in roles:
+        if not isinstance(role.get("name"), str) or not role["name"].strip():
+            return "備份中有缺少名稱的身分組，未修改伺服器。"
+        if not _normalize_backup_integers(role, _ROLE_INTEGER_FIELDS):
+            return "備份中的身分組數值格式不正確，未修改伺服器。"
+    allowed_channel_types = {"category", "text", "announcement", "voice", "stage", "forum"}
+    for channel in channels:
+        if channel.get("type") not in allowed_channel_types:
+            return "備份中含有不支援的頻道類型，未修改伺服器。"
+        if not isinstance(channel.get("name"), str) or not channel["name"].strip():
+            return "備份中有缺少名稱的頻道，未修改伺服器。"
+        if not _normalize_backup_integers(channel, _CHANNEL_INTEGER_FIELDS):
+            return "備份中的頻道數值格式不正確，未修改伺服器。"
+        overwrites = channel.get("overwrites", [])
+        if not isinstance(overwrites, list) or any(not isinstance(item, dict) for item in overwrites):
+            return "備份中的頻道權限覆寫格式不正確，未修改伺服器。"
+        for overwrite in overwrites:
+            if not _normalize_backup_integers(overwrite, ("allow", "deny")):
+                return "備份中的頻道權限數值格式不正確，未修改伺服器。"
+        tags = channel.get("available_tags", [])
+        if not isinstance(tags, list) or any(not isinstance(item, dict) for item in tags):
+            return "備份中的論壇標籤格式不正確，未修改伺服器。"
+    for field in ("emojis", "stickers"):
+        values = payload.get(field, [])
+        if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+            return f"備份中的{field}資料格式不正確，未修改伺服器。"
+    settings = payload.get("guild_settings", {})
+    if not isinstance(settings, dict):
+        return "備份中的伺服器設定格式不正確，未修改伺服器。"
+    if not _normalize_backup_integers(
+        settings,
+        ("verification_level", "default_notifications", "explicit_content_filter",
+         "afk_timeout", "default_role_permissions", "system_channel_flags"),
+    ):
+        return "備份中的伺服器設定數值格式不正確，未修改伺服器。"
+    locale = settings.get("preferred_locale")
+    if locale is not None:
+        try:
+            settings["preferred_locale"] = discord.Locale(str(locale))
+        except (TypeError, ValueError):
+            return "備份中的伺服器語言格式不正確，未修改伺服器。"
+    return None
+
+
+def _convert_backup_setting(setting_name: str, value):
+    """Convert stored guild settings using the value type expected by discord.py."""
+    if setting_name == "preferred_locale":
+        return value if isinstance(value, discord.Locale) else discord.Locale(str(value))
+    converters = {
+        "verification_level": discord.VerificationLevel,
+        "default_notifications": discord.NotificationLevel,
+        "explicit_content_filter": discord.ContentFilter,
+    }
+    converter = converters.get(setting_name)
+    if converter is None:
+        raise ValueError(f"Unsupported guild setting: {setting_name}")
+    return converter(int(value))
 
 class Hacks(commands.Cog):
     def __init__(self, bot):
@@ -711,11 +798,12 @@ class Hacks(commands.Cog):
             if not isinstance(payload, dict):
                 await interaction.followup.send(f"找不到備份 Key：{backup_key}", ephemeral=True)
                 return
+            validation_error = validate_backup_payload(payload)
+            if validation_error:
+                await interaction.followup.send(validation_error, ephemeral=True)
+                return
             roles_data = payload.get("roles", [])
             channels_data = payload.get("channels", [])
-            if not isinstance(roles_data, list) or not isinstance(channels_data, list):
-                await interaction.followup.send("備份資料格式不正確，未刪除任何伺服器內容。", ephemeral=True)
-                return
 
             if not is_backup_apply_confirmed(confirm_text):
                 manageable_roles = sum(
@@ -967,18 +1055,16 @@ class Hacks(commands.Cog):
                         )
                     except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
                         pass
-                setting_converters = {
-                    "verification_level": discord.VerificationLevel,
-                    "default_notifications": discord.NotificationLevel,
-                    "explicit_content_filter": discord.ContentFilter,
-                    "preferred_locale": discord.Locale,
-                }
-                for setting_name, converter in setting_converters.items():
+                setting_names = (
+                    "verification_level", "default_notifications",
+                    "explicit_content_filter", "preferred_locale",
+                )
+                for setting_name in setting_names:
                     if setting_name not in guild_settings:
                         continue
                     try:
                         await guild.edit(
-                            **{setting_name: converter(int(guild_settings[setting_name]))},
+                            **{setting_name: _convert_backup_setting(setting_name, guild_settings[setting_name])},
                             reason=f"Restore server backup key {backup_key}",
                         )
                     except (discord.Forbidden, discord.HTTPException, TypeError, ValueError):
