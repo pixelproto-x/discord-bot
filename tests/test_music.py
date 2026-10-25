@@ -210,5 +210,105 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(guild.id, cog.local_audio_handoffs)
         self.assertNotIn(guild.id, cog.sessions)
 
+
+class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_youtube_load_failure_uses_soundcloud_fallback(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(
+            title="Test Track",
+            author="Test Artist",
+            source="youtube",
+            uri="https://www.youtube.com/watch?v=example",
+            extras={"requester_id": "7"},
+        )
+        fallback = SimpleNamespace(
+            title="Test Track",
+            author="Test Artist",
+            source="soundcloud",
+            uri="https://soundcloud.com/example/test-track",
+            extras={},
+        )
+        queued = SimpleNamespace(title="Next Song", source="youtube")
+        player = SimpleNamespace(guild=SimpleNamespace(id=9001), play=AsyncMock())
+        bot = SimpleNamespace(get_channel=lambda _channel_id: None)
+        cog = music.MusicCog(bot)
+        session = music.MusicSession(player=player, queue=[queued], current=song)
+        cog.sessions[9001] = session
+        payload = SimpleNamespace(player=player, track=song, original=song, reason="LOAD_FAILED")
+
+        with patch.object(
+            music.wavelink.Playable,
+            "search",
+            new=AsyncMock(return_value=[fallback]),
+        ) as search:
+            await cog.on_wavelink_track_end(payload)
+
+        search.assert_awaited_once_with("scsearch:Test Track Test Artist")
+        player.play.assert_awaited_once_with(fallback)
+        self.assertIs(session.current, fallback)
+        self.assertEqual(session.queue, [queued])
+        self.assertEqual(fallback.extras["requester_id"], "7")
+        self.assertEqual(fallback.extras["fallback_from"], "youtube")
+
+    async def test_failed_youtube_song_is_skipped_when_no_soundcloud_match_exists(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(
+            title="Unavailable Track",
+            author="Test Artist",
+            source="youtube",
+            uri="https://www.youtube.com/watch?v=unavailable",
+            extras={},
+        )
+        queued = SimpleNamespace(title="Next Song", source="youtube")
+        player = SimpleNamespace(guild=SimpleNamespace(id=9002), play=AsyncMock())
+        bot = SimpleNamespace(get_channel=lambda _channel_id: None)
+        cog = music.MusicCog(bot)
+        session = music.MusicSession(player=player, queue=[queued], current=song)
+        cog.sessions[9002] = session
+        payload = SimpleNamespace(player=player, track=song, original=song, reason="LOAD_FAILED")
+
+        with patch.object(
+            music.wavelink.Playable,
+            "search",
+            new=AsyncMock(return_value=[]),
+        ) as search:
+            await cog.on_wavelink_track_end(payload)
+
+        search.assert_awaited_once_with("scsearch:Unavailable Track Test Artist")
+        player.play.assert_awaited_once_with(queued)
+        self.assertIs(session.current, queued)
+        self.assertEqual(session.queue, [])
+
+    async def test_non_youtube_failure_skips_to_queue_without_soundcloud_search(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(
+            title="Broken SoundCloud Track",
+            author="Test Artist",
+            source="soundcloud",
+            uri="https://soundcloud.com/example/broken",
+            extras={},
+        )
+        queued = SimpleNamespace(title="Next Song", source="youtube")
+        player = SimpleNamespace(guild=SimpleNamespace(id=9003), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace(get_channel=lambda _channel_id: None))
+        session = music.MusicSession(player=player, queue=[queued], current=song)
+        cog.sessions[9003] = session
+        payload = SimpleNamespace(player=player, track=song, original=song, reason="LOAD_FAILED")
+
+        with patch.object(
+            music.wavelink.Playable,
+            "search",
+            new=AsyncMock(),
+        ) as search:
+            await cog.on_wavelink_track_end(payload)
+
+        search.assert_not_awaited()
+        player.play.assert_awaited_once_with(queued)
+        self.assertIs(session.current, queued)
+        self.assertEqual(session.queue, [])
+
 if __name__ == "__main__":
     unittest.main()
