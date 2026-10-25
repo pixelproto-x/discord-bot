@@ -124,6 +124,68 @@ class SpeechControlCog(commands.Cog):
         self.active_guilds: set[int] = set()
         self.temp_files: dict[int, str] = {}
         self.active_mics: dict[int, MicrophoneAudioSource] = {}
+        self._local_audio_reserved: set[int] = set()
+
+    async def prepare_local_audio(self, channel: discord.VoiceChannel):
+        """Claim the guild voice connection for TTS or real-time microphone input."""
+        guild = channel.guild
+        guild_id = guild.id
+        browser_cog = self.bot.get_cog("BrowserMicCog")
+        if (guild_id in self._local_audio_reserved or guild_id in self.active_guilds
+                or guild_id in self.active_mics
+                or (browser_cog and guild_id in getattr(browser_cog, "sources", {}))):
+            raise RuntimeError("這個伺服器已經有朗讀或麥克風串流正在執行。")
+        self._local_audio_reserved.add(guild_id)
+        music_cog = self.bot.get_cog("MusicCog")
+        try:
+            voice_client = guild.voice_client
+            if is_lavalink_player(voice_client):
+                if not music_cog or not hasattr(music_cog, "suspend_for_local_audio"):
+                    raise RuntimeError("音樂播放器目前無法安全切換成本機語音。")
+                await music_cog.suspend_for_local_audio(guild, channel)
+                voice_client = guild.voice_client
+            if voice_client and not is_lavalink_player(voice_client) and voice_is_connected(voice_client):
+                if voice_client.is_playing() or voice_client.is_paused():
+                    raise RuntimeError("Bot 正在播放其他本機音訊，請先停止後再試。")
+                if voice_client.channel != channel:
+                    await voice_client.move_to(channel)
+                return voice_client
+            if voice_client and not voice_is_connected(voice_client):
+                try:
+                    await voice_client.disconnect(force=True)
+                except Exception:
+                    pass
+            if is_lavalink_player(voice_client):
+                raise RuntimeError("音樂連線尚未釋放，請再試一次。")
+            return await channel.connect()
+        except Exception:
+            self._local_audio_reserved.discard(guild_id)
+            if music_cog and guild_id in getattr(music_cog, "local_audio_handoffs", {}):
+                try:
+                    await self.finish_local_audio(guild_id)
+                except Exception as restore_exc:
+                    print(f"[Speech] 語音切換失敗後恢復音樂失敗：{type(restore_exc).__name__}")
+            raise
+
+    def local_audio_started(self, guild_id: int) -> None:
+        self._local_audio_reserved.discard(guild_id)
+
+    async def finish_local_audio(self, guild_id: int) -> bool:
+        """Restore Lavalink only if the current local-audio session suspended it."""
+        self._local_audio_reserved.discard(guild_id)
+        music_cog = self.bot.get_cog("MusicCog")
+        if not music_cog or guild_id not in getattr(music_cog, "local_audio_handoffs", {}):
+            return False
+        guild = self.bot.get_guild(guild_id)
+        voice_client = guild.voice_client if guild else None
+        if voice_client and not is_lavalink_player(voice_client):
+            try:
+                if voice_is_connected(voice_client):
+                    await voice_client.disconnect(force=True)
+            except Exception as exc:
+                print(f"[Speech] 切回音樂前離開本機語音失敗：{type(exc).__name__}")
+                return False
+        return await music_cog.resume_after_local_audio(guild_id)
 
     def ffmpeg_executable(self):
         configured = os.getenv("FFMPEG_PATH", "").strip()
@@ -171,10 +233,7 @@ class SpeechControlCog(commands.Cog):
         guild = interaction.guild
         await interaction.response.defer(thinking=True, ephemeral=not public)
         voice_client = guild.voice_client
-        if is_lavalink_player(voice_client):
-            await interaction.followup.send("音樂目前由 Lavalink 管理；請先停止音樂並讓播放器離開語音頻道，再使用語音朗讀。", ephemeral=True)
-            return
-        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+        if voice_client and not is_lavalink_player(voice_client) and (voice_client.is_playing() or voice_client.is_paused()):
             await interaction.followup.send("我現在正在播放音訊。先用 /speech-stop 停止，再讓我講下一句。", ephemeral=True)
             return
 
@@ -185,12 +244,9 @@ class SpeechControlCog(commands.Cog):
             communicate = edge_tts.Communicate(text, DEFAULT_VOICE)
             await communicate.save(filename)
 
-            if not voice_is_connected(voice_client):
-                voice_client = await member.voice.channel.connect()
-            elif voice_client.channel != member.voice.channel:
-                await voice_client.move_to(member.voice.channel)
-
+            voice_client = await self.prepare_local_audio(member.voice.channel)
             self.active_guilds.add(guild.id)
+            self.local_audio_started(guild.id)
             self.temp_files[guild.id] = filename
             loop = asyncio.get_running_loop()
 
@@ -233,20 +289,7 @@ class SpeechControlCog(commands.Cog):
         guild = channel.guild
         voice_client = guild.voice_client
 
-        # Wavelink owns the guild voice connection when music has joined.
-        # It is not discord.VoiceClient and cannot play a local AudioSource.
-        try:
-            import wavelink
-            if isinstance(voice_client, wavelink.Player):
-                music_cog = self.bot.get_cog("MusicCog")
-                session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
-                if session and (session.current or session.queue or voice_client.playing):
-                    return False, "音樂播放器正在使用這個語音連線。請先停止音樂並清空待播佇列，再使用控制台語音朗讀。"
-                return False, "Bot 目前使用 Lavalink 音樂連線；它不能直接播放本機產生的朗讀音檔。請先讓音樂播放器離開語音頻道，再使用控制台語音朗讀。"
-        except ImportError:
-            pass
-
-        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+        if voice_client and not is_lavalink_player(voice_client) and (voice_client.is_playing() or voice_client.is_paused()):
             return False, "Bot 正在播放音樂或其他音訊；為避免打斷播放，請先停止目前音訊再朗讀。"
 
         me = guild.me
@@ -260,12 +303,9 @@ class SpeechControlCog(commands.Cog):
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
 
-            if not voice_is_connected(voice_client):
-                voice_client = await channel.connect()
-            elif voice_client.channel != channel:
-                await voice_client.move_to(channel)
-
+            voice_client = await self.prepare_local_audio(channel)
             self.active_guilds.add(guild.id)
+            self.local_audio_started(guild.id)
             self.temp_files[guild.id] = filename
             loop = asyncio.get_running_loop()
 
@@ -298,24 +338,16 @@ class SpeechControlCog(commands.Cog):
         if not ffmpeg:
             return "找不到 FFmpeg，請先安裝依賴或設定 FFMPEG_PATH。"
         voice_client = guild.voice_client
-        try:
-            import wavelink
-            if isinstance(voice_client, wavelink.Player):
-                return "目前音樂使用 Lavalink 連線，無法直接播放本機朗讀音檔。請先停止音樂播放器，再使用語音朗讀。"
-        except ImportError:
-            pass
-        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+        if voice_client and not is_lavalink_player(voice_client) and (voice_client.is_playing() or voice_client.is_paused()):
             return "我正在播放音訊；為避免打斷音樂或上一句，請先輸入 /stop。"
         filename = None
         try:
             with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
-            if not voice_is_connected(voice_client):
-                voice_client = await channel.connect()
-            elif voice_client.channel != channel:
-                await voice_client.move_to(channel)
+            voice_client = await self.prepare_local_audio(channel)
             self.active_guilds.add(guild.id)
+            self.local_audio_started(guild.id)
             self.temp_files[guild.id] = filename
             loop = asyncio.get_running_loop()
 
@@ -401,26 +433,12 @@ class SpeechControlCog(commands.Cog):
         if guild.id in self.active_mics:
             return "麥克風已經在傳送了。輸入 /stop 可停止。"
         voice_client = guild.voice_client
-        try:
-            import wavelink
-            if isinstance(voice_client, wavelink.Player):
-                return "目前語音連線由 Lavalink 音樂播放器管理，無法直接播放本機麥克風音訊。請先停止音樂並讓播放器離開語音頻道，再啟動麥克風。"
-        except ImportError:
-            pass
-        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
-            return "我正在播放其他音訊；請先輸入 /stop，確認沒有音樂播放後再啟動麥克風。"
-        music_cog = self.bot.get_cog("MusicCog")
-        session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
-        if session and (getattr(session, "current", None) or bool(getattr(session, "queue", None))):
-            return "這個伺服器的音樂播放器仍有歌曲，為避免打斷音樂，我不會接管語音。"
         source = None
         try:
-            if not voice_is_connected(voice_client):
-                voice_client = await channel.connect()
-            elif voice_client.channel != channel:
-                await voice_client.move_to(channel)
+            voice_client = await self.prepare_local_audio(channel)
             source = MicrophoneAudioSource()
             self.active_mics[guild.id] = source
+            self.local_audio_started(guild.id)
             loop = asyncio.get_running_loop()
 
             def after_microphone(error):
@@ -438,6 +456,8 @@ class SpeechControlCog(commands.Cog):
             print(f"[Mic] failed: {type(exc).__name__}: {exc}")
             if source:
                 await self._finish_mic(guild.id, source)
+            else:
+                await self.finish_local_audio(guild.id)
             if voice_client and not is_lavalink_player(voice_client) and source and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
             detail = str(exc).strip()
@@ -449,10 +469,12 @@ class SpeechControlCog(commands.Cog):
         current = self.active_mics.get(guild_id)
         if source is None:
             source = current
-        if source is not None:
-            source.cleanup()
+        if source is None:
+            return
+        source.cleanup()
         if current is source:
             self.active_mics.pop(guild_id, None)
+            await self.finish_local_audio(guild_id)
 
     async def stop_mic_from_terminal(self):
         stopped = False
@@ -484,6 +506,7 @@ class SpeechControlCog(commands.Cog):
                     await asyncio.sleep(0.25)
                 except OSError:
                     break
+        await self.finish_local_audio(guild_id)
 
     @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止一條魚正在唸的語音或麥克風", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
@@ -494,17 +517,7 @@ class SpeechControlCog(commands.Cog):
         guild = interaction.guild
         voice_client = guild.voice_client
         mic_source = self.active_mics.get(guild.id)
-        try:
-            import wavelink
-            if isinstance(voice_client, wavelink.Player):
-                await interaction.response.send_message(
-                    "目前語音連線由 Lavalink 音樂播放器管理；這個指令不能停止本機朗讀或麥克風音訊。",
-                    ephemeral=True,
-                )
-                return
-        except ImportError:
-            pass
-        if not voice_client or not (voice_client.is_playing() or voice_client.is_paused()) or (guild.id not in self.active_guilds and not mic_source):
+        if is_lavalink_player(voice_client) or not voice_client or not (voice_client.is_playing() or voice_client.is_paused()) or (guild.id not in self.active_guilds and not mic_source):
             await interaction.response.send_message("我現在沒有正在唸話或傳送麥克風。", ephemeral=True)
             return
         voice_client.stop()
