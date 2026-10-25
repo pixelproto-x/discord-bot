@@ -6,8 +6,10 @@ Live verification of public Lavalink search reliability, reduced music search la
 ## Live external test
 Added `scripts/check_public_lavalink.py` and `.github/workflows/lavalink-live-check.yml`. The workflow makes real authenticated Lavalink REST requests and verifies that `ytsearch:Daft Punk One More Time` returns actual track results; this is not a mocked test.
 
-- [Public Lavalink Live Smoke Test](https://github.com/pixelproto-x/discord-bot/actions/runs/40189262208): success.
-- Five independently listed public V4 nodes returned 20 search results each: TriniumHost V4 (HTTP 4333), TriniumHost V4 alternate (HTTP 2333), Nazha V4, Millohost V4, and Serenetia V4.
+- [Public Lavalink Live Smoke Test](https://github.com/pixelproto-x/discord-bot/actions/runs/40189432628): success; real HTTP search results confirmed for YouTube on 5/5 nodes, YouTube Music on 3/5, and SoundCloud on 2/5.
+- [Earlier five-node verification](https://github.com/pixelproto-x/discord-bot/actions/runs/40189262208): success.
+- Five independently listed public V4 nodes returned 20 YouTube search results each: TriniumHost V4 (HTTP 4333), TriniumHost V4 alternate (HTTP 2333), Nazha V4, Millohost V4, and Serenetia V4.
+- A broader live source matrix found YouTube Music results on 3/5 nodes and SoundCloud results on 2/5 nodes. This confirms the current source fallback can find a supporting node instead of assuming every endpoint supports every source.
 - Earlier exploratory checks found the TriniumHost SSL endpoint timing out and Jirayu V4 returning HTTP 500. Those endpoints were excluded from the default fallback list rather than treated as healthy.
 - Public nodes are community-operated and can change availability/credentials; this test verifies search only at the time of the run. It does not establish that voice playback will always work.
 
