@@ -946,7 +946,7 @@ class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(wavelink.Pool, "nodes", pool_nodes),
             patch.object(cog, "setup_nodes", new=AsyncMock()) as setup_nodes,
         ):
-            with self.assertRaisesRegex(RuntimeError, "再次嘗試連線"):
+            with self.assertRaisesRegex(RuntimeError, "確認節點設定"):
                 await cog.resolve_query("unavailable track")
 
         setup_nodes.assert_not_awaited()
