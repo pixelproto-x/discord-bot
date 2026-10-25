@@ -114,8 +114,8 @@ async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, 
             await websocket.close()
 
 
-async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
-    """Exercise the same Wavelink node/session/search path used by the bot."""
+async def check_wavelink_integration(node_config: tuple[str, str, str]) -> bool:
+    """Exercise every query source through Wavelink's actual Playable parser."""
     name, uri, password = node_config
 
     class SmokeClient:
@@ -133,11 +133,13 @@ async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
         retries=0,
         resume_timeout=0,
     )
+    checks: list[bool] = []
     try:
         await asyncio.wait_for(
             wavelink.Pool.connect(nodes=[node], client=node.client),
             timeout=10,
         )
+
         async def wait_for_ready() -> bool:
             while node.status is wavelink.NodeStatus.CONNECTING:
                 await asyncio.sleep(0.05)
@@ -151,25 +153,41 @@ async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
                 f"registered={registered_node is node}"
             )
             return False
-        tracks = await asyncio.wait_for(
-            wavelink.Playable.search(
-                "ytsearch:Daft Punk One More Time",
-                source=None,
-                node=node,
-            ),
-            timeout=TIMEOUT.total,
+
+        queries = (
+            ("ytsearch", "ytsearch:Daft Punk One More Time"),
+            ("ytmsearch", "ytmsearch:Daft Punk One More Time"),
+            ("scsearch", "scsearch:Daft Punk One More Time"),
+            ("youtube-url", DIRECT_URL),
         )
-        if not tracks:
-            print(f"FAIL {name} Wavelink integration: connected but no tracks were parsed")
-            return False
-        first = tracks[0]
-        title = str(getattr(first, "title", "unknown"))[:90]
-        uri_value = str(getattr(first, "uri", "") or "")
-        if not title or title == "unknown" or not uri_value.startswith("https://"):
-            print(f"FAIL {name} Wavelink integration: parsed track metadata is incomplete")
-            return False
-        print(f"PASS {name} Wavelink integration: parsed {len(tracks)} Playable objects; first={title!r}")
-        return True
+        for label, query in queries:
+            try:
+                result = await asyncio.wait_for(
+                    wavelink.Playable.search(query, source=None, node=node),
+                    timeout=TIMEOUT.total,
+                )
+                tracks = list(getattr(result, "tracks", result) or [])
+                if not tracks:
+                    print(f"FAIL {name} Wavelink {label}: no tracks parsed")
+                    checks.append(False)
+                    continue
+                first = tracks[0]
+                title = str(getattr(first, "title", "") or "")[:90]
+                uri_value = str(getattr(first, "uri", "") or "")
+                if not title or not uri_value.startswith("https://"):
+                    print(f"FAIL {name} Wavelink {label}: incomplete track metadata")
+                    checks.append(False)
+                    continue
+                print(
+                    f"PASS {name} Wavelink {label}: parsed {len(tracks)} Playable objects; "
+                    f"first={title!r}"
+                )
+                checks.append(True)
+            except (Exception, asyncio.TimeoutError) as exc:
+                print(f"FAIL {name} Wavelink {label}: {type(exc).__name__}: {str(exc)[:160]}")
+                checks.append(False)
+
+        return len(checks) == len(queries) and all(checks)
     except (Exception, asyncio.TimeoutError) as exc:
         print(f"FAIL {name} Wavelink integration: {type(exc).__name__}: {str(exc)[:160]}")
         return False
@@ -181,7 +199,6 @@ async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
         session = getattr(node, "_session", None)
         if session is not None and not session.closed:
             await session.close()
-
 
 async def main() -> int:
     connector = aiohttp.TCPConnector(limit=32, limit_per_host=3)
@@ -198,14 +215,14 @@ async def main() -> int:
         )
         websockets = await asyncio.gather(*(check_websocket(session, node) for node in NODES))
 
-    wavelink_checks = await asyncio.gather(*(check_wavelink_search(node) for node in NODES))
+    wavelink_checks = await asyncio.gather(*(check_wavelink_integration(node) for node in NODES))
 
     print(f"Lavalink configured-credential checks: {sum(auth)}/{len(NODES)} nodes returned real tracks.")
     for label, results in searches.items():
         print(f"Lavalink {label}: {sum(results)}/{len(NODES)} nodes returned real results.")
     print(f"Lavalink direct YouTube URL: {sum(direct_url)}/{len(NODES)} nodes resolved the URL.")
     print(f"Lavalink V4 WebSocket: {sum(websockets)}/{len(NODES)} nodes accepted the handshake.")
-    print(f"Wavelink client integration: {sum(wavelink_checks)}/{len(NODES)} nodes parsed real Playable tracks.")
+    print(f"Wavelink all-source integration: {sum(wavelink_checks)}/{len(NODES)} nodes passed ytsearch, ytmsearch, scsearch, and direct YouTube URL parsing.")
 
     required = {
         "password authentication": any(auth),
