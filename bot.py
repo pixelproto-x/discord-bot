@@ -1107,7 +1107,7 @@ def _start_companion_services():
     elif ai_runner is not None:
         try:
             subprocess.Popen(
-                ["cmd.exe", "/d", "/k", f'cd /d "{ai_dir}" && call run.bat'],
+                ["cmd.exe", "/d", "/k", "call", str(ai_runner)],
                 cwd=str(ai_dir),
                 creationflags=create_console,
             )
@@ -1123,10 +1123,7 @@ def _start_companion_services():
     elif economy_editor.is_file():
         try:
             subprocess.Popen(
-                [
-                    "cmd.exe", "/d", "/k",
-                    f'cd /d "{project_dir}" && "{sys.executable}" "economy_editor.py"',
-                ],
+                [sys.executable, str(economy_editor)],
                 cwd=str(project_dir),
                 creationflags=create_console,
             )
