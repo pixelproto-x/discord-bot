@@ -926,6 +926,11 @@ class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
             cog.last_node_setup_attempt = time.monotonic()
 
         with (
+            patch.object(music, "LAVALINK_NODES", ({
+                "identifier": "recovered",
+                "uri": "https://recovered.example",
+                "password": "x",
+            },)),
             patch.object(wavelink.Pool, "nodes", pool_nodes),
             patch.object(cog, "setup_nodes", new=AsyncMock(side_effect=reconnect)) as setup_nodes,
             patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[track])),
