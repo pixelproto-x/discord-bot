@@ -139,8 +139,14 @@ async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
             wavelink.Pool.connect(nodes=[node], client=node.client),
             timeout=10,
         )
+        async def wait_for_ready() -> bool:
+            while node.status is wavelink.NodeStatus.CONNECTING:
+                await asyncio.sleep(0.05)
+            return node.status is wavelink.NodeStatus.CONNECTED
+
+        ready = await asyncio.wait_for(wait_for_ready(), timeout=8)
         registered_node = wavelink.Pool.nodes.get(node.identifier)
-        if node.status is not wavelink.NodeStatus.CONNECTED or registered_node is not node:
+        if not ready or registered_node is not node:
             print(
                 f"FAIL {name} Wavelink integration: status={node.status}; "
                 f"registered={registered_node is node}"
