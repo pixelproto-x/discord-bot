@@ -165,7 +165,31 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [queued_song])
         restored_player.set_volume.assert_awaited_once_with(77)
         restored_player.play.assert_awaited_once_with(song, start=42000, paused=False)
+        music_channel.connect.assert_awaited_once_with(cls=type(restored_player), self_deaf=False)
         self.assertNotIn(guild.id, cog.local_audio_handoffs)
+
+    async def test_new_music_connection_does_not_self_deafen(self):
+        from types import SimpleNamespace
+
+        channel = SimpleNamespace()
+
+        class FakePlayer:
+            def __init__(self):
+                self.channel = channel
+                self.set_volume = AsyncMock()
+
+        player = FakePlayer()
+        channel.connect = AsyncMock(return_value=player)
+        guild = SimpleNamespace(id=321, voice_client=None)
+        cog = music.MusicCog(SimpleNamespace())
+
+        with patch.object(music.wavelink, "Player", FakePlayer):
+            session = await cog.ensure_player(guild, channel, text_channel_id=654)
+
+        channel.connect.assert_awaited_once_with(cls=FakePlayer, self_deaf=False)
+        self.assertIs(session.player, player)
+        self.assertEqual(session.text_channel_id, 654)
+
 
     async def test_track_end_during_handoff_does_not_consume_queue(self):
         from types import SimpleNamespace
