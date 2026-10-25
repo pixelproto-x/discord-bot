@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import re
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -58,6 +59,7 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 # recover from later transient disconnects. Wavelink retries=0 permanently
 # closes a node after a disconnect, which is too brittle for public services.
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 8
+LAVALINK_NODE_RETRY_COOLDOWN_SECONDS = 15
 MUSIC_SEARCH_TIMEOUT_SECONDS = 12
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
@@ -332,6 +334,8 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.sessions: dict[int, MusicSession] = {}
         self.locks = defaultdict(asyncio.Lock)
+        self.node_setup_lock = asyncio.Lock()
+        self.last_node_setup_attempt = 0.0
         self.local_audio_handoffs: dict[int, dict] = {}
         self.node_error: str | None = None
 
@@ -382,48 +386,61 @@ class MusicCog(commands.Cog):
         return True
 
     async def setup_nodes(self):
-        """建立音樂節點；失效公開節點只嘗試一次，避免重試刷屏。"""
-        if wavelink.Pool.nodes:
-            print("[Music] Lavalink 節點池已存在，略過重複初始化。")
-            return
+        """Connect usable Lavalink nodes and retry later if every node is down."""
+        async with self.node_setup_lock:
+            connected_now = [
+                node for node in wavelink.Pool.nodes.values()
+                if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
+            ]
+            if connected_now:
+                self.node_error = None
+                return
 
-        if not LAVALINK_NODES:
-            self.node_error = "尚未設定 Lavalink 節點；請在 .env 設定 LAVALINK_1_URI 與 LAVALINK_1_PASSWORD。"
-            print(f"[Music] {self.node_error}")
-            return
+            self.last_node_setup_attempt = time.monotonic()
+            # A node that exhausted its reconnect attempts may remain registered
+            # but disconnected. Eject stale nodes before recreating candidates.
+            for stale_node in list(wavelink.Pool.nodes.values()):
+                await self._discard_failed_node(stale_node)
 
-        # Wavelink 會把每個公開節點的連線失敗逐條寫入日誌。
-        # 降低其 logger 等級，只保留本函式下方的一行摘要。
-        logging.getLogger("wavelink").setLevel(logging.CRITICAL)
+            if not LAVALINK_NODES:
+                self.node_error = "尚未設定 Lavalink 節點；請在 .env 設定 LAVALINK_1_URI 與 LAVALINK_1_PASSWORD。"
+                print(f"[Music] {self.node_error}")
+                return
 
-        nodes = [
-            wavelink.Node(
-                identifier=config["identifier"],
-                uri=config["uri"],
-                password=config["password"],
-                inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
-                retries=3,
-            )
-            for config in LAVALINK_NODES
-        ]
+            # Wavelink logs each public-node failure. Keep the console summary
+            # concise; the bot's own diagnostics below report the final state.
+            logging.getLogger("wavelink").setLevel(logging.CRITICAL)
 
-        results = [False] * len(nodes)
-        try:
-            results = await asyncio.gather(*(self._connect_node_once(node) for node in nodes))
-        except Exception:
-            # 單一節點不可用時，不讓音樂服務影響 Discord Bot 啟動。
-            pass
+            nodes = [
+                wavelink.Node(
+                    identifier=config["identifier"],
+                    uri=config["uri"],
+                    password=config["password"],
+                    inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
+                    retries=3,
+                )
+                for config in LAVALINK_NODES
+            ]
 
-        connected = [node for node, succeeded in zip(nodes, results) if succeeded]
-        configured_count = len(nodes)
-        failed_count = max(0, configured_count - len(connected))
-        if connected:
-            self.node_error = None
-            print(f"[Music] 音樂節點可用：{len(connected)}/{configured_count}；已略過 {failed_count} 個失敗節點。")
-        else:
-            self.node_error = "目前沒有可用的 Lavalink 節點。"
-            print(f"[Music] 沒有可用音樂節點，已略過 {failed_count} 個失敗節點；機器人其他功能照常啟動。")
+            results = [False] * len(nodes)
+            try:
+                results = await asyncio.gather(*(self._connect_node_once(node) for node in nodes))
+            except Exception:
+                # A music-node outage must never prevent the rest of the bot starting.
+                pass
 
+            connected = [
+                node for node, succeeded in zip(nodes, results)
+                if succeeded and node.status is wavelink.NodeStatus.CONNECTED
+            ]
+            configured_count = len(nodes)
+            failed_count = max(0, configured_count - len(connected))
+            if connected:
+                self.node_error = None
+                print(f"[Music] 音樂節點可用：{len(connected)}/{configured_count}；已略過 {failed_count} 個失敗節點。")
+            else:
+                self.node_error = "目前沒有可用的 Lavalink 節點。"
+                print(f"[Music] 沒有可用音樂節點，已略過 {failed_count} 個失敗節點；機器人其他功能照常啟動。")
     async def cog_load(self):
         await self.setup_nodes()
 
@@ -613,8 +630,15 @@ class MusicCog(commands.Cog):
             for node in wavelink.Pool.nodes.values()
             if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
         )
+        if not nodes and time.monotonic() - self.last_node_setup_attempt >= LAVALINK_NODE_RETRY_COOLDOWN_SECONDS:
+            await self.setup_nodes()
+            nodes = tuple(
+                node
+                for node in wavelink.Pool.nodes.values()
+                if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
+            )
         if not nodes:
-            raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點。")
+            raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點；系統會在冷卻時間後再次嘗試連線。")
 
         is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
         if is_url:
