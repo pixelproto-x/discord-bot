@@ -432,18 +432,35 @@ class MusicCog(commands.Cog):
                     # A node that exhausted reconnect attempts may remain in the pool
                     # with a stale status; eject it before rebuilding the connection.
                     await self._discard_failed_node(existing)
-                nodes.append(
-                    wavelink.Node(
-                        identifier=config["identifier"],
-                        uri=config["uri"],
-                        password=config["password"],
-                        inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
-                        retries=3,
+                try:
+                    nodes.append(
+                        wavelink.Node(
+                            identifier=config["identifier"],
+                            uri=config["uri"],
+                            password=config["password"],
+                            inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
+                            retries=3,
+                        )
                     )
-                )
+                except Exception as exc:
+                    print(
+                        f"[Music] 節點設定無效：{config['identifier']} "
+                        f"({type(exc).__name__})"
+                    )
 
             if not nodes:
-                self.node_error = None
+                configured_ids = {config["identifier"] for config in LAVALINK_NODES}
+                connected_ids = {
+                    node.identifier
+                    for node in wavelink.Pool.nodes.values()
+                    if node.identifier in configured_ids
+                    and node.status is wavelink.NodeStatus.CONNECTED
+                }
+                if connected_ids:
+                    self.node_error = None
+                else:
+                    self.node_error = "目前沒有可用的 Lavalink 節點，請檢查節點 URI 與密碼。"
+                    print(f"[Music] {self.node_error}")
                 return
 
             self.last_node_setup_attempt = time.monotonic()
