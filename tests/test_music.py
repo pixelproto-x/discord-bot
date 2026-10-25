@@ -387,5 +387,95 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(session.current, queued)
         self.assertEqual(session.queue, [])
 
+class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        from types import SimpleNamespace
+
+        self.nodes = {
+            "limited": SimpleNamespace(identifier="limited", status=wavelink.NodeStatus.CONNECTED),
+            "healthy": SimpleNamespace(identifier="healthy", status=wavelink.NodeStatus.CONNECTED),
+        }
+        self.cog = music.MusicCog(object())
+
+    async def test_search_tries_another_connected_node_when_youtube_returns_empty(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="Found Track", source="youtube")
+        calls = []
+
+        async def search(identifier, *, node=None):
+            calls.append((identifier, node.identifier))
+            if identifier == "ytsearch:artist track" and node.identifier == "limited":
+                return []
+            if identifier == "ytsearch:artist track" and node.identifier == "healthy":
+                await asyncio.sleep(0.01)
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            result = await self.cog.resolve_query("artist track")
+
+        self.assertEqual(result, [track])
+        self.assertIn(("ytsearch:artist track", "limited"), calls)
+        self.assertIn(("ytsearch:artist track", "healthy"), calls)
+        self.assertFalse(any(identifier.startswith("scsearch:") for identifier, _ in calls))
+
+    async def test_soundcloud_is_searched_when_all_youtube_nodes_return_empty(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="SoundCloud Track", source="soundcloud")
+        calls = []
+
+        async def search(identifier, *, node=None):
+            calls.append((identifier, node.identifier))
+            if identifier.startswith("scsearch:") and node.identifier == "healthy":
+                await asyncio.sleep(0.01)
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            result = await self.cog.resolve_query("artist track")
+
+        self.assertEqual(result, [track])
+        self.assertIn(("ytsearch:artist track", "limited"), calls)
+        self.assertIn(("ytsearch:artist track", "healthy"), calls)
+        self.assertTrue(any(identifier == "scsearch:artist track" for identifier, _ in calls))
+
+    async def test_url_search_does_not_change_into_keyword_or_soundcloud_search(self):
+        from types import SimpleNamespace
+
+        url = "https://www.youtube.com/watch?v=example"
+        track = SimpleNamespace(title="URL Track", source="youtube")
+        calls = []
+
+        async def search(identifier, *, node=None):
+            calls.append((identifier, node.identifier))
+            if identifier == url and node.identifier == "healthy":
+                await asyncio.sleep(0.01)
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            result = await self.cog.resolve_query(url)
+
+        self.assertEqual(result, [track])
+        self.assertTrue(calls)
+        self.assertTrue(all(identifier == url for identifier, _ in calls))
+
+    async def test_search_fails_clearly_when_no_lavalink_node_is_connected(self):
+        with patch.object(wavelink.Pool, "nodes", {}):
+            with self.assertRaisesRegex(RuntimeError, "沒有已連線的 Lavalink"):
+                await self.cog.resolve_query("artist track")
+
+
 if __name__ == "__main__":
     unittest.main()
