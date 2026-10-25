@@ -114,9 +114,24 @@ def track_title(track) -> str:
     # Track metadata is untrusted; prevent mass/user/role mentions and
     # newline-based message-layout injection in bot-authored announcements.
     title = discord.utils.escape_mentions(title)
-    title = re.sub(r"<@([!&]?\\d+)>", lambda match: "<@\\u200b" + match.group(1) + ">", title)
+    title = re.sub(r"<@([!&]?\d+)>", lambda match: "<@\u200b" + match.group(1) + ">", title)
     return " ".join(title.split())
 
+
+def is_collection_url(value: str) -> bool:
+    """Return whether a supported URL identifies a playlist or album."""
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+
+    path = parsed.path.lower().rstrip("/")
+    if host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com"):
+        return bool(re.search(r"(?:^|&)list=", parsed.query, re.IGNORECASE)) or path == "/playlist"
+    if host == "spotify.com" or host.endswith(".spotify.com"):
+        return bool(re.match(r"^/(?:playlist|album)/", path))
+    return False
 
 def track_url(track) -> str:
     return str(getattr(track, "uri", None) or getattr(track, "url", None) or "")
@@ -929,7 +944,7 @@ class MusicCog(commands.Cog):
             count, started = await self.enqueue_tracks(
                 message.guild, message.author.voice.channel, message.channel.id, message.author.id, tracks
             )
-            is_playlist = "list=" in query.lower() or "playlist" in query.lower()
+            is_playlist = is_collection_url(query)
             if len(tracks) > count:
                 note = f"佇列已滿，只加入前 {count} 首。"
             elif is_playlist:
@@ -976,7 +991,7 @@ class MusicCog(commands.Cog):
                 await interaction.followup.send("找不到歌曲；如果是 Spotify，節點必須安裝支援 Spotify 的 LavaSrc 外掛。", ephemeral=not public)
                 return
             is_url = bool(re.match(r"^https?://", query, re.IGNORECASE))
-            is_playlist = is_url and ("list=" in query or "playlist" in query.lower())
+            is_playlist = is_url and is_collection_url(query)
             if not is_url:
                 view = MusicSearchView(self, tracks, interaction.user.id)
                 display_tracks = tracks[:25]
