@@ -456,7 +456,7 @@ class MusicCog(commands.Cog):
             configured_ids = {config["identifier"] for config in LAVALINK_NODES}
             connected_ids = {
                 node.identifier
-                for node in wavelink.Pool.nodes.values()
+                for node in (*nodes, *wavelink.Pool.nodes.values())
                 if node.identifier in configured_ids
                 and node.status is wavelink.NodeStatus.CONNECTED
             }
