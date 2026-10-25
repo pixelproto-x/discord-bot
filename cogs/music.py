@@ -68,6 +68,7 @@ class MusicSession:
     loop_mode: str = "off"
     skip_requested: bool = False
     text_channel_id: int | None = None
+    handoff: bool = False
 
 
 def normalize_query(query: str) -> tuple[str | None, str | None]:
@@ -285,6 +286,7 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self.sessions: dict[int, MusicSession] = {}
         self.locks = defaultdict(asyncio.Lock)
+        self.local_audio_handoffs: dict[int, dict] = {}
         self.node_error: str | None = None
 
     async def _discard_failed_node(self, node: wavelink.Node) -> None:
@@ -373,7 +375,105 @@ class MusicCog(commands.Cog):
     def get_session(self, guild_id: int) -> MusicSession | None:
         return self.sessions.get(guild_id)
 
+    async def suspend_for_local_audio(self, guild: discord.Guild, requested_channel=None) -> bool:
+        """Temporarily yield Lavalink's voice connection to local PCM/FFmpeg audio."""
+        guild_id = guild.id
+        async with self.locks[guild_id]:
+            if guild_id in self.local_audio_handoffs:
+                raise RuntimeError("這個伺服器已經有一段本機語音或麥克風正在使用語音連線。")
+            player = guild.voice_client
+            if not isinstance(player, wavelink.Player):
+                return False
+            session = self.sessions.get(guild_id)
+            if session and session.handoff:
+                raise RuntimeError("音訊連線正在切換，請稍後再試。")
+            track = (session.current if session else None) or getattr(player, "current", None)
+            state = {
+                "channel": getattr(player, "channel", None),
+                "track": track,
+                "position": max(0, int(getattr(player, "position", 0) or 0)),
+                "paused": bool(getattr(player, "paused", False)),
+                "volume": int(getattr(session, "volume", getattr(player, "volume", 80)) or 0),
+                "session": session,
+            }
+            if state["channel"] is None:
+                raise RuntimeError("找不到音樂播放器原本的語音頻道，無法安全切換音訊。")
+            self.local_audio_handoffs[guild_id] = state
+            if session:
+                session.handoff = True
+                if session.current is None and track is not None:
+                    session.current = track
+            try:
+                await player.disconnect(force=True)
+            except Exception:
+                self.local_audio_handoffs.pop(guild_id, None)
+                if session:
+                    session.handoff = False
+                raise
+            return True
+
+    async def resume_after_local_audio(self, guild_id: int) -> bool:
+        """Reconnect a fresh Lavalink Player and resume the saved track and queue."""
+        state = self.local_audio_handoffs.get(guild_id)
+        if not state:
+            return False
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            self.local_audio_handoffs.pop(guild_id, None)
+            return False
+        play_next_after_resume = False
+        async with self.locks[guild_id]:
+            state = self.local_audio_handoffs.get(guild_id)
+            if not state:
+                return False
+            session = state.get("session") or self.sessions.get(guild_id)
+            player = None
+            try:
+                existing = guild.voice_client
+                if existing and not isinstance(existing, wavelink.Player):
+                    if getattr(existing, "is_connected", lambda: False)():
+                        await existing.disconnect(force=True)
+                player = await state["channel"].connect(cls=wavelink.Player, self_deaf=True)
+                if session is None:
+                    session = MusicSession(player=player, volume=int(state.get("volume", 80)))
+                session.player = player
+                session.volume = int(state.get("volume", session.volume))
+                session.handoff = False
+                self.sessions[guild_id] = session
+                await player.set_volume(session.volume)
+                track = state.get("track")
+                if track is not None:
+                    session.current = track
+                    await player.play(track, start=max(0, int(state.get("position", 0))), paused=bool(state.get("paused", False)))
+                else:
+                    session.current = None
+                    play_next_after_resume = bool(session.queue)
+                self.local_audio_handoffs.pop(guild_id, None)
+            except Exception as exc:
+                if player is not None:
+                    try:
+                        await player.disconnect(force=True)
+                    except Exception:
+                        pass
+                self.local_audio_handoffs.pop(guild_id, None)
+                if session is not None:
+                    session.handoff = False
+                    track = state.get("track")
+                    if track is not None:
+                        if session.current is track:
+                            session.current = None
+                        if not any(item is track for item in session.queue):
+                            session.queue.insert(0, track)
+                    self.sessions[guild_id] = session
+                print(f"[Music] 本機語音結束後恢復音樂失敗：{type(exc).__name__}: {exc}")
+                return False
+        if play_next_after_resume:
+            await self.play_next(guild_id)
+        return True
+
     async def ensure_player(self, guild: discord.Guild, channel: discord.VoiceChannel | discord.StageChannel, text_channel_id: int) -> MusicSession:
+        if guild.id in self.local_audio_handoffs:
+            raise RuntimeError("目前正在播放本機語音或傳送麥克風，結束後才能播放音樂。")
         session = self.sessions.get(guild.id)
         voice_client = guild.voice_client
         if isinstance(voice_client, wavelink.Player):
@@ -465,7 +565,7 @@ class MusicCog(commands.Cog):
         guild_id = player.guild.id
         async with self.locks[guild_id]:
             session = self.sessions.get(guild_id)
-            if not session or session.player is not player:
+            if not session or session.player is not player or session.handoff:
                 return
             ended_track = session.current or getattr(payload, "track", None)
             reason = str(getattr(payload, "reason", "")).upper()
@@ -498,6 +598,9 @@ class MusicCog(commands.Cog):
 
     async def stop_player(self, guild_id: int):
         async with self.locks[guild_id]:
+            handoff = self.local_audio_handoffs.pop(guild_id, None)
+            if handoff and handoff.get("session"):
+                handoff["session"].handoff = False
             session = self.sessions.pop(guild_id, None)
             guild = self.bot.get_guild(guild_id)
             voice_client = guild.voice_client if guild else None
@@ -513,6 +616,9 @@ class MusicCog(commands.Cog):
                     await speech_cog._finish_mic(guild_id, mic_source)
                 if guild_id in getattr(speech_cog, "active_guilds", set()):
                     await speech_cog._cleanup(guild_id, getattr(speech_cog, "temp_files", {}).get(guild_id))
+            browser_mic_cog = self.bot.get_cog("BrowserMicCog")
+            if browser_mic_cog and guild_id in getattr(browser_mic_cog, "sources", {}):
+                await browser_mic_cog.stop_stream(guild_id)
             if voice_client and getattr(voice_client, "connected", True):
                 try:
                     await voice_client.disconnect(force=True)
