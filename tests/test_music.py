@@ -107,5 +107,108 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("1/2", output.getvalue())
 
 
+
+
+class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
+    async def test_music_resumes_at_saved_position_and_keeps_queue(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(title="Current song")
+        queued_song = SimpleNamespace(title="Queued song")
+        music_channel = SimpleNamespace()
+        local_channel = SimpleNamespace()
+
+        class FakePlayer:
+            def __init__(self, channel):
+                self.channel = channel
+                self.current = song
+                self.position = 42000
+                self.paused = False
+                self.volume = 77
+                self.connected = True
+                self.set_volume = AsyncMock()
+                self.play = AsyncMock()
+                self.disconnect = AsyncMock()
+
+        old_player = FakePlayer(music_channel)
+        restored_player = FakePlayer(music_channel)
+        guild = SimpleNamespace(id=123, voice_client=old_player)
+
+        async def disconnect_old(**kwargs):
+            guild.voice_client = None
+
+        old_player.disconnect.side_effect = disconnect_old
+        music_channel.connect = AsyncMock(return_value=restored_player)
+        bot = SimpleNamespace(get_guild=lambda guild_id: guild)
+        cog = music.MusicCog(bot)
+        session = music.MusicSession(
+            player=old_player,
+            queue=[queued_song],
+            current=song,
+            volume=77,
+            loop_mode="queue",
+        )
+        cog.sessions[guild.id] = session
+
+        with patch.object(music.wavelink, "Player", FakePlayer):
+            self.assertTrue(await cog.suspend_for_local_audio(guild, local_channel))
+            self.assertTrue(session.handoff)
+            self.assertIs(session.current, song)
+            self.assertEqual(session.queue, [queued_song])
+            old_player.disconnect.assert_awaited_once_with(force=True)
+
+            self.assertTrue(await cog.resume_after_local_audio(guild.id))
+
+        self.assertFalse(session.handoff)
+        self.assertIs(session.player, restored_player)
+        self.assertIs(session.current, song)
+        self.assertEqual(session.queue, [queued_song])
+        restored_player.set_volume.assert_awaited_once_with(77)
+        restored_player.play.assert_awaited_once_with(song, start=42000, paused=False)
+        self.assertNotIn(guild.id, cog.local_audio_handoffs)
+
+    async def test_track_end_during_handoff_does_not_consume_queue(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(title="Current song")
+        queued_song = SimpleNamespace(title="Queued song")
+        channel = SimpleNamespace()
+        player = SimpleNamespace(guild=SimpleNamespace(id=456), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace(get_guild=lambda guild_id: None))
+        session = music.MusicSession(player=player, queue=[queued_song], current=song, handoff=True)
+        cog.sessions[456] = session
+
+        payload = SimpleNamespace(player=player, track=song, reason="FINISHED")
+        await cog.on_wavelink_track_end(payload)
+
+        self.assertIs(session.current, song)
+        self.assertEqual(session.queue, [queued_song])
+        player.play.assert_not_awaited()
+
+
+
+    async def test_stop_during_handoff_disconnects_native_voice_client(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(title="Current song")
+        old_lavalink_player = SimpleNamespace(disconnect=AsyncMock())
+        native_voice_client = SimpleNamespace(connected=True, disconnect=AsyncMock())
+        guild = SimpleNamespace(id=789, voice_client=native_voice_client)
+        bot = SimpleNamespace(
+            get_guild=lambda guild_id: guild,
+            get_cog=lambda name: None,
+        )
+        cog = music.MusicCog(bot)
+        session = music.MusicSession(player=old_lavalink_player, current=song, handoff=True)
+        cog.sessions[guild.id] = session
+        cog.local_audio_handoffs[guild.id] = {"session": session, "track": song}
+
+        await cog.stop_player(guild.id)
+
+        native_voice_client.disconnect.assert_awaited_once_with(force=True)
+        old_lavalink_player.disconnect.assert_not_awaited()
+        self.assertNotIn(guild.id, cog.local_audio_handoffs)
+        self.assertNotIn(guild.id, cog.sessions)
+
 if __name__ == "__main__":
     unittest.main()
