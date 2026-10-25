@@ -550,5 +550,49 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(time.monotonic() - started, 0.5)
         self.assertIn("TimeoutError", output.getvalue())
 
+
+    async def test_stalled_searches_are_bounded_across_all_sources(self):
+        async def hanging_search(*args, **kwargs):
+            await asyncio.sleep(5)
+            return []
+
+        started = time.monotonic()
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music, "MUSIC_SEARCH_TIMEOUT_SECONDS", 0.02),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=hanging_search)) as search,
+            redirect_stdout(io.StringIO()),
+        ):
+            result = await self.cog.resolve_query("slow search")
+
+        self.assertEqual(result, [])
+        self.assertLess(time.monotonic() - started, 0.5)
+        identifiers = [call.args[0] for call in search.await_args_list]
+        self.assertTrue(any(item.startswith("ytsearch:") for item in identifiers))
+        self.assertTrue(any(item.startswith("ytmsearch:") for item in identifiers))
+        self.assertTrue(any(item.startswith("scsearch:") for item in identifiers))
+
+    async def test_healthy_node_wins_without_waiting_for_a_stalled_node(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="Fast result", source="youtube")
+
+        async def search(identifier, *, source=None, node=None):
+            if node.identifier == "limited":
+                await asyncio.sleep(5)
+                return []
+            return [track]
+
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music, "MUSIC_SEARCH_TIMEOUT_SECONDS", 0.02),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            started = time.monotonic()
+            result = await self.cog.resolve_query("fast result")
+
+        self.assertEqual(result, [track])
+        self.assertLess(time.monotonic() - started, 0.5)
+
 if __name__ == "__main__":
     unittest.main()
