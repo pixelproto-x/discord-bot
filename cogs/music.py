@@ -55,8 +55,9 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
 
 LAVALINK_NODES = _configured_lavalink_nodes()
 LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
-# A dead public node must never hold up the rest of the bot's startup. This
-# bounds the first websocket attempt; retries are disabled on every node below.
+# Bound startup attempts, but allow a node that was successfully connected to
+# recover from later transient disconnects. Wavelink retries=0 permanently
+# closes a node after a disconnect, which is too brittle for public services.
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
 MUSIC_SEARCH_TIMEOUT_SECONDS = 12
 SUPPORTED_URL_RE = re.compile(
@@ -194,10 +195,11 @@ class MusicQueueSelect(discord.ui.Select):
         self.guild_id = guild_id
         self.requester_id = requester_id
         session = cog.sessions.get(guild_id)
-        queue = list(session.queue) if session else []
+        queue = list(session.queue[:25]) if session else []
+        self.queue_snapshot = queue
         options = [
             discord.SelectOption(label=track_title(track)[:100], description=f"第 {index} 首 · {track_duration(track)}"[:100], value=str(index - 1))
-            for index, track in enumerate(queue[:25], 1)
+            for index, track in enumerate(queue, 1)
         ]
         super().__init__(placeholder="選擇要刪除的待播歌曲", min_values=1, max_values=1,
                          options=options or [discord.SelectOption(label="沒有待播歌曲", value="none")],
@@ -212,7 +214,11 @@ class MusicQueueSelect(discord.ui.Select):
             await interaction.response.send_message("目前沒有可刪除的待播歌曲。", ephemeral=True)
             return
         index = int(self.values[0])
-        if index >= len(session.queue):
+        if (
+            index >= len(session.queue)
+            or index >= len(self.queue_snapshot)
+            or session.queue[index] is not self.queue_snapshot[index]
+        ):
             await interaction.response.send_message("清單已變動，請重新開啟控制台。", ephemeral=True)
             return
         removed = session.queue.pop(index)
@@ -239,7 +245,7 @@ class MusicQueueView(discord.ui.View):
         session = self.cog.sessions.get(self.guild_id)
         content = self.cog.render_queue(session)
         if notice:
-            content = f"{notice}\\n\\n{content}"
+            content = f"{notice}\n\n{content}"
         await interaction.response.edit_message(content=content[:1900],
                                                 view=MusicQueueView(self.cog, self.guild_id, self.requester_id))
 
@@ -353,7 +359,7 @@ class MusicCog(commands.Cog):
                 uri=config["uri"],
                 password=config["password"],
                 inactive_player_timeout=LAVALINK_INACTIVE_PLAYER_TIMEOUT,
-                retries=0,
+                retries=3,
             )
             for config in LAVALINK_NODES
         ]
@@ -804,6 +810,15 @@ class MusicCog(commands.Cog):
                     except Exception as exc:
                         print(f"[Music] 單曲循環失敗：{exc!r}")
                         session.current = None
+                        if session.queue:
+                            next_track = session.queue.pop(0)
+                            session.current = next_track
+                            try:
+                                await player.play(next_track)
+                            except Exception as next_exc:
+                                print(f"[Music] 單曲循環失敗後播放下一首也失敗：{next_exc!r}")
+                                session.current = None
+                                asyncio.create_task(self.play_next(guild_id))
                     return
                 if session.loop_mode == "queue":
                     session.queue.append(ended_track)
