@@ -548,5 +548,26 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(selected_node is node for _, selected_node in calls))
 
 
+    async def test_track_failure_soundcloud_fallback_reaches_lavalink_with_exact_prefix(self):
+        from types import SimpleNamespace
+
+        failed_track = SimpleNamespace(title="Artist Track", author="Band", source="youtube")
+        fallback = SimpleNamespace(title="Artist Track", author="Band", source="soundcloud")
+        node = SimpleNamespace(identifier="only-node", status=wavelink.NodeStatus.CONNECTED)
+        calls = []
+
+        async def fetch_tracks(query, /, *, node=None):
+            calls.append((query, node))
+            return [fallback] if query == "scsearch:Artist Track Band" else []
+
+        with (
+            patch.object(wavelink.Pool, "fetch_tracks", new=AsyncMock(side_effect=fetch_tracks)),
+        ):
+            result = await self.cog._find_soundcloud_fallback(failed_track)
+
+        self.assertIs(result, fallback)
+        self.assertEqual([query for query, _ in calls], ["scsearch:Artist Track Band"])
+        self.assertIs(calls[0][1], None) if calls[0][1] is None else self.assertEqual(calls[0][1].identifier, node.identifier)
+
 if __name__ == "__main__":
     unittest.main()
