@@ -70,6 +70,7 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("cogs.history._snapshot_attachments", new=AsyncMock(side_effect=delayed_archive)) as archive:
             await self.history.on_message(message)
+            await asyncio.gather(*list(self.history._attachment_tasks))
 
         self.assertEqual(archive.await_count, 1)
         self.assertTrue(self.store.has_deleted(message.id))
@@ -93,6 +94,7 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
                     cached_message=message,
                 )
             )
+            await asyncio.gather(*list(self.history._attachment_tasks))
 
         self.assertEqual(archive.await_count, 1)
         self.assertTrue(self.store.has_deleted(message.id))
@@ -105,6 +107,7 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(return_value=self.archived_attachment()),
         ) as archive:
             await self.history.on_message_delete(message)
+            await asyncio.gather(*list(self.history._attachment_tasks))
 
         archive.assert_awaited_once_with(message)
         deleted = self.store.get_deleted(message.guild.id)
