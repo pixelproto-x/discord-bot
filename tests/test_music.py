@@ -567,7 +567,7 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(result, fallback)
         self.assertEqual([query for query, _ in calls], ["scsearch:Artist Track Band"])
-        self.assertIs(calls[0][1], None) if calls[0][1] is None else self.assertEqual(calls[0][1].identifier, node.identifier)
+        self.assertIsNone(calls[0][1])
 
 if __name__ == "__main__":
     unittest.main()
