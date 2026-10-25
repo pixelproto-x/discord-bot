@@ -435,8 +435,8 @@ class MusicCog(commands.Cog):
                 pass
 
             connected = [
-                node for node, succeeded in zip(nodes, results)
-                if succeeded and node.status is wavelink.NodeStatus.CONNECTED
+                node for node in nodes
+                if node.status is wavelink.NodeStatus.CONNECTED
             ]
             configured_count = len(nodes)
             failed_count = max(0, configured_count - len(connected))
