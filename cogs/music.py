@@ -656,7 +656,7 @@ class MusicCog(commands.Cog):
                 if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
             )
         if not nodes:
-            raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點；系統會在冷卻時間後再次嘗試連線。")
+            raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點，請確認節點設定並稍後再試。")
 
         is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
         if is_url:
