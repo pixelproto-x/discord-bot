@@ -8,7 +8,6 @@ import wavelink
 NODES = (
     ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
     ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
-    ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
 )
 SEARCHES = (
     ("ytsearch", "ytsearch:Daft Punk One More Time"),
