@@ -273,6 +273,32 @@ class Hacks(commands.Cog):
         temp_path.replace(BACKUP_PATH)
 
     @staticmethod
+    def _store_backup_payload(payload):
+        """Persist one backup without overwriting another concurrent /sync result."""
+        database = Hacks._read_database()
+        server_id = str(payload.get("server_id", ""))
+        server_name = payload.get("server_name")
+        for saved_key, saved_payload in database["servers"].items():
+            if not isinstance(saved_payload, dict):
+                continue
+            if (
+                (server_id and str(saved_payload.get("server_id", "")) == server_id)
+                or (
+                    not saved_payload.get("server_id")
+                    and saved_payload.get("server_name") == server_name
+                )
+            ):
+                return saved_key, False
+
+        key = secrets.token_hex(4)
+        while key in database["servers"]:
+            key = secrets.token_hex(4)
+        database["servers"][key] = payload
+        database["last_backup_key"] = key
+        Hacks._write_database(database)
+        return key, True
+
+    @staticmethod
     def _overwrite_to_json(overwrites):
         result = []
         for target, overwrite in overwrites.items():
@@ -611,12 +637,13 @@ class Hacks(commands.Cog):
                 await self._serialize_role(role, index)
                 for index, role in enumerate(eligible_roles)
             ]
-            key = secrets.token_hex(4)
-            while key in database["servers"]:
-                key = secrets.token_hex(4)
-            database["servers"][key] = payload
-            database["last_backup_key"] = key
-            self._write_database(database)
+            key, stored = self._store_backup_payload(payload)
+            if not stored:
+                await interaction.followup.send(
+                    f"這個伺服器已經備份過了，為避免重複備份不會再次儲存。現有密鑰：\n```{key}```",
+                    ephemeral=True,
+                )
+                return
             await interaction.followup.send(
                 f"{guild.name}：\n備份密鑰（長按即可複製）：\n```{key}```",
                 ephemeral=True,
