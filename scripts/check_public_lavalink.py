@@ -11,6 +11,18 @@ import aiohttp
 
 
 NODES = (
+    ("stackryze-v4", "http://188.245.207.225:2333", "youshallnotpass"),
+    ("itzrandom-v4", "http://node.itzrandom.cloud:9000", "lavalink@itzrandomcloud"),
+    ("horizxon-sg-v4", "https://v4.lavalink.rocks:443", "horizxon.tech"),
+    ("catfein-id-v4", "http://lava.catfein.com:4000", "catfein"),
+    ("catfein-de-v4", "https://lavalink.alfari.id:443", "catfein"),
+    ("meww-v4", "http://n2.meww.me:2555", "meww.me"),
+    ("rudracloud-v4", "http://lavalink.rudracloud.com:2333", "RudraCloud.com"),
+    ("akshat-v4", "https://lava.akshat.tech:443", "admin"),
+    ("paradisehost-v4", "http://node1.paradisehost.xyz:27185", "Lavalinkhoster123"),
+    ("nyc-jxshua-v4", "http://nyc01.jxshua.dev:4000", "youshallnotpass"),
+    ("koi-v4", "http://lavav4.prplmoe.me:1118", "prplmoe.me"),
+    ("techbyte-v4", "http://lavahatry4.techbyte.host:3000", "NAIGLAVA-dash.techbyte.host"),
     ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
     ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
     ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
