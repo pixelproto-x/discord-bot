@@ -31,11 +31,15 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
             print(f"[Music] LAVALINK_{index}_URI 和 LAVALINK_{index}_PASSWORD 必須一起設定。")
             continue
         identifier = os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}"
+        normalized_uri = uri.rstrip("/").lower()
         if identifier in seen_identifiers:
             print(f"[Music] 重複的 Lavalink 節點識別碼 {identifier}，略過 LAVALINK_{index}。")
             continue
+        if normalized_uri in seen_uris:
+            print(f"[Music] 重複的 Lavalink 節點網址 {uri}，略過 LAVALINK_{index}。")
+            continue
         nodes.append({"identifier": identifier, "uri": uri, "password": password})
-        seen_uris.add(uri.rstrip("/").lower())
+        seen_uris.add(normalized_uri)
         seen_identifiers.add(identifier)
 
     # Public fallbacks verified with live ytsearch requests. These services are
