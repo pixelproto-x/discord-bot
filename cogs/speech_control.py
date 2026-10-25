@@ -493,9 +493,28 @@ class SpeechControlCog(commands.Cog):
         return "已停止即時麥克風傳送。" if stopped else "目前沒有正在傳送的麥克風。"
 
     async def _cleanup(self, guild_id: int, filename: str | None):
-        self.active_guilds.discard(guild_id)
         current = self.temp_files.get(guild_id)
-        if current == filename:
+        owns_active_tts = bool(filename and current == filename)
+
+        # A delayed callback or a failed second request must never clean up a
+        # different TTS session that currently owns this guild's voice connection.
+        if current is not None and current != filename:
+            if filename:
+                try:
+                    Path(filename).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return
+        if current is None and guild_id in self.active_guilds and not owns_active_tts:
+            if filename:
+                try:
+                    Path(filename).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return
+
+        if owns_active_tts:
+            self.active_guilds.discard(guild_id)
             self.temp_files.pop(guild_id, None)
         if filename:
             for _ in range(10):
@@ -506,7 +525,8 @@ class SpeechControlCog(commands.Cog):
                     await asyncio.sleep(0.25)
                 except OSError:
                     break
-        await self.finish_local_audio(guild_id)
+        if owns_active_tts:
+            await self.finish_local_audio(guild_id)
 
     @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止一條魚正在唸的語音或麥克風", zh_TW="停止 LogRelay 正在唸的語音（主人專用）"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
