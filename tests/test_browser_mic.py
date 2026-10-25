@@ -1,6 +1,28 @@
 import unittest
+from unittest.mock import AsyncMock
 
 from cogs.browser_mic import BrowserMicAudioSource, BrowserMicCog
+from web_dashboard import _serve_browser_mic_websocket
+
+
+class BrowserMicWebSocketCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_websocket_upgrade_still_stops_microphone_stream(self):
+        class FailedUpgradeSocket:
+            async def prepare(self, request):
+                raise RuntimeError("simulated websocket upgrade failure")
+
+        speech = type("Speech", (), {})()
+        speech.stop_stream = AsyncMock(return_value=True)
+
+        with self.assertRaisesRegex(RuntimeError, "simulated websocket upgrade failure"):
+            await _serve_browser_mic_websocket(
+                object(),
+                speech,
+                123,
+                FailedUpgradeSocket(),
+            )
+
+        speech.stop_stream.assert_awaited_once_with(123)
 
 
 class BrowserMicAudioSourceTests(unittest.TestCase):
