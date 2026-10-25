@@ -46,7 +46,7 @@ class DashboardJSONBodyTests(unittest.IsolatedAsyncioTestCase):
                     await _read_json_object(Request())
 
 
-class DashboardSingleTabTests(unittest.TestCase):
+class DashboardLocalStorageTabTests(unittest.TestCase):
     def test_dashboard_replaces_older_control_tabs_from_same_origin(self):
         self.assertIn('const CONTROL_TAB_KEY="yitiaoyu-control-active-tab";', PAGE)
         self.assertIn('window.addEventListener("storage"', PAGE)
@@ -55,7 +55,7 @@ class DashboardSingleTabTests(unittest.TestCase):
         self.assertIn('window.addEventListener("pagehide",releaseControlTab,{once:true})', PAGE)
 
 
-class DashboardSingleTabTests(unittest.TestCase):
+class DashboardServiceWorkerTabTests(unittest.TestCase):
     def test_dashboard_retires_existing_tabs_including_uncontrolled_tabs(self):
         self.assertIn('navigator.serviceWorker.register("/dashboard-tab-manager.js"', PAGE)
         self.assertIn('type:"takeover-dashboard-tabs"', PAGE)
