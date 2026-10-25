@@ -210,6 +210,20 @@ class SpeechControlCog(commands.Cog):
 
         guild = channel.guild
         voice_client = guild.voice_client
+
+        # Wavelink owns the guild voice connection when music has joined.
+        # It is not discord.VoiceClient and cannot play a local AudioSource.
+        try:
+            import wavelink
+            if isinstance(voice_client, wavelink.Player):
+                music_cog = self.bot.get_cog("MusicCog")
+                session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
+                if session and (session.current or session.queue or voice_client.playing):
+                    return False, "音樂播放器正在使用這個語音連線。請先停止音樂並清空待播佇列，再使用控制台語音朗讀。"
+                return False, "Bot 目前使用 Lavalink 音樂連線；它不能直接播放本機產生的朗讀音檔。請先讓音樂播放器離開語音頻道，再使用控制台語音朗讀。"
+        except ImportError:
+            pass
+
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             return False, "Bot 正在播放音樂或其他音訊；為避免打斷播放，請先停止目前音訊再朗讀。"
 
