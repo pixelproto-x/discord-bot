@@ -173,6 +173,7 @@ class MusicSearchButton(discord.ui.Button):
         if not member.voice or not member.voice.channel:
             await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
             return
+        voice_channel = member.voice.channel
         # Acknowledge the component interaction before any Lavalink/network work;
         # Discord expires unacknowledged interactions after a short deadline.
         try:
@@ -182,7 +183,7 @@ class MusicSearchButton(discord.ui.Button):
         try:
             count, started = await self.cog.enqueue_tracks(
                 interaction.guild,
-                member.voice.channel,
+                voice_channel,
                 interaction.channel_id,
                 member.id,
                 [self.track],
@@ -968,13 +969,14 @@ class MusicCog(commands.Cog):
         if not message.author.voice or not message.author.voice.channel:
             await message.reply("你先加入語音頻道，我才知道要在哪裡播。", mention_author=False)
             return
+        voice_channel = message.author.voice.channel
         try:
             tracks = await self.resolve_query(query)
             if not tracks:
                 await message.reply("找不到這個歌曲或網址，可能是節點不支援這個來源。", mention_author=False)
                 return
             count, started = await self.enqueue_tracks(
-                message.guild, message.author.voice.channel, message.channel.id, message.author.id, tracks
+                message.guild, voice_channel, message.channel.id, message.author.id, tracks
             )
             is_playlist = is_collection_url(query)
             if len(tracks) > count:
@@ -1012,6 +1014,7 @@ class MusicCog(commands.Cog):
         if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
             return
+        voice_channel = interaction.user.voice.channel
         query, error = normalize_query(query)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
@@ -1037,7 +1040,7 @@ class MusicCog(commands.Cog):
                 return
             selected_tracks = tracks if is_playlist else tracks[:1]
             count, started = await self.enqueue_tracks(
-                interaction.guild, interaction.user.voice.channel, interaction.channel_id, interaction.user.id, selected_tracks
+                interaction.guild, voice_channel, interaction.channel_id, interaction.user.id, selected_tracks
             )
             if len(selected_tracks) > count:
                 suffix = f"（佇列上限已到，只加入前 {count} 首）"
@@ -1205,13 +1208,14 @@ class MusicCog(commands.Cog):
     @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def join_voice(self, interaction: discord.Interaction, public: bool = True):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
+        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.response.send_message("你先加入一個語音頻道。", ephemeral=True)
             return
+        voice_channel = interaction.user.voice.channel
         await interaction.response.defer(ephemeral=not public, thinking=True)
         try:
-            await self.ensure_player(interaction.guild, interaction.user.voice.channel, interaction.channel_id)
-            await interaction.followup.send(f"我加入了 {interaction.user.voice.channel.mention}。", ephemeral=not public)
+            await self.ensure_player(interaction.guild, voice_channel, interaction.channel_id)
+            await interaction.followup.send(f"我加入了 {voice_channel.mention}。", ephemeral=not public)
         except Exception as exc:
             print(f"[Music] 加入語音失敗：{type(exc).__name__}: {exc}")
             await interaction.followup.send("加入語音失敗，請確認節點和 Bot 的語音權限。", ephemeral=True)
