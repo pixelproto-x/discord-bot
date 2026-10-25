@@ -97,6 +97,7 @@ class BrowserMicCog(commands.Cog):
         speech_cog = self.bot.get_cog("SpeechControlCog")
         vc = guild.voice_client
         claimed = False
+        source: BrowserMicAudioSource | None = None
         try:
             if speech_cog and hasattr(speech_cog, "prepare_local_audio"):
                 vc = await speech_cog.prepare_local_audio(channel)
@@ -130,11 +131,19 @@ class BrowserMicCog(commands.Cog):
             return True, f"已連接「{channel.name}」，等待瀏覽器麥克風。", self.issue_ticket(guild.id)
         except discord.Forbidden:
             self.sources.pop(guild.id, None)
+            if source is not None:
+                source.cleanup()
+                if vc and getattr(vc, "source", None) is source:
+                    vc.stop()
             if claimed:
                 await speech_cog.finish_local_audio(guild.id)
             return False, "Discord 拒絕 Bot 連線，請檢查頻道權限。", None
         except Exception as exc:
             self.sources.pop(guild.id, None)
+            if source is not None:
+                source.cleanup()
+                if vc and getattr(vc, "source", None) is source:
+                    vc.stop()
             if claimed:
                 await speech_cog.finish_local_audio(guild.id)
             print(f"[Browser mic] start failed: {type(exc).__name__}: {exc}")
