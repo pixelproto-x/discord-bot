@@ -95,6 +95,12 @@ class BrowserMicCog(commands.Cog):
         if guild.id in self.sources:
             return False, "目前已有瀏覽器麥克風串流，請先停止再重新開始。", None
         vc = guild.voice_client
+        try:
+            import wavelink
+            if isinstance(vc, wavelink.Player):
+                return False, "目前語音連線由 Lavalink 音樂播放器管理，無法直接播放瀏覽器傳來的本機音訊。請先停止音樂並讓播放器離開語音頻道，再啟動麥克風。", None
+        except ImportError:
+            pass
         if vc and (vc.is_playing() or vc.is_paused()):
             return False, "Bot 正在播放音樂或其他音訊，請先停止播放再使用麥克風。", None
         try:
@@ -127,8 +133,14 @@ class BrowserMicCog(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         if not source:
             return False
-        if guild and guild.voice_client and (guild.voice_client.is_playing() or guild.voice_client.is_paused()):
-            guild.voice_client.stop()
+        if guild and guild.voice_client:
+            try:
+                import wavelink
+                is_wavelink = isinstance(guild.voice_client, wavelink.Player)
+            except ImportError:
+                is_wavelink = False
+            if not is_wavelink and (guild.voice_client.is_playing() or guild.voice_client.is_paused()):
+                guild.voice_client.stop()
         source.cleanup()
         return True
 
