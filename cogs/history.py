@@ -45,7 +45,7 @@ async def _archive_attachment(attachment: discord.Attachment) -> str | None:
     """Copy an attachment to GoFile before the original Discord message disappears."""
     temp_path = None
     try:
-        timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=180)
+        timeout = aiohttp.ClientTimeout(total=120, connect=15, sock_read=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(str(attachment.url)) as response:
                 response.raise_for_status()
@@ -469,6 +469,19 @@ class History(commands.Cog):
         self.bot = bot
         self.store = HistoryStore()
         self._delete_locks: dict[int, asyncio.Lock] = {}
+        self._attachment_tasks: set[asyncio.Task] = set()
+
+    async def _archive_and_update_attachments(self, message: discord.Message) -> None:
+        try:
+            archived_attachments = await _snapshot_attachments(message)
+            self.store.update_attachments(message.id, archived_attachments)
+        except Exception:
+            logger.exception("附件封存背景工作失敗：%s", message.id)
+
+    def _schedule_attachment_archive(self, message: discord.Message) -> None:
+        task = asyncio.create_task(self._archive_and_update_attachments(message))
+        self._attachment_tasks.add(task)
+        task.add_done_callback(self._attachment_tasks.discard)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -489,10 +502,10 @@ class History(commands.Cog):
         }
         try:
             # Persist before network I/O so a fast deletion cannot beat the snapshot.
+            # Attachment downloads/uploads run in the background so message handling stays responsive.
             self.store.remember(record)
             if message.attachments:
-                archived_attachments = await _snapshot_attachments(message)
-                self.store.update_attachments(message.id, archived_attachments)
+                self._schedule_attachment_archive(message)
         except Exception:
             logger.exception("保存訊息歷史失敗：%s", message.id)
 
@@ -534,10 +547,12 @@ class History(commands.Cog):
                 "author_name": str(message.author.display_name or message.author.name),
                 "author_avatar_url": str(message.author.display_avatar.url),
                 "content": message.content or "",
-                "attachments": await _snapshot_attachments(message),
+                "attachments": _initial_attachment_snapshot(message),
                 "created_at": message.created_at.timestamp(),
             }
-            self.store.mark_deleted(message_id, fallback)
+            inserted = self.store.mark_deleted(message_id, fallback)
+            if inserted and message.attachments:
+                self._schedule_attachment_archive(message)
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
