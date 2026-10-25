@@ -427,9 +427,8 @@ class MusicCog(commands.Cog):
                 for config in LAVALINK_NODES
             ]
 
-            results = [False] * len(nodes)
             try:
-                results = await asyncio.gather(*(self._connect_node_once(node) for node in nodes))
+                await asyncio.gather(*(self._connect_node_once(node) for node in nodes))
             except Exception:
                 # A music-node outage must never prevent the rest of the bot starting.
                 pass
