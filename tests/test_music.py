@@ -989,5 +989,27 @@ class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fresh.status, wavelink.NodeStatus.CONNECTED)
         self.assertIsNone(cog.node_error)
 
+
+class MusicQueueRenderingTests(unittest.TestCase):
+    def test_large_queue_shows_the_controllable_tracks_and_remaining_count(self):
+        from types import SimpleNamespace
+
+        tracks = [
+            SimpleNamespace(title=f"Track {index:02}", length=1000)
+            for index in range(30)
+        ]
+        cog = music.MusicCog(object())
+        session = music.MusicSession(
+            player=SimpleNamespace(paused=False),
+            queue=tracks,
+        )
+
+        rendered = cog.render_queue(session)
+        self.assertIn("Track 00", rendered)
+        self.assertIn("Track 24", rendered)
+        self.assertNotIn("Track 25", rendered)
+        self.assertIn("其餘 5 首仍保留在清單", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()
