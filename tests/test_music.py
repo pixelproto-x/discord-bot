@@ -793,9 +793,6 @@ class MusicLoopRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_replacing_disconnected_player_preserves_track_queue_and_settings(self):
@@ -845,3 +842,6 @@ class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.loop_mode, "queue")
         restored_player.play.assert_awaited_once_with(interrupted)
         restored_player.set_volume.assert_awaited_once_with(37)
+
+if __name__ == "__main__":
+    unittest.main()
