@@ -59,6 +59,7 @@ class HistoryEndToEndTests(unittest.IsolatedAsyncioTestCase):
         }]
         with patch("cogs.history._snapshot_attachments", new=AsyncMock(return_value=gofile)) as upload:
             await self.cog.on_message(message)
+            await asyncio.gather(*list(self.cog._attachment_tasks))
             snapshot = self.store.get_snapshot(message.id)
             self.assertIsNotNone(snapshot, "Message snapshot should be committed before deletion")
             self.assertEqual(snapshot["author_name"], "Original Display Name")
