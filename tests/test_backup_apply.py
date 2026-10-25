@@ -4,9 +4,30 @@ import discord
 
 from cogs.hacks import (
     _convert_backup_setting,
+    _ordinary_backup_channels,
     is_backup_apply_confirmed,
     validate_backup_payload,
 )
+
+
+class BackupOrdinaryChannelSelectionTests(unittest.TestCase):
+    def test_announcement_channels_are_included_in_restore_queue(self):
+        channels = [
+            {"type": "category", "name": "category"},
+            {"type": "text", "name": "general"},
+            {"type": "announcement", "name": "news"},
+            {"type": "voice", "name": "voice"},
+            {"type": "stage", "name": "stage"},
+            {"type": "forum", "name": "forum"},
+            {"type": "unsupported", "name": "unknown"},
+        ]
+
+        restored = _ordinary_backup_channels(channels)
+
+        self.assertEqual(
+            [item["type"] for item in restored],
+            ["text", "announcement", "voice", "stage", "forum"],
+        )
 
 
 class BackupApplyConfirmationTests(unittest.TestCase):
