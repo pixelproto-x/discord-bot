@@ -843,5 +843,32 @@ class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
         restored_player.play.assert_awaited_once_with(interrupted)
         restored_player.set_volume.assert_awaited_once_with(37)
 
+
+    async def test_recovery_keeps_duplicate_song_uri_as_a_separate_queue_entry(self):
+        from types import SimpleNamespace
+
+        interrupted = SimpleNamespace(title="Same song", uri="https://youtube.com/watch?v=same")
+        queued_duplicate = SimpleNamespace(title="Same song", uri="https://youtube.com/watch?v=same")
+
+        class FakePlayer:
+            def __init__(self):
+                self.channel = None
+                self.set_volume = AsyncMock()
+
+        player = FakePlayer()
+        guild = SimpleNamespace(id=98766, voice_client=None)
+        channel = SimpleNamespace(connect=AsyncMock(return_value=player))
+        player.channel = channel
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(player=FakePlayer(), queue=[queued_duplicate], current=interrupted)
+        cog.sessions[guild.id] = session
+
+        with patch.object(music.wavelink, "Player", FakePlayer):
+            restored = await cog.ensure_player(guild, channel, 556)
+
+        self.assertIs(restored, session)
+        self.assertIsNone(session.current)
+        self.assertEqual(session.queue, [interrupted, queued_duplicate])
+
 if __name__ == "__main__":
     unittest.main()
