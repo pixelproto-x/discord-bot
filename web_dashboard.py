@@ -554,27 +554,33 @@ async def start_dashboard(bot):
 
     async def send_voice_message(request):
         try:
-            data = await _read_json_object(request)
-            channel_id = int(data.get("channel_id", ""))
-            content = str(data.get("content", "")).strip()
-        except (ValueError, TypeError):
-            return _json_error("語音房間或文字格式錯誤。")
-        channel = bot.get_channel(channel_id)
-        if not isinstance(channel, discord.VoiceChannel):
-            return _json_error("找不到指定的語音房間。", 404)
-        if not content or len(content) > 500:
-            return _json_error("朗讀內容不能空白，且最多 500 字。")
-        me = channel.guild.me
-        perms = channel.permissions_for(me) if me else None
-        if not perms or not perms.view_channel or not perms.connect or not perms.speak:
-            return _json_error("Bot 在這個語音房間需要「查看頻道」、「連線」和「說話」權限。", 403)
-        speech = bot.get_cog("SpeechControlCog")
-        if not speech:
-            return _json_error("語音朗讀模組尚未載入。", 503)
-        ok, result = await speech.speak_to_channel(channel, content)
-        if not ok:
-            return _json_error(result, 409)
-        return web.json_response({"message": result})
+            try:
+                data = await _read_json_object(request)
+                channel_id = int(data.get("channel_id", ""))
+                content = str(data.get("content", "")).strip()
+            except (ValueError, TypeError):
+                return _json_error("語音房間或文字格式錯誤。")
+            channel = bot.get_channel(channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                return _json_error("找不到指定的語音房間，請重新載入控制台後再選一次。", 404)
+            if not content or len(content) > 500:
+                return _json_error("朗讀內容不能空白，且最多 500 字。")
+            me = channel.guild.me
+            perms = channel.permissions_for(me) if me else None
+            if not perms or not perms.view_channel or not perms.connect or not perms.speak:
+                return _json_error("Bot 在這個語音房間需要「查看頻道」、「連線」和「說話」權限。", 403)
+            speech = bot.get_cog("SpeechControlCog")
+            if not speech:
+                return _json_error("語音朗讀模組尚未載入，請重新啟動 Bot。", 503)
+            ok, result = await speech.speak_to_channel(channel, content)
+            if not ok:
+                return _json_error(result, 409)
+            return web.json_response({"message": result})
+        except Exception as exc:
+            import traceback
+            print(f"[Dashboard TTS] /api/send-voice 未處理例外：{type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            return _json_error("控制台語音朗讀發生內部錯誤，詳細原因已記錄在啟動 Bot 的終端機。", 500)
 
     async def start_browser_mic(request):
         try:
