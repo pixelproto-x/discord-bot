@@ -94,20 +94,26 @@ class BrowserMicCog(commands.Cog):
             return False, "Bot 在這個語音頻道需要查看頻道、連線和說話權限。", None
         if guild.id in self.sources:
             return False, "目前已有瀏覽器麥克風串流，請先停止再重新開始。", None
+        speech_cog = self.bot.get_cog("SpeechControlCog")
         vc = guild.voice_client
+        claimed = False
         try:
-            import wavelink
-            if isinstance(vc, wavelink.Player):
-                return False, "目前語音連線由 Lavalink 音樂播放器管理，無法直接播放瀏覽器傳來的本機音訊。請先停止音樂並讓播放器離開語音頻道，再啟動麥克風。", None
-        except ImportError:
-            pass
-        if vc and (vc.is_playing() or vc.is_paused()):
-            return False, "Bot 正在播放音樂或其他音訊，請先停止播放再使用麥克風。", None
-        try:
-            if not vc or not vc.is_connected():
-                vc = await channel.connect()
-            elif vc.channel != channel:
-                await vc.move_to(channel)
+            if speech_cog and hasattr(speech_cog, "prepare_local_audio"):
+                vc = await speech_cog.prepare_local_audio(channel)
+                claimed = True
+            else:
+                try:
+                    import wavelink
+                    if isinstance(vc, wavelink.Player):
+                        return False, "音樂播放器目前無法切換成本機麥克風，請先更新語音控制模組。", None
+                except ImportError:
+                    pass
+                if vc and (vc.is_playing() or vc.is_paused()):
+                    return False, "Bot 正在播放音樂或其他音訊，請先停止播放再使用麥克風。", None
+                if not vc or not vc.is_connected():
+                    vc = await channel.connect()
+                elif vc.channel != channel:
+                    await vc.move_to(channel)
             source = BrowserMicAudioSource()
             self.sources[guild.id] = source
             loop = asyncio.get_running_loop()
@@ -116,15 +122,21 @@ class BrowserMicCog(commands.Cog):
                 if error:
                     print(f"[Browser mic] playback error: {type(error).__name__}: {error}")
                 if not loop.is_closed():
-                    loop.call_soon_threadsafe(self.sources.pop, guild.id, None)
+                    asyncio.run_coroutine_threadsafe(self.stop_stream(guild.id), loop)
 
             vc.play(source, after=after_playback)
+            if claimed:
+                speech_cog.local_audio_started(guild.id)
             return True, f"已連接「{channel.name}」，等待瀏覽器麥克風。", self.issue_ticket(guild.id)
         except discord.Forbidden:
             self.sources.pop(guild.id, None)
+            if claimed:
+                await speech_cog.finish_local_audio(guild.id)
             return False, "Discord 拒絕 Bot 連線，請檢查頻道權限。", None
         except Exception as exc:
             self.sources.pop(guild.id, None)
+            if claimed:
+                await speech_cog.finish_local_audio(guild.id)
             print(f"[Browser mic] start failed: {type(exc).__name__}: {exc}")
             return False, "無法啟動麥克風串流，請確認 Bot 的語音連線正常。", None
 
@@ -142,6 +154,9 @@ class BrowserMicCog(commands.Cog):
             if not is_wavelink and (guild.voice_client.is_playing() or guild.voice_client.is_paused()):
                 guild.voice_client.stop()
         source.cleanup()
+        speech_cog = self.bot.get_cog("SpeechControlCog")
+        if speech_cog and hasattr(speech_cog, "finish_local_audio"):
+            await speech_cog.finish_local_audio(guild_id)
         return True
 
     def feed_frame(self, guild_id: int, data: bytes) -> bool:
