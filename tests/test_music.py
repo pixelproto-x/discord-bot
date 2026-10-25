@@ -475,6 +475,8 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
             "healthy": SimpleNamespace(identifier="healthy", status=wavelink.NodeStatus.CONNECTED),
         }
         self.cog = music.MusicCog(object())
+        # Keep search-unit tests isolated from the live reconnect path.
+        self.cog.last_node_setup_attempt = time.monotonic()
 
     async def test_search_tries_another_connected_node_when_youtube_returns_empty(self):
         from types import SimpleNamespace
