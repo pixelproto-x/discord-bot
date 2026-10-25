@@ -434,7 +434,7 @@ class MusicCog(commands.Cog):
                 if existing and not isinstance(existing, wavelink.Player):
                     if getattr(existing, "is_connected", lambda: False)():
                         await existing.disconnect(force=True)
-                player = await state["channel"].connect(cls=wavelink.Player, self_deaf=True)
+                player = await state["channel"].connect(cls=wavelink.Player, self_deaf=False)
                 if session is None:
                     session = MusicSession(player=player, volume=int(state.get("volume", 80)))
                 session.player = player
@@ -484,7 +484,7 @@ class MusicCog(commands.Cog):
                     raise RuntimeError("我正在其他語音頻道播放音樂，不能直接切換。")
                 await player.move_to(channel)
         else:
-            player = await channel.connect(cls=wavelink.Player, self_deaf=True)
+            player = await channel.connect(cls=wavelink.Player, self_deaf=False)
         if session is None or session.player is not player:
             session = MusicSession(player=player)
             self.sessions[guild.id] = session
