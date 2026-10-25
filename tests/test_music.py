@@ -103,6 +103,36 @@ class MusicTrackDisplayTests(unittest.TestCase):
         self.assertIn("Song title", title)
 
 
+class MusicNodeConfigTests(unittest.TestCase):
+    def test_configured_nodes_deduplicate_identifiers_and_uris(self):
+        env = {
+            "LAVALINK_1_URI": "https://custom.example",
+            "LAVALINK_1_PASSWORD": "first",
+            "LAVALINK_1_IDENTIFIER": "nazha-v4",
+            "LAVALINK_2_URI": "https://custom.example/",
+            "LAVALINK_2_PASSWORD": "second",
+            "LAVALINK_2_IDENTIFIER": "duplicate-uri",
+            "LAVALINK_3_URI": "https://third.example",
+            "LAVALINK_3_PASSWORD": "third",
+            "LAVALINK_3_IDENTIFIER": "custom-third",
+        }
+
+        def fake_getenv(key, default=""):
+            return env.get(key, default)
+
+        with (
+            patch.object(music.os, "getenv", side_effect=fake_getenv),
+            redirect_stdout(io.StringIO()),
+        ):
+            nodes = music._configured_lavalink_nodes()
+
+        identifiers = [node["identifier"] for node in nodes]
+        uris = [node["uri"].rstrip("/").lower() for node in nodes]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        self.assertEqual(len(uris), len(set(uris)))
+        self.assertEqual(nodes[0]["uri"], "https://custom.example")
+
+
 class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_nodes_are_bounded_and_do_not_block_a_healthy_node(self):
         class FakeNode:
