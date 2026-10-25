@@ -767,6 +767,9 @@ class MusicPlaybackFlowIntegrationTests(unittest.IsolatedAsyncioTestCase):
         player.channel = channel
         guild = SimpleNamespace(id=987654, voice_client=None)
         cog = music.MusicCog(SimpleNamespace())
+        # This integration test supplies its own connected node; do not trigger
+        # an unrelated live reconnect for the default public-node identifiers.
+        cog.last_node_setup_attempt = time.monotonic()
         searches = []
 
         async def search(identifier, *, source=None, node=None):
