@@ -516,9 +516,10 @@ class MusicCog(commands.Cog):
             session.handoff = False
             session.skip_requested = False
             if interrupted_track is not None:
+                # Repeated plays of the same URI are valid queue entries;
+                # only avoid reinserting the exact same track object.
                 already_queued = any(
-                    self._tracks_match(queued_track, interrupted_track)
-                    for queued_track in session.queue
+                    queued_track is interrupted_track for queued_track in session.queue
                 )
                 if not already_queued:
                     session.queue.insert(0, interrupted_track)
