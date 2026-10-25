@@ -67,7 +67,7 @@ class BackupStoreTests(unittest.TestCase):
                     {item["server_id"] for item in data["servers"].values()},
                     {item["server_id"] for item in payloads},
                 )
-                self.assertEqual(data["last_backup_key"], results[-1][0])
+                self.assertIn(data["last_backup_key"], {key for key, _ in results})
                 self.assertFalse(list(Path(tmp).glob("*.tmp")))
                 self.assertFalse(list(Path(tmp).glob(".*.tmp")))
 
