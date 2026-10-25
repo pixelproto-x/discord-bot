@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/check_public_lavalink.py"
+      - "cogs/music.py"
       - ".github/workflows/lavalink-live-check.yml"
   workflow_dispatch:
 
