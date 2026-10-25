@@ -53,6 +53,7 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 # A dead public node must never hold up the rest of the bot's startup. This
 # bounds the first websocket attempt; retries are disabled on every node below.
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
+MUSIC_SEARCH_TIMEOUT_SECONDS = 8
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
     re.IGNORECASE,
@@ -494,22 +495,70 @@ class MusicCog(commands.Cog):
             pass
         return session
 
+    async def _search_nodes(self, identifier: str, nodes: tuple) -> list:
+        """Search connected Lavalink nodes concurrently and use the first non-empty result."""
+        async def search_node(node):
+            try:
+                result = await asyncio.wait_for(
+                    wavelink.Playable.search(identifier, node=node),
+                    timeout=MUSIC_SEARCH_TIMEOUT_SECONDS,
+                )
+                if not result:
+                    return []
+                return list(getattr(result, "tracks", result) or [])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                node_name = str(getattr(node, "identifier", "unknown"))
+                source_name = identifier.partition(":")[0] if ":" in identifier else "URL"
+                print(
+                    f"[Music] 搜尋節點失敗：node={node_name}, source={source_name}, "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return []
+
+        tasks = [asyncio.create_task(search_node(node)) for node in nodes]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                tracks = await completed
+                if tracks:
+                    return tracks
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return []
+
     async def resolve_query(self, query: str) -> list:
         value, error = normalize_query(query)
         if error:
             raise ValueError(error)
         assert value is not None
-        is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
-        identifier = value if is_url else f"ytsearch:{value}"
-        result = await wavelink.Playable.search(identifier)
-        if not result:
-            return []
-        if hasattr(result, "tracks"):
-            tracks = list(result.tracks)
-        else:
-            tracks = list(result)
 
-        # 歌名搜尋回傳候選歌曲供使用者選擇；網址則保留單曲／播放清單行為。
+        nodes = tuple(
+            node
+            for node in wavelink.Pool.nodes.values()
+            if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
+        )
+        if not nodes:
+            raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點。")
+
+        is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
+        if is_url:
+            # Resolve links on every connected node, but never reinterpret a URL as a keyword.
+            return await self._search_nodes(value, nodes)
+
+        # Public Lavalink nodes can return an empty YouTube search when that source is
+        # rate-limited. Try every connected node before falling back to SoundCloud search.
+        tracks = await self._search_nodes(f"ytsearch:{value}", nodes)
+        if tracks:
+            return tracks
+
+        print("[Music] YouTube 搜尋沒有結果，正在改查 SoundCloud。")
+        tracks = await self._search_nodes(f"scsearch:{value}", nodes)
+        if not tracks:
+            print(f"[Music] YouTube 與 SoundCloud 都沒有搜尋結果：{value[:80]}")
         return tracks
 
     async def enqueue_tracks(
