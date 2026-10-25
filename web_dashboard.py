@@ -406,6 +406,7 @@ def _dashboard_content_security_policy():
     return (
         "default-src 'self'; "
         "script-src " + (script_source or "'none'") + "; "
+        "worker-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "connect-src 'self' ws: wss:; "
         "img-src 'self' data: blob:; "
