@@ -1,16 +1,20 @@
-"""Live smoke test for the public Lavalink V4 fallback nodes.
+"""Live smoke test for configured public Lavalink nodes and community candidates.
 
-This intentionally checks the same ytsearch REST path used by Wavelink without
-requiring Discord credentials or connecting a bot to a voice channel.
+The active nodes mirror cogs/music.py. Candidate nodes are diagnostic only and
+must never make the configured production fallback check pass by themselves.
 """
 import asyncio
-import os
-from urllib.parse import quote
 
 import aiohttp
 
 
-NODES = (
+ACTIVE_NODES = (
+    ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
+    ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
+    ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
+    ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
+)
+CANDIDATE_NODES = (
     ("stackryze-v4", "http://188.245.207.225:2333", "youshallnotpass"),
     ("itzrandom-v4", "http://node.itzrandom.cloud:9000", "lavalink@itzrandomcloud"),
     ("horizxon-sg-v4", "https://v4.lavalink.rocks:443", "horizxon.tech"),
@@ -25,15 +29,11 @@ NODES = (
     ("techbyte-v4", "http://lavahatry4.techbyte.host:3000", "NAIGLAVA-dash.techbyte.host"),
     ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
     ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
-    ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
-    ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
-    ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
-    ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
 )
 QUERIES = (
-    ("ytsearch", "ytsearch:Daft Punk One More Time", True),
-    ("ytmsearch", "ytmsearch:Daft Punk One More Time", False),
-    ("scsearch", "scsearch:Daft Punk One More Time", False),
+    ("ytsearch", "ytsearch:Daft Punk One More Time"),
+    ("ytmsearch", "ytmsearch:Daft Punk One More Time"),
+    ("scsearch", "scsearch:Daft Punk One More Time"),
 )
 TIMEOUT = aiohttp.ClientTimeout(total=12, connect=5, sock_read=8)
 
@@ -103,27 +103,47 @@ async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, 
 
 
 async def main() -> int:
-    connector = aiohttp.TCPConnector(limit_per_host=3)
+    all_nodes = ACTIVE_NODES + CANDIDATE_NODES
+    connector = aiohttp.TCPConnector(limit=64, limit_per_host=3)
     async with aiohttp.ClientSession(connector=connector) as session:
         checks = {
             source_name: await asyncio.gather(
-                *(check_source(session, node, source_name, query) for node in NODES)
+                *(check_source(session, node, source_name, query) for node in all_nodes)
             )
-            for source_name, query, _required in QUERIES
+            for source_name, query in QUERIES
         }
         websocket_checks = await asyncio.gather(
-            *(check_websocket(session, node) for node in NODES)
+            *(check_websocket(session, node) for node in all_nodes)
         )
+
+    active_count = len(ACTIVE_NODES)
     for source_name, results in checks.items():
-        print(f"Live Lavalink {source_name}: {sum(results)}/{len(NODES)} nodes returned real search results.")
-    print(f"Live Lavalink WebSocket: {sum(websocket_checks)}/{len(NODES)} nodes accepted the V4 handshake.")
-    required_sources = {name for name, _query, required in QUERIES if required}
-    missing = sorted(name for name in required_sources if not any(checks[name]))
-    if missing:
-        print(f"ERROR: no configured public Lavalink node returned results for required source(s): {', '.join(missing)}")
+        active_results = results[:active_count]
+        candidate_results = results[active_count:]
+        print(
+            f"Lavalink {source_name}: active={sum(active_results)}/{active_count}; "
+            f"candidates={sum(candidate_results)}/{len(candidate_results)} returned real search results."
+        )
+    active_websockets = websocket_checks[:active_count]
+    candidate_websockets = websocket_checks[active_count:]
+    print(
+        f"Lavalink V4 WebSocket: active={sum(active_websockets)}/{active_count}; "
+        f"candidates={sum(candidate_websockets)}/{len(candidate_websockets)} accepted the handshake."
+    )
+
+    failures = [
+        source_name
+        for source_name, results in checks.items()
+        if not any(results[:active_count])
+    ]
+    if failures:
+        print(
+            "ERROR: configured active Lavalink nodes returned no results for: "
+            + ", ".join(failures)
+        )
         return 1
-    if not any(websocket_checks):
-        print("ERROR: no configured public Lavalink node accepted a V4 WebSocket handshake.")
+    if not any(active_websockets):
+        print("ERROR: no configured active Lavalink node accepted a V4 WebSocket handshake.")
         return 1
     return 0
 
