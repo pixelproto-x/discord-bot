@@ -423,6 +423,7 @@ class MusicCog(commands.Cog):
                 print(f"[Music] {self.node_error}")
                 return
 
+            self.last_node_setup_attempt = time.monotonic()
             nodes = []
             for config in LAVALINK_NODES:
                 existing = wavelink.Pool.nodes.get(config["identifier"])
@@ -463,7 +464,6 @@ class MusicCog(commands.Cog):
                     print(f"[Music] {self.node_error}")
                 return
 
-            self.last_node_setup_attempt = time.monotonic()
             # Wavelink logs each public-node failure. Keep the console summary
             # concise; the bot's own diagnostics below report the final state.
             logging.getLogger("wavelink").setLevel(logging.CRITICAL)
