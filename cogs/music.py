@@ -32,15 +32,15 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         nodes.append({"identifier": identifier, "uri": uri, "password": password})
         seen_uris.add(uri.rstrip("/").lower())
 
-    # Public fallback nodes currently listed by TriniumHost. Public nodes can
-    # change availability or credentials; configure your own nodes above for reliability.
+    # Public fallbacks verified with live ytsearch requests. These services are
+    # community-operated and can change availability or credentials at any time.
+    # Configure private nodes above for predictable production reliability.
     public_nodes = (
-        # TriniumHost publishes these nodes as online, but individual source lookups
-        # can still time out. Keep independent endpoints available as fallbacks.
-        ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
         ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
-        ("triniumhost-nodelink", "https://nodelink.triniumhost.indevs.in:443", "free"),
         ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
+        ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
+        ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
+        ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
     )
     for identifier, uri, password in public_nodes:
         normalized_uri = uri.rstrip("/").lower()
@@ -57,7 +57,7 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 # A dead public node must never hold up the rest of the bot's startup. This
 # bounds the first websocket attempt; retries are disabled on every node below.
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 3
-MUSIC_SEARCH_TIMEOUT_SECONDS = 15
+MUSIC_SEARCH_TIMEOUT_SECONDS = 12
 SUPPORTED_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
     re.IGNORECASE,
