@@ -21,39 +21,46 @@ USER_AGENT = "discord-bot-lavalink-smoke-test/1.1"
 
 
 async def check_auth(session: aiohttp.ClientSession, node: tuple[str, str, str]) -> bool:
+    """Test a valid credential and reject an invalid one on a protected route."""
     name, base_url, password = node
-    url = f"{base_url.rstrip('/')}/v4/info"
+    url = f"{base_url.rstrip('/')}/v4/loadtracks"
+    headers = {"User-Agent": USER_AGENT}
     try:
         async with session.get(
             url,
-            headers={"Authorization": password, "User-Agent": USER_AGENT},
+            params={"identifier": "ytsearch:Daft Punk One More Time"},
+            headers={**headers, "Authorization": password},
             timeout=TIMEOUT,
         ) as response:
             if response.status != 200:
                 print(f"FAIL {name} auth: valid password returned HTTP {response.status}")
                 return False
-            info = await response.json(content_type=None)
-            version = info.get("version", {}).get("semver", "unknown")
-            print(f"PASS {name} auth: accepted valid password; Lavalink version={version}")
+            payload = await response.json(content_type=None)
+            load_type = str(payload.get("loadType", "")).casefold()
+            data = payload.get("data")
+            if load_type != "search" or not isinstance(data, list) or not data:
+                print(f"FAIL {name} auth: valid password did not return a real track result")
+                return False
+            print(f"PASS {name} auth: valid password returned {len(data)} search results")
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
-        print(f"FAIL {name} auth: {type(exc).__name__}: {str(exc)[:160]}")
+        print(f"FAIL {name} auth: valid password {type(exc).__name__}: {str(exc)[:160]}")
         return False
 
     try:
         async with session.get(
             url,
-            headers={"Authorization": f"{password}-invalid-smoke-test", "User-Agent": USER_AGENT},
+            params={"identifier": "ytsearch:Daft Punk One More Time"},
+            headers={**headers, "Authorization": f"{password}-invalid-smoke-test"},
             timeout=TIMEOUT,
         ) as response:
             if response.status not in (401, 403):
-                print(f"FAIL {name} auth: rejected password returned HTTP {response.status}, expected 401/403")
+                print(f"FAIL {name} auth: invalid password returned HTTP {response.status}, expected 401/403")
                 return False
             print(f"PASS {name} auth: invalid password rejected with HTTP {response.status}")
             return True
     except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
         print(f"FAIL {name} auth: invalid-password check {type(exc).__name__}: {str(exc)[:160]}")
         return False
-
 
 async def check_load(
     session: aiohttp.ClientSession,
