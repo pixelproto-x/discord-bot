@@ -71,6 +71,7 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
                 self.status = wavelink.NodeStatus.CONNECTING
                 self._session = None
                 self.close = AsyncMock()
+                self.kwargs = kwargs
 
         created_nodes = []
 
@@ -83,6 +84,7 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
             node = next(iter(nodes))
             if node.identifier == "offline":
                 await asyncio.Future()
+            node.status = wavelink.NodeStatus.CONNECTED
 
         cog = music.MusicCog(object())
         output = io.StringIO()
@@ -104,7 +106,32 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(cog.node_error)
         self.assertEqual(created_nodes[0].close.await_count, 1)
         self.assertEqual(created_nodes[1].close.await_count, 0)
+        self.assertEqual(created_nodes[1].kwargs["retries"], 3)
         self.assertIn("1/2", output.getvalue())
+
+    async def test_node_that_never_reaches_connected_status_is_rejected(self):
+        class FakeNode:
+            def __init__(self, **kwargs):
+                self.identifier = kwargs["identifier"]
+                self.status = wavelink.NodeStatus.CONNECTING
+                self._session = None
+                self.close = AsyncMock()
+
+        node = FakeNode(identifier="stuck", uri="http://stuck.invalid:2333", password="x")
+        cog = music.MusicCog(object())
+
+        with (
+            patch.object(music, "LAVALINK_NODES", (
+                {"identifier": "stuck", "uri": "http://stuck.invalid:2333", "password": "x"},
+            )),
+            patch.object(music.wavelink, "Node", return_value=node),
+            patch.object(music.wavelink.Pool, "connect", new=AsyncMock(return_value={"stuck": node})),
+            redirect_stdout(io.StringIO()),
+        ):
+            await cog.setup_nodes()
+
+        self.assertEqual(node.close.await_count, 1)
+        self.assertIsNotNone(cog.node_error)
 
 
 
