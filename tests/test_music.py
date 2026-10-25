@@ -281,6 +281,83 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(session.current, queued)
         self.assertEqual(session.queue, [])
 
+    async def test_track_exception_event_triggers_soundcloud_fallback(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(
+            title="Track Exception Song",
+            author="Track Artist",
+            source="youtube",
+            uri="https://www.youtube.com/watch?v=track-exception",
+            extras={"requester_id": "41"},
+        )
+        fallback = SimpleNamespace(
+            title="Track Exception Song",
+            author="Track Artist",
+            source="soundcloud",
+            uri="https://soundcloud.com/example/track-exception",
+            extras={},
+        )
+        queued = SimpleNamespace(title="Queue Song", source="youtube")
+        player = SimpleNamespace(guild=SimpleNamespace(id=9004), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace(get_channel=lambda _channel_id: None))
+        session = music.MusicSession(player=player, queue=[queued], current=song)
+        cog.sessions[9004] = session
+        payload = SimpleNamespace(
+            player=player,
+            track=song,
+            exception=SimpleNamespace(message="No supported audio streams available"),
+        )
+
+        with patch.object(
+            music.wavelink.Playable,
+            "search",
+            new=AsyncMock(return_value=[fallback]),
+        ) as search:
+            await cog.on_wavelink_track_exception(payload)
+            # A delayed TrackEnd for the failed source must not trigger fallback twice.
+            await cog.on_wavelink_track_end(
+                SimpleNamespace(player=player, track=song, original=song, reason="LOAD_FAILED")
+            )
+
+        search.assert_awaited_once_with("scsearch:Track Exception Song Track Artist")
+        player.play.assert_awaited_once_with(fallback)
+        self.assertIs(session.current, fallback)
+        self.assertEqual(session.queue, [queued])
+
+    async def test_track_exception_without_fallback_advances_queue(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(
+            title="Unavailable Exception Song",
+            author="Track Artist",
+            source="youtube",
+            uri="https://www.youtube.com/watch?v=unavailable-exception",
+            extras={},
+        )
+        queued = SimpleNamespace(title="Next Queue Song", source="youtube")
+        player = SimpleNamespace(guild=SimpleNamespace(id=9005), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace(get_channel=lambda _channel_id: None))
+        session = music.MusicSession(player=player, queue=[queued], current=song)
+        cog.sessions[9005] = session
+        payload = SimpleNamespace(
+            player=player,
+            track=song,
+            exception=SimpleNamespace(message="This video requires login"),
+        )
+
+        with patch.object(
+            music.wavelink.Playable,
+            "search",
+            new=AsyncMock(return_value=[]),
+        ) as search:
+            await cog.on_wavelink_track_exception(payload)
+
+        search.assert_awaited_once_with("scsearch:Unavailable Exception Song Track Artist")
+        player.play.assert_awaited_once_with(queued)
+        self.assertIs(session.current, queued)
+        self.assertEqual(session.queue, [])
+
     async def test_non_youtube_failure_skips_to_queue_without_soundcloud_search(self):
         from types import SimpleNamespace
 

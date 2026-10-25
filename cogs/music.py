@@ -563,6 +563,13 @@ class MusicCog(commands.Cog):
             return True
         if left is None or right is None:
             return False
+
+        for attribute in ("encoded", "uri", "identifier"):
+            left_value = getattr(left, attribute, None)
+            right_value = getattr(right, attribute, None)
+            if left_value and right_value:
+                return str(left_value) == str(right_value)
+
         try:
             return bool(left == right)
         except Exception:
@@ -615,6 +622,92 @@ class MusicCog(commands.Cog):
             # Audio recovery must not fail because a status message could not be sent.
             pass
 
+    async def _handle_track_load_failure_locked(
+        self,
+        guild_id: int,
+        player: wavelink.Player,
+        session: MusicSession,
+        failed_track,
+    ) -> None:
+        """Recover a failed track while the guild's music lock is held."""
+        if self._is_youtube_track(failed_track):
+            fallback = await self._find_soundcloud_fallback(failed_track)
+            if fallback is not None:
+                try:
+                    old_extras = dict(getattr(failed_track, "extras", {}) or {})
+                except (TypeError, ValueError):
+                    old_extras = {}
+                try:
+                    fallback_extras = dict(getattr(fallback, "extras", {}) or {})
+                except (TypeError, ValueError):
+                    fallback_extras = {}
+                fallback_extras.update(old_extras)
+                fallback_extras["fallback_from"] = "youtube"
+                try:
+                    fallback.extras = fallback_extras
+                except (AttributeError, TypeError, ValueError):
+                    pass
+
+                session.current = fallback
+                try:
+                    await player.play(fallback)
+                except Exception as exc:
+                    session.current = None
+                    print(f"[Music] SoundCloud 備援播放失敗：{type(exc).__name__}: {exc}")
+                else:
+                    print(
+                        f"[Music] YouTube 載入失敗，已切換 SoundCloud："
+                        f"{track_title(fallback)} (guild={guild_id})"
+                    )
+                    await self._notify_music_channel(
+                        session,
+                        f"⚠️ YouTube 音源載入失敗，已改用 SoundCloud 版本：**{track_title(fallback)}**",
+                    )
+                    return
+            print(
+                f"[Music] YouTube 歌曲無法載入或備援無法播放："
+                f"{track_title(failed_track)} (guild={guild_id})"
+            )
+            await self._notify_music_channel(
+                session,
+                f"⚠️ 這首歌的 YouTube 音源無法播放，已嘗試 SoundCloud 備援；將跳過失敗曲目：**{track_title(failed_track)}**",
+            )
+
+        session.current = None
+        if session.queue:
+            next_track = session.queue.pop(0)
+            session.current = next_track
+            try:
+                await player.play(next_track)
+            except Exception as exc:
+                session.current = None
+                print(f"[Music] 載入失敗後播放下一首也失敗：{type(exc).__name__}: {exc}")
+                asyncio.create_task(self.play_next(guild_id))
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_exception(self, payload: wavelink.TrackExceptionEventPayload):
+        """Handle Lavalink TrackException events; they are separate from TrackEnd."""
+        player = getattr(payload, "player", None)
+        if player is None or getattr(player, "guild", None) is None:
+            return
+
+        guild_id = player.guild.id
+        async with self.locks[guild_id]:
+            session = self.sessions.get(guild_id)
+            if not session or session.player is not player or session.handoff:
+                return
+            if session.current is None:
+                return
+
+            failed_track = getattr(payload, "original", None) or getattr(payload, "track", None)
+            if failed_track is not None and not self._tracks_match(session.current, failed_track):
+                return
+            failed_track = session.current
+            exception = getattr(payload, "exception", None)
+            reason = getattr(exception, "message", None) or getattr(exception, "cause", None) or str(exception or "unknown error")
+            print(f"[Music] TrackException：{track_title(failed_track)}：{reason}")
+            await self._handle_track_load_failure_locked(guild_id, player, session, failed_track)
+
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player = getattr(payload, "player", None)
@@ -627,66 +720,21 @@ class MusicCog(commands.Cog):
                 return
 
             reported_track = getattr(payload, "original", None) or getattr(payload, "track", None)
-            # A delayed end event from the previous song must not clear a newer track.
-            if (
-                session.current is not None
-                and reported_track is not None
-                and not self._tracks_match(session.current, reported_track)
-            ):
+            # A delayed end event must not clear a newer or already-recovered track.
+            if session.current is None:
+                return
+            if reported_track is not None and not self._tracks_match(session.current, reported_track):
                 return
 
-            ended_track = session.current or reported_track
+            ended_track = session.current
             reason = str(getattr(payload, "reason", "")).upper()
             skipped = session.skip_requested
             session.skip_requested = False
 
-            # YouTube's current source plugin can reject otherwise searchable tracks.
-            # Before dropping the failed song, try the same title/artist on SoundCloud.
-            if (
-                ended_track
-                and not skipped
-                and reason.endswith("LOAD_FAILED")
-                and self._is_youtube_track(ended_track)
-            ):
-                fallback = await self._find_soundcloud_fallback(ended_track)
-                if fallback is not None:
-                    try:
-                        old_extras = dict(getattr(ended_track, "extras", {}) or {})
-                    except (TypeError, ValueError):
-                        old_extras = {}
-                    try:
-                        fallback_extras = dict(getattr(fallback, "extras", {}) or {})
-                    except (TypeError, ValueError):
-                        fallback_extras = {}
-                    fallback_extras.update(old_extras)
-                    fallback_extras["fallback_from"] = "youtube"
-                    try:
-                        fallback.extras = fallback_extras
-                    except (AttributeError, TypeError, ValueError):
-                        pass
-
-                    session.current = fallback
-                    try:
-                        await player.play(fallback)
-                    except Exception as exc:
-                        session.current = None
-                        print(f"[Music] SoundCloud 備援播放失敗：{type(exc).__name__}: {exc}")
-                    else:
-                        print(
-                            f"[Music] YouTube 載入失敗，已切換 SoundCloud："
-                            f"{track_title(fallback)} (guild={guild_id})"
-                        )
-                        await self._notify_music_channel(
-                            session,
-                            f"⚠️ YouTube 音源載入失敗，已改用 SoundCloud 版本：**{track_title(fallback)}**",
-                        )
-                        return
-                else:
-                    print(f"[Music] YouTube 歌曲無法載入，且沒有找到 SoundCloud 備援：{track_title(ended_track)}")
-                    await self._notify_music_channel(
-                        session,
-                        f"⚠️ 這首歌的 YouTube 音源無法載入，也沒有找到可用的 SoundCloud 備援，已跳過：**{track_title(ended_track)}**",
-                    )
+            # Lavalink can emit TrackEnd(LOAD_FAILED) as well as TrackException.
+            if ended_track and not skipped and reason.endswith("LOAD_FAILED"):
+                await self._handle_track_load_failure_locked(guild_id, player, session, ended_track)
+                return
 
             if ended_track and not skipped and reason.endswith("FINISHED"):
                 if session.loop_mode == "one":
