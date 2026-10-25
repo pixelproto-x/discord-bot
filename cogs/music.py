@@ -140,6 +140,12 @@ class MusicSearchButton(discord.ui.Button):
         if not member.voice or not member.voice.channel:
             await interaction.response.send_message("你先加入語音頻道，我才知道要在哪裡播。", ephemeral=True)
             return
+        # Acknowledge the component interaction before any Lavalink/network work;
+        # Discord expires unacknowledged interactions after a short deadline.
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            return
         try:
             count, started = await self.cog.enqueue_tracks(
                 interaction.guild,
@@ -155,10 +161,16 @@ class MusicSearchButton(discord.ui.Button):
                 text = f"已加入佇列：**{track_title(self.track)}**"
             for item in self.view.children:
                 item.disabled = True
-            await interaction.response.edit_message(content=text, view=self.view)
+            await interaction.edit_original_response(content=text, view=self.view)
         except Exception as exc:
             print(f"[Music] 選歌播放失敗：{type(exc).__name__}: {exc}")
-            await interaction.response.send_message("加入播放佇列失敗，請確認 Lavalink 節點在線。", ephemeral=True)
+            try:
+                await interaction.edit_original_response(
+                    content="這首歌目前無法播放，可能是 YouTube 限制或 Lavalink 節點問題；請重新搜尋並選另一個版本。",
+                    view=self.view,
+                )
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
 
 
 class MusicSearchView(discord.ui.View):
