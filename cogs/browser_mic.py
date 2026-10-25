@@ -86,6 +86,21 @@ class BrowserMicCog(commands.Cog):
             return None
         return item[0]
 
+    async def _expire_unclaimed_ticket(self, guild_id: int, ticket: str) -> None:
+        """Stop the voice source if the browser never claims its one-time ticket."""
+        item = self.tickets.get(ticket)
+        if not item or item[0] != guild_id:
+            return
+        await asyncio.sleep(max(0.0, item[1] - time.monotonic()))
+        current = self.tickets.get(ticket)
+        if not current or current[0] != guild_id or current[1] > time.monotonic():
+            return
+        self.tickets.pop(ticket, None)
+        try:
+            await self.stop_stream(guild_id)
+        except Exception as exc:
+            print(f"[Browser mic] expired ticket cleanup failed: {type(exc).__name__}: {exc}")
+
     async def start_stream(self, channel: discord.VoiceChannel) -> tuple[bool, str, str | None]:
         guild = channel.guild
         me = guild.me
@@ -128,7 +143,9 @@ class BrowserMicCog(commands.Cog):
             vc.play(source, after=after_playback)
             if claimed:
                 speech_cog.local_audio_started(guild.id)
-            return True, f"已連接「{channel.name}」，等待瀏覽器麥克風。", self.issue_ticket(guild.id)
+            ticket = self.issue_ticket(guild.id)
+            asyncio.create_task(self._expire_unclaimed_ticket(guild.id, ticket))
+            return True, f"已連接「{channel.name}」，等待瀏覽器麥克風。", ticket
         except discord.Forbidden:
             self.sources.pop(guild.id, None)
             if source is not None:
@@ -150,6 +167,9 @@ class BrowserMicCog(commands.Cog):
             return False, "無法啟動麥克風串流，請確認 Bot 的語音連線正常。", None
 
     async def stop_stream(self, guild_id: int) -> bool:
+        self.tickets = {
+            key: item for key, item in self.tickets.items() if item[0] != guild_id
+        }
         source = self.sources.pop(guild_id, None)
         guild = self.bot.get_guild(guild_id)
         if not source:
