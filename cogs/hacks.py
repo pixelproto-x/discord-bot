@@ -320,6 +320,29 @@ class Hacks(commands.Cog):
             return key, True
 
     @staticmethod
+    def _delete_backup_payload(key):
+        """Delete one backup atomically with respect to other in-process store mutations."""
+        with _BACKUP_STORE_LOCK:
+            database = Hacks._read_database()
+            servers = database["servers"]
+            if key not in servers:
+                return None
+
+            removed = servers.pop(key)
+            if database.get("last_backup_key") == key:
+                remaining = sorted(
+                    (
+                        (saved_key, payload)
+                        for saved_key, payload in servers.items()
+                        if isinstance(payload, dict)
+                    ),
+                    key=lambda item: str(item[1].get("created_at", "")),
+                    reverse=True,
+                )
+                database["last_backup_key"] = remaining[0][0] if remaining else None
+            Hacks._write_database(database)
+            return removed
+    @staticmethod
     def _overwrite_to_json(overwrites):
         result = []
         for target, overwrite in overwrites.items():
@@ -539,24 +562,10 @@ class Hacks(commands.Cog):
             return
         key = key.strip()
         try:
-            database = self._read_database()
-            servers = database["servers"]
-            if key not in servers:
+            removed = self._delete_backup_payload(key)
+            if removed is None:
                 await interaction.response.send_message(f"找不到備份密鑰：{key}", ephemeral=True)
                 return
-            removed = servers.pop(key)
-            if database.get("last_backup_key") == key:
-                remaining = sorted(
-                    (
-                        (saved_key, payload)
-                        for saved_key, payload in servers.items()
-                        if isinstance(payload, dict)
-                    ),
-                    key=lambda item: str(item[1].get("created_at", "")),
-                    reverse=True,
-                )
-                database["last_backup_key"] = remaining[0][0] if remaining else None
-            self._write_database(database)
             server_name = removed.get("server_name", "未知伺服器") if isinstance(removed, dict) else "未知伺服器"
             await interaction.response.send_message(
                 f"已刪除伺服器「{server_name}」的備份密鑰 {key}",
