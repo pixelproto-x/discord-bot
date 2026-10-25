@@ -1,77 +1,99 @@
-"""Live smoke test for configured public Lavalink nodes and community candidates.
-
-The active nodes mirror cogs/music.py. Candidate nodes are diagnostic only and
-must never make the configured production fallback check pass by themselves.
-"""
+"""Live integration smoke tests for configured public Lavalink V4 nodes."""
 import asyncio
 
 import aiohttp
 
 
-ACTIVE_NODES = (
+NODES = (
     ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
     ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
     ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
     ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
 )
-CANDIDATE_NODES = (
-    ("stackryze-v4", "http://188.245.207.225:2333", "youshallnotpass"),
-    ("itzrandom-v4", "http://node.itzrandom.cloud:9000", "lavalink@itzrandomcloud"),
-    ("horizxon-sg-v4", "https://v4.lavalink.rocks:443", "horizxon.tech"),
-    ("catfein-id-v4", "http://lava.catfein.com:4000", "catfein"),
-    ("catfein-de-v4", "https://lavalink.alfari.id:443", "catfein"),
-    ("meww-v4", "http://n2.meww.me:2555", "meww.me"),
-    ("rudracloud-v4", "http://lavalink.rudracloud.com:2333", "RudraCloud.com"),
-    ("akshat-v4", "https://lava.akshat.tech:443", "admin"),
-    ("paradisehost-v4", "http://node1.paradisehost.xyz:27185", "Lavalinkhoster123"),
-    ("nyc-jxshua-v4", "http://nyc01.jxshua.dev:4000", "youshallnotpass"),
-    ("koi-v4", "http://lavav4.prplmoe.me:1118", "prplmoe.me"),
-    ("techbyte-v4", "http://lavahatry4.techbyte.host:3000", "NAIGLAVA-dash.techbyte.host"),
-    ("triniumhost-v4", "http://lavalink.triniumhost.indevs.in:4333", "free"),
-    ("triniumhost-v4-ssl", "https://lavalink-v4.triniumhost.indevs.in:443", "free"),
-)
-QUERIES = (
+SEARCHES = (
     ("ytsearch", "ytsearch:Daft Punk One More Time"),
     ("ytmsearch", "ytmsearch:Daft Punk One More Time"),
     ("scsearch", "scsearch:Daft Punk One More Time"),
 )
+DIRECT_URL = "https://www.youtube.com/watch?v=FGBhQbmPwH8"
 TIMEOUT = aiohttp.ClientTimeout(total=12, connect=5, sock_read=8)
+USER_AGENT = "discord-bot-lavalink-smoke-test/1.1"
 
 
-async def check_source(
+async def check_auth(session: aiohttp.ClientSession, node: tuple[str, str, str]) -> bool:
+    name, base_url, password = node
+    url = f"{base_url.rstrip('/')}/v4/info"
+    try:
+        async with session.get(
+            url,
+            headers={"Authorization": password, "User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        ) as response:
+            if response.status != 200:
+                print(f"FAIL {name} auth: valid password returned HTTP {response.status}")
+                return False
+            info = await response.json(content_type=None)
+            version = info.get("version", {}).get("semver", "unknown")
+            print(f"PASS {name} auth: accepted valid password; Lavalink version={version}")
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        print(f"FAIL {name} auth: {type(exc).__name__}: {str(exc)[:160]}")
+        return False
+
+    try:
+        async with session.get(
+            url,
+            headers={"Authorization": f"{password}-invalid-smoke-test", "User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        ) as response:
+            if response.status not in (401, 403):
+                print(f"FAIL {name} auth: rejected password returned HTTP {response.status}, expected 401/403")
+                return False
+            print(f"PASS {name} auth: invalid password rejected with HTTP {response.status}")
+            return True
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        print(f"FAIL {name} auth: invalid-password check {type(exc).__name__}: {str(exc)[:160]}")
+        return False
+
+
+async def check_load(
     session: aiohttp.ClientSession,
     node: tuple[str, str, str],
-    source_name: str,
-    query: str,
+    label: str,
+    identifier: str,
+    expected: set[str],
 ) -> bool:
     name, base_url, password = node
     url = f"{base_url.rstrip('/')}/v4/loadtracks"
     try:
         async with session.get(
             url,
-            params={"identifier": query},
-            headers={"Authorization": password, "User-Agent": "discord-bot-lavalink-smoke-test/1.0"},
+            params={"identifier": identifier},
+            headers={"Authorization": password, "User-Agent": USER_AGENT},
             timeout=TIMEOUT,
         ) as response:
             if response.status != 200:
-                print(f"FAIL {name} {source_name}: HTTP {response.status}")
+                print(f"FAIL {name} {label}: HTTP {response.status}")
                 return False
             payload = await response.json(content_type=None)
-            load_type = payload.get("loadType")
-            tracks = payload.get("data")
-            if load_type == "search" and isinstance(tracks, list) and tracks:
-                title = str(tracks[0].get("info", {}).get("title", "unknown"))[:100]
-                print(f"PASS {name} {source_name}: {len(tracks)} tracks; first title={title!r}")
+            load_type = str(payload.get("loadType", "")).casefold()
+            data = payload.get("data")
+            if load_type in expected and isinstance(data, list) and data:
+                first = data[0] if data else {}
+                title = str(first.get("info", {}).get("title", "unknown"))[:90] if isinstance(first, dict) else "unknown"
+                print(f"PASS {name} {label}: loadType={load_type}; results={len(data)}; first={title!r}")
                 return True
-            print(f"FAIL {name} {source_name}: loadType={load_type!r}, result_count={len(tracks) if isinstance(tracks, list) else 0}")
+            if load_type in expected and isinstance(data, dict):
+                title = str(data.get("info", {}).get("title", "unknown"))[:90]
+                print(f"PASS {name} {label}: loadType={load_type}; track={title!r}")
+                return True
+            print(f"FAIL {name} {label}: loadType={load_type!r}; result_type={type(data).__name__}")
             return False
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
-        print(f"FAIL {name} {source_name}: {type(exc).__name__}: {str(exc)[:160]}")
+        print(f"FAIL {name} {label}: {type(exc).__name__}: {str(exc)[:160]}")
         return False
 
 
 async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, str]) -> bool:
-    """Verify the actual Lavalink V4 WebSocket handshake, not just REST search."""
     name, base_url, password = node
     websocket_url = base_url.rstrip("/").replace("https://", "wss://", 1).replace("http://", "ws://", 1)
     websocket_url += "/v4/websocket"
@@ -92,7 +114,7 @@ async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, 
         if websocket.closed:
             print(f"FAIL {name} websocket: connection closed during handshake")
             return False
-        print(f"PASS {name} websocket: Lavalink V4 WebSocket handshake accepted")
+        print(f"PASS {name} websocket: Lavalink V4 handshake accepted")
         return True
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
         print(f"FAIL {name} websocket: {type(exc).__name__}: {str(exc)[:160]}")
@@ -103,47 +125,37 @@ async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, 
 
 
 async def main() -> int:
-    all_nodes = ACTIVE_NODES + CANDIDATE_NODES
-    connector = aiohttp.TCPConnector(limit=64, limit_per_host=3)
+    connector = aiohttp.TCPConnector(limit=32, limit_per_host=3)
     async with aiohttp.ClientSession(connector=connector) as session:
-        checks = {
-            source_name: await asyncio.gather(
-                *(check_source(session, node, source_name, query) for node in all_nodes)
+        auth = await asyncio.gather(*(check_auth(session, node) for node in NODES))
+        searches = {
+            label: await asyncio.gather(
+                *(check_load(session, node, label, query, {"search"}) for node in NODES)
             )
-            for source_name, query in QUERIES
+            for label, query in SEARCHES
         }
-        websocket_checks = await asyncio.gather(
-            *(check_websocket(session, node) for node in all_nodes)
+        direct_url = await asyncio.gather(
+            *(check_load(session, node, "youtube-url", DIRECT_URL, {"track", "playlist"}) for node in NODES)
         )
+        websockets = await asyncio.gather(*(check_websocket(session, node) for node in NODES))
 
-    active_count = len(ACTIVE_NODES)
-    for source_name, results in checks.items():
-        active_results = results[:active_count]
-        candidate_results = results[active_count:]
-        print(
-            f"Lavalink {source_name}: active={sum(active_results)}/{active_count}; "
-            f"candidates={sum(candidate_results)}/{len(candidate_results)} returned real search results."
-        )
-    active_websockets = websocket_checks[:active_count]
-    candidate_websockets = websocket_checks[active_count:]
-    print(
-        f"Lavalink V4 WebSocket: active={sum(active_websockets)}/{active_count}; "
-        f"candidates={sum(candidate_websockets)}/{len(candidate_websockets)} accepted the handshake."
-    )
+    print(f"Lavalink valid/invalid password checks: {sum(auth)}/{len(NODES)} nodes passed both checks.")
+    for label, results in searches.items():
+        print(f"Lavalink {label}: {sum(results)}/{len(NODES)} nodes returned real results.")
+    print(f"Lavalink direct YouTube URL: {sum(direct_url)}/{len(NODES)} nodes resolved the URL.")
+    print(f"Lavalink V4 WebSocket: {sum(websockets)}/{len(NODES)} nodes accepted the handshake.")
 
-    failures = [
-        source_name
-        for source_name, results in checks.items()
-        if not any(results[:active_count])
-    ]
-    if failures:
-        print(
-            "ERROR: configured active Lavalink nodes returned no results for: "
-            + ", ".join(failures)
-        )
-        return 1
-    if not any(active_websockets):
-        print("ERROR: no configured active Lavalink node accepted a V4 WebSocket handshake.")
+    required = {
+        "password authentication": any(auth),
+        "ytsearch": any(searches["ytsearch"]),
+        "ytmsearch": any(searches["ytmsearch"]),
+        "scsearch": any(searches["scsearch"]),
+        "direct YouTube URL": any(direct_url),
+        "WebSocket handshake": any(websockets),
+    }
+    failed = [name for name, passed in required.items() if not passed]
+    if failed:
+        print("ERROR: no active node passed required check(s): " + ", ".join(failed))
         return 1
     return 0
 
