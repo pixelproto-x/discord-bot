@@ -358,7 +358,11 @@ class MusicCog(commands.Cog):
         try:
             await node.close(eject=True)
         except Exception:
-            pass
+            # Wavelink 3.x may fail before reaching its eject step if websocket
+            # cleanup raises. Remove only this exact stale object as a fallback.
+            pool_nodes = getattr(wavelink.Pool, "_Pool__nodes", None)
+            if isinstance(pool_nodes, dict) and pool_nodes.get(node.identifier) is node:
+                pool_nodes.pop(node.identifier, None)
 
         # Wavelink only schedules session cleanup after a successful
         # connection. A timed-out initial connection has no such task.
