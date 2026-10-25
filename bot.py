@@ -684,7 +684,10 @@ async def transparent_message_relay(message: discord.Message):
             if relayed_target_id:
                 target_author = getattr(resolved_reference, "author", None)
                 target_name = getattr(target_author, "display_name", None) or getattr(target_author, "name", None)
-                reply_label = f"↪ 回覆「{target_name}」：" if target_name else "↪ 回覆上一則模仿訊息："
+                target_mention = getattr(target_author, "mention", None) if target_author else None
+                if target_mention and not target_mention.startswith("<@"):
+                    target_mention = None
+                reply_label = f"-# 回復 {target_mention or ('@' + target_name if target_name else '@上一則訊息')} →"
                 send_kwargs["content"] = f"{reply_label}\n{payload}" if payload else reply_label
 
             if not sent:
@@ -1092,6 +1095,41 @@ def _is_local_port_open(port: int) -> bool:
         return False
 
 
+def _stop_local_listener(port: int) -> bool:
+    """Stop the previous local service on a known app port before restarting it."""
+    if os.name != "nt":
+        return False
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, check=False,
+        )
+        pids = set()
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 5 and fields[1].rsplit(":", 1)[-1] == str(port) and fields[3].upper() == "LISTENING":
+                if fields[4].isdigit() and int(fields[4]) != os.getpid():
+                    pids.add(int(fields[4]))
+        stopped = False
+        for pid in pids:
+            # Close the listener and its child processes. Ports passed here are
+            # exclusively reserved for this project's local web services.
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=8, check=False,
+            )
+            stopped = True
+        if stopped:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and _is_local_port_open(port):
+                time.sleep(0.15)
+        return stopped
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _start_companion_services():
     """Start the user's sibling FreeMindAI service and economy editor on Windows."""
     if os.name != "nt":
@@ -1118,9 +1156,9 @@ def _start_companion_services():
         print("[提示] 找不到 FreeMindAI 專案；已搜尋 Bot 資料夾旁、Downloads、Desktop、OneDrive\\Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
 
     economy_editor = project_dir / "economy_editor.py"
-    if _is_local_port_open(8766):
-        print("[Startup] Port 8766 is already in use; skipping duplicate Economy Editor launch.")
-    elif economy_editor.is_file():
+    if economy_editor.is_file():
+        if _stop_local_listener(8766):
+            print("[重啟] 已關閉舊的經濟資料庫編輯器，再啟動新版本。")
         try:
             subprocess.Popen(
                 [sys.executable, str(economy_editor)],
