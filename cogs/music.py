@@ -605,7 +605,11 @@ class MusicCog(commands.Cog):
             guild = self.bot.get_guild(guild_id)
             voice_client = guild.voice_client if guild else None
             if session:
-                voice_client = session.player
+                # During local-audio handoff, guild.voice_client is the native
+                # discord.py client that is actually playing TTS/microphone audio.
+                # Do not overwrite it with the already-disconnected Lavalink Player.
+                if not handoff or voice_client is None:
+                    voice_client = session.player
                 session.queue.clear()
                 session.current = None
                 session.skip_requested = True
