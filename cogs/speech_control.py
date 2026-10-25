@@ -340,13 +340,28 @@ class SpeechControlCog(commands.Cog):
         for guild in self.bot.guilds:
             voice_client = guild.voice_client
             mic_source = self.active_mics.get(guild.id)
+            # Lavalink owns its own audio stream; never call discord.py's
+            # AudioSource methods on a Wavelink Player.
+            if is_lavalink_player(voice_client):
+                if mic_source:
+                    await self._finish_mic(guild.id, mic_source)
+                    stopped = True
+                if guild.id in self.active_guilds:
+                    await self._cleanup(guild.id, self.temp_files.get(guild.id))
+                    stopped = True
+                continue
+            is_playing = bool(
+                voice_client
+                and (voice_client.is_playing() or voice_client.is_paused())
+            )
             if mic_source:
-                if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+                if is_playing:
                     voice_client.stop()
                 await self._finish_mic(guild.id, mic_source)
                 stopped = True
-            if guild.id in self.active_guilds and voice_client and (voice_client.is_playing() or voice_client.is_paused()):
-                voice_client.stop()
+            if guild.id in self.active_guilds:
+                if is_playing:
+                    voice_client.stop()
                 await self._cleanup(guild.id, self.temp_files.get(guild.id))
                 stopped = True
         return "已停止 LogRelay 的語音／麥克風傳送。" if stopped else "目前沒有正在播放的 LogRelay 語音或麥克風。"
@@ -400,7 +415,7 @@ class SpeechControlCog(commands.Cog):
             return "這個伺服器的音樂播放器仍有歌曲，為避免打斷音樂，我不會接管語音。"
         source = None
         try:
-            if not voice_client or not voice_client.is_connected():
+            if not voice_is_connected(voice_client):
                 voice_client = await channel.connect()
             elif voice_client.channel != channel:
                 await voice_client.move_to(channel)
@@ -423,7 +438,7 @@ class SpeechControlCog(commands.Cog):
             print(f"[Mic] failed: {type(exc).__name__}: {exc}")
             if source:
                 await self._finish_mic(guild.id, source)
-            if voice_client and source and (voice_client.is_playing() or voice_client.is_paused()):
+            if voice_client and not is_lavalink_player(voice_client) and source and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
             detail = str(exc).strip()
             if "sounddevice" in detail.lower() or "No module named" in detail:
