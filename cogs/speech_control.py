@@ -21,6 +21,25 @@ def normalize_spoken_digits(value: str) -> str:
     return re.sub(r"[0-9]+", lambda match: match.group(0).translate(DIGIT_NAMES), value)
 
 
+def is_lavalink_player(voice_client) -> bool:
+    try:
+        import wavelink
+        return isinstance(voice_client, wavelink.Player)
+    except ImportError:
+        return False
+
+
+def voice_is_connected(voice_client) -> bool:
+    if not voice_client:
+        return False
+    if is_lavalink_player(voice_client):
+        return bool(getattr(voice_client, "connected", False))
+    try:
+        return bool(voice_client.is_connected())
+    except (AttributeError, Exception):
+        return False
+
+
 class MicrophoneAudioSource(discord.AudioSource):
     """Stream the computer's live microphone to a Discord voice client."""
 
@@ -152,6 +171,9 @@ class SpeechControlCog(commands.Cog):
         guild = interaction.guild
         await interaction.response.defer(thinking=True, ephemeral=not public)
         voice_client = guild.voice_client
+        if is_lavalink_player(voice_client):
+            await interaction.followup.send("音樂目前由 Lavalink 管理；請先停止音樂並讓播放器離開語音頻道，再使用語音朗讀。", ephemeral=True)
+            return
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             await interaction.followup.send("我現在正在播放音訊。先用 /speech-stop 停止，再讓我講下一句。", ephemeral=True)
             return
@@ -163,7 +185,7 @@ class SpeechControlCog(commands.Cog):
             communicate = edge_tts.Communicate(text, DEFAULT_VOICE)
             await communicate.save(filename)
 
-            if not voice_client or not voice_client.is_connected():
+            if not voice_is_connected(voice_client):
                 voice_client = await member.voice.channel.connect()
             elif voice_client.channel != member.voice.channel:
                 await voice_client.move_to(member.voice.channel)
@@ -238,7 +260,7 @@ class SpeechControlCog(commands.Cog):
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
 
-            if not voice_client or not voice_client.is_connected():
+            if not voice_is_connected(voice_client):
                 voice_client = await channel.connect()
             elif voice_client.channel != channel:
                 await voice_client.move_to(channel)
@@ -289,7 +311,7 @@ class SpeechControlCog(commands.Cog):
             with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
-            if not voice_client or not voice_client.is_connected():
+            if not voice_is_connected(voice_client):
                 voice_client = await channel.connect()
             elif voice_client.channel != channel:
                 await voice_client.move_to(channel)
@@ -333,7 +355,7 @@ class SpeechControlCog(commands.Cog):
         left = False
         for guild in self.bot.guilds:
             voice_client = guild.voice_client
-            if not voice_client or not voice_client.is_connected():
+            if not voice_is_connected(voice_client):
                 continue
             music_cog = self.bot.get_cog("MusicCog")
             session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
@@ -485,7 +507,7 @@ class SpeechControlCog(commands.Cog):
             return
         guild = interaction.guild
         voice_client = guild.voice_client
-        if not voice_client or not voice_client.is_connected():
+        if not voice_is_connected(voice_client):
             await interaction.response.send_message("我目前沒有在語音頻道裡。", ephemeral=True)
             return
         music_cog = self.bot.get_cog("MusicCog")
