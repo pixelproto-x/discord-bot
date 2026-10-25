@@ -14,6 +14,7 @@ import threading
 
 from safe_logging import redact_sensitive_text
 from startup_services import find_freemind_ai_project
+from process_safety import command_line_targets_script
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
 _LOG_DIR = Path(__file__).resolve().parent / "logs"
@@ -1096,44 +1097,31 @@ def _is_local_port_open(port: int) -> bool:
 
 
 def _stop_local_listener(port: int) -> bool:
-    """Stop the old economy-editor process and any listener on its reserved port."""
+    """Stop only this project's economy editor, never an unrelated port listener."""
     if os.name != "nt":
         return False
 
+    editor_path = str(Path(__file__).resolve().parent / "economy_editor.py")
     pids: set[int] = set()
     stopped = False
     try:
-        # The old editor can remain open even after its HTTP listener has stopped.
-        # Find it by command line as well as by port so its stale console is closed.
-        if port == 8766:
-            process_query = (
-                "$ErrorActionPreference='SilentlyContinue'; "
-                "Get-CimInstance Win32_Process | "
-                "Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine "
-                "-and $_.CommandLine -match '(?i)economy_editor\\.py' } | "
-                "ForEach-Object { $_.ProcessId }"
-            )
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", process_query],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                timeout=8, check=False,
-            )
-            for line in result.stdout.splitlines():
-                value = line.strip()
-                if value.isdigit() and int(value) != os.getpid():
-                    pids.add(int(value))
-
-        # Also catch any other process holding the reserved local service port.
+        process_query = (
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.CommandLine } | "
+            "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.CommandLine) }"
+        )
         result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"],
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", process_query],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5, check=False,
+            timeout=8, check=False,
         )
         for line in result.stdout.splitlines():
-            fields = line.split()
-            if len(fields) >= 5 and fields[1].rsplit(":", 1)[-1] == str(port) and fields[3].upper() == "LISTENING":
-                if fields[4].isdigit() and int(fields[4]) != os.getpid():
-                    pids.add(int(fields[4]))
+            fields = line.split("\t", 1)
+            if len(fields) != 2 or not fields[0].strip().isdigit():
+                continue
+            pid = int(fields[0].strip())
+            if pid != os.getpid() and command_line_targets_script(fields[1], editor_path):
+                pids.add(pid)
 
         for pid in sorted(pids):
             result = subprocess.run(
@@ -1153,7 +1141,6 @@ def _stop_local_listener(port: int) -> bool:
         return stopped
     except (OSError, subprocess.SubprocessError):
         return False
-
 
 def _start_companion_services():
     """Start the user's sibling FreeMindAI service and economy editor on Windows."""
