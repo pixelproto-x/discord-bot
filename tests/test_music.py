@@ -942,5 +942,42 @@ class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
         setup_nodes.assert_not_awaited()
 
 
+
+    async def test_setup_replaces_stale_disconnected_node(self):
+        class FakeNode:
+            def __init__(self, identifier, status):
+                self.identifier = identifier
+                self.status = status
+                self._session = None
+                self.close = AsyncMock()
+
+        stale = FakeNode("public-node", wavelink.NodeStatus.DISCONNECTED)
+        fresh = FakeNode("public-node", wavelink.NodeStatus.CONNECTING)
+        pool_nodes = {"public-node": stale}
+        cog = music.MusicCog(object())
+
+        async def connect(*, nodes, client):
+            node = next(iter(nodes))
+            node.status = wavelink.NodeStatus.CONNECTED
+            pool_nodes[node.identifier] = node
+
+        with (
+            patch.object(music, "LAVALINK_NODES", ({
+                "identifier": "public-node",
+                "uri": "https://node.example",
+                "password": "password",
+            },)),
+            patch.object(music.wavelink, "Node", return_value=fresh),
+            patch.object(wavelink.Pool, "nodes", pool_nodes),
+            patch.object(wavelink.Pool, "connect", new=AsyncMock(side_effect=connect)),
+            redirect_stdout(io.StringIO()),
+        ):
+            await cog.setup_nodes()
+
+        stale.close.assert_awaited_once_with(eject=True)
+        self.assertIs(pool_nodes["public-node"], fresh)
+        self.assertEqual(fresh.status, wavelink.NodeStatus.CONNECTED)
+        self.assertIsNone(cog.node_error)
+
 if __name__ == "__main__":
     unittest.main()
