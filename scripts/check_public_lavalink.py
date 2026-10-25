@@ -9,7 +9,6 @@ NODES = (
     ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
     ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
     ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
-    ("triniumhost-v4-alt", "http://lavalink.triniumhost.indevs.in:2333", "kirito"),
 )
 SEARCHES = (
     ("ytsearch", "ytsearch:Daft Punk One More Time"),
@@ -203,7 +202,7 @@ async def main() -> int:
         "scsearch": any(searches["scsearch"]),
         "direct YouTube URL": any(direct_url),
         "WebSocket handshake": any(websockets),
-        "Wavelink client integration": any(wavelink_checks),
+        "Wavelink client integration": all(wavelink_checks),
     }
     failed = [name for name, passed in required.items() if not passed]
     if failed:
