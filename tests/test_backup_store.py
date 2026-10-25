@@ -71,6 +71,45 @@ class BackupStoreTests(unittest.TestCase):
                 self.assertFalse(list(Path(tmp).glob("*.tmp")))
                 self.assertFalse(list(Path(tmp).glob(".*.tmp")))
 
+    def test_concurrent_store_and_delete_do_not_overwrite_each_other(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "server_backups.json"
+            with patch("cogs.hacks.BACKUP_PATH", path):
+                seeded = [
+                    Hacks._store_backup_payload({
+                        "server_id": str(server_id),
+                        "server_name": f"seed-{server_id}",
+                    })[0]
+                    for server_id in range(200, 212)
+                ]
+                new_payloads = [
+                    {"server_id": str(server_id), "server_name": f"new-{server_id}"}
+                    for server_id in range(300, 324)
+                ]
+                operations = (
+                    [("store", payload) for payload in new_payloads]
+                    + [("delete", key) for key in seeded[:6]]
+                )
+
+                def run_operation(operation):
+                    kind, value = operation
+                    if kind == "store":
+                        return Hacks._store_backup_payload(value)
+                    return Hacks._delete_backup_payload(value)
+
+                with ThreadPoolExecutor(max_workers=12) as executor:
+                    list(executor.map(run_operation, operations))
+
+                data = json.loads(path.read_text(encoding="utf-8"))
+                saved_ids = {item["server_id"] for item in data["servers"].values()}
+                self.assertEqual(
+                    saved_ids,
+                    {str(server_id) for server_id in range(206, 212)}
+                    | {str(server_id) for server_id in range(300, 324)},
+                )
+                self.assertIn(data["last_backup_key"], data["servers"])
+                self.assertFalse(list(Path(tmp).glob("*.tmp")))
+                self.assertFalse(list(Path(tmp).glob(".*.tmp")))
 
 if __name__ == "__main__":
     unittest.main()
