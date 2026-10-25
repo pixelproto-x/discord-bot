@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import time
 import webbrowser
 from urllib.parse import urlencode, urlsplit
@@ -19,6 +20,41 @@ DASHBOARD_WHITELIST_IDS = {
     if value.strip().isdecimal() and int(value.strip()) > 0
 }
 DASHBOARD_OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
+
+def _stop_previous_dashboard(port: int) -> bool:
+    """Stop an older local dashboard listener before starting this version."""
+    if os.name != "nt":
+        return False
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, check=False,
+        )
+        pids = set()
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 5 and fields[1].rsplit(":", 1)[-1] == str(port) and fields[3].upper() == "LISTENING":
+                if fields[4].isdigit() and int(fields[4]) != os.getpid():
+                    pids.add(int(fields[4]))
+        for pid in pids:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=8, check=False,
+            )
+        if pids:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    with __import__("socket").create_connection(("127.0.0.1", port), timeout=0.2):
+                        time.sleep(0.15)
+                except OSError:
+                    break
+        return bool(pids)
+    except (OSError, subprocess.SubprocessError):
+        return False
+
 
 class SlidingWindowRateLimiter:
     def __init__(self, *, limit, window_seconds, max_keys=4096):
@@ -803,9 +839,11 @@ async def start_dashboard(bot):
     site = None
     port = configured_port
 
-    # A previous Bot process may still own 8765 and serve an older dashboard
-    # without newer routes such as /api/reply. In local mode, move to the next
-    # available loopback port instead of silently leaving the old panel active.
+    # In local mode, replace the previous dashboard process on the configured
+    # port before binding so the old control panel and its child processes do not
+    # remain active beside the new version.
+    if not public_url and _stop_previous_dashboard(configured_port):
+        print(f"[Dashboard] 已關閉舊的一條魚 Control（連接埠 {configured_port}），準備啟動新版本。")
     candidate_ports = [configured_port] if public_url else range(configured_port, configured_port + 11)
     for port in candidate_ports:
         try:
