@@ -331,9 +331,9 @@ class MusicCog(commands.Cog):
             await self._discard_failed_node(node)
             return False
 
-        # With retries=0, Wavelink can return after a refused connection while
-        # leaving a disconnected node in Pool. Do not count it as usable.
-        if node.status is wavelink.NodeStatus.DISCONNECTED:
+        # Pool.connect can leave a failed node registered in the pool. Only
+        # accept a fully connected node; resolve_query filters by this status.
+        if node.status is not wavelink.NodeStatus.CONNECTED:
             await self._discard_failed_node(node)
             return False
         return True
