@@ -594,5 +594,53 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [track])
         self.assertLess(time.monotonic() - started, 0.5)
 
+
+    async def test_node_timeout_does_not_prevent_another_node_result(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="Recovered result", source="youtube")
+
+        async def search(identifier, *, source=None, node=None):
+            if node.identifier == "limited":
+                raise asyncio.TimeoutError()
+            if identifier == "ytsearch:timeout tolerant":
+                await asyncio.sleep(0.01)
+                return [track]
+            return []
+
+        output = io.StringIO()
+        with (
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music, "MUSIC_SEARCH_TIMEOUT_SECONDS", 0.05),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+            redirect_stdout(output),
+        ):
+            result = await self.cog.resolve_query("timeout tolerant")
+
+        self.assertEqual(result, [track])
+        self.assertIn("TimeoutError", output.getvalue())
+        self.assertIn("node=limited", output.getvalue())
+
+    async def test_youtube_music_results_stop_further_source_fallback(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="Music result", source="youtube")
+        calls = []
+
+        async def search(identifier, *, source=None, node=None):
+            calls.append(identifier)
+            if identifier == "ytmsearch:artist track":
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", {"healthy": self.nodes["healthy"]}),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            result = await self.cog.resolve_query("artist track")
+
+        self.assertEqual(result, [track])
+        self.assertEqual(calls, ["ytsearch:artist track", "ytmsearch:artist track"])
+
 if __name__ == "__main__":
     unittest.main()
