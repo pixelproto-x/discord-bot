@@ -235,7 +235,7 @@ async def main() -> int:
     }
     failed = [name for name, passed in required.items() if not passed]
     if failed:
-        print("ERROR: no active node passed required check(s): " + ", ".join(failed))
+        print("ERROR: required live check(s) failed: " + ", ".join(failed))
         return 1
     return 0
 
