@@ -114,6 +114,7 @@ def track_title(track) -> str:
     # Track metadata is untrusted; prevent mass/user/role mentions and
     # newline-based message-layout injection in bot-authored announcements.
     title = discord.utils.escape_mentions(title)
+    title = re.sub(r"<@([!&]?\\d+)>", lambda match: "<@\\u200b" + match.group(1) + ">", title)
     return " ".join(title.split())
 
 
