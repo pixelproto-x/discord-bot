@@ -1096,34 +1096,59 @@ def _is_local_port_open(port: int) -> bool:
 
 
 def _stop_local_listener(port: int) -> bool:
-    """Stop the previous local service on a known app port before restarting it."""
+    """Stop the old economy-editor process and any listener on its reserved port."""
     if os.name != "nt":
         return False
+
+    pids: set[int] = set()
+    stopped = False
     try:
+        # The old editor can remain open even after its HTTP listener has stopped.
+        # Find it by command line as well as by port so its stale console is closed.
+        if port == 8766:
+            process_query = (
+                "$ErrorActionPreference='SilentlyContinue'; "
+                "Get-CimInstance Win32_Process | "
+                "Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine "
+                "-and $_.CommandLine -match '(?i)economy_editor\\.py' } | "
+                "ForEach-Object { $_.ProcessId }"
+            )
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", process_query],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=8, check=False,
+            )
+            for line in result.stdout.splitlines():
+                value = line.strip()
+                if value.isdigit() and int(value) != os.getpid():
+                    pids.add(int(value))
+
+        # Also catch any other process holding the reserved local service port.
         result = subprocess.run(
             ["netstat", "-ano", "-p", "tcp"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=5, check=False,
         )
-        pids = set()
         for line in result.stdout.splitlines():
             fields = line.split()
             if len(fields) >= 5 and fields[1].rsplit(":", 1)[-1] == str(port) and fields[3].upper() == "LISTENING":
                 if fields[4].isdigit() and int(fields[4]) != os.getpid():
                     pids.add(int(fields[4]))
-        stopped = False
-        for pid in pids:
-            # Close the listener and its child processes. Ports passed here are
-            # exclusively reserved for this project's local web services.
-            subprocess.run(
+
+        for pid in sorted(pids):
+            result = subprocess.run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=8, check=False,
             )
-            stopped = True
+            if result.returncode == 0:
+                stopped = True
+
         if stopped:
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline and _is_local_port_open(port):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if not _is_local_port_open(port):
+                    break
                 time.sleep(0.15)
         return stopped
     except (OSError, subprocess.SubprocessError):
@@ -1158,16 +1183,19 @@ def _start_companion_services():
     economy_editor = project_dir / "economy_editor.py"
     if economy_editor.is_file():
         if _stop_local_listener(8766):
-            print("[重啟] 已關閉舊的經濟資料庫編輯器，再啟動新版本。")
-        try:
-            subprocess.Popen(
-                [sys.executable, str(economy_editor)],
-                cwd=str(project_dir),
-                creationflags=create_console,
-            )
-            print("[啟動] 已另開視窗啟動 Economy Editor。")
-        except OSError as exc:
-            print(f"[提示] Economy Editor 自動啟動失敗：{type(exc).__name__}。")
+            print("[重啟] 已關閉舊的經濟資料庫編輯器。")
+        if _is_local_port_open(8766):
+            print("[錯誤] 8766 連接埠仍被占用，為避免開出重複的經濟編輯器，已取消啟動新視窗。")
+        else:
+            try:
+                subprocess.Popen(
+                    [sys.executable, str(economy_editor)],
+                    cwd=str(project_dir),
+                    creationflags=create_console,
+                )
+                print("[啟動] 已另開視窗啟動 Economy Editor。")
+            except OSError as exc:
+                print(f"[提示] Economy Editor 自動啟動失敗：{type(exc).__name__}。")
 
 
 def _start_ollama_if_needed():
