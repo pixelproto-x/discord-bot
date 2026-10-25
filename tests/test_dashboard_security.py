@@ -44,6 +44,15 @@ class DashboardJSONBodyTests(unittest.IsolatedAsyncioTestCase):
                     await _read_json_object(Request())
 
 
+class DashboardSingleTabTests(unittest.TestCase):
+    def test_dashboard_replaces_older_control_tabs_from_same_origin(self):
+        self.assertIn('const CONTROL_TAB_KEY="yitiaoyu-control-active-tab";', PAGE)
+        self.assertIn('window.addEventListener("storage"', PAGE)
+        self.assertIn('localStorage.setItem(CONTROL_TAB_KEY,CONTROL_TAB_ID)', PAGE)
+        self.assertIn('window.location.replace("about:blank")', PAGE)
+        self.assertIn('window.addEventListener("pagehide",releaseControlTab,{once:true})', PAGE)
+
+
 class DashboardSecurityHeaderTests(unittest.TestCase):
     def test_default_headers_protect_responses_without_disabling_local_http(self):
         response = SimpleNamespace(headers={})
