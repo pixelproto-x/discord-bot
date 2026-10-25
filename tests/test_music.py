@@ -126,6 +126,7 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
             )),
             patch.object(music.wavelink, "Node", return_value=node),
             patch.object(music.wavelink.Pool, "connect", new=AsyncMock(return_value={"stuck": node})),
+            patch.object(music, "LAVALINK_CONNECT_TIMEOUT_SECONDS", 0.02),
             redirect_stdout(io.StringIO()),
         ):
             await cog.setup_nodes()
