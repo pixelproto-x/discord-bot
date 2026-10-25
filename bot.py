@@ -13,6 +13,7 @@ import sys
 import threading
 
 from safe_logging import redact_sensitive_text
+from startup_services import find_freemind_ai_project
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
 _LOG_DIR = Path(__file__).resolve().parent / "logs"
@@ -1099,22 +1100,22 @@ def _start_companion_services():
     project_dir = Path(__file__).resolve().parent
     create_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-    ai_dir = project_dir.parent / "FreeMindAI-main"
-    ai_runner = ai_dir / "run.bat"
+    ai_dir = find_freemind_ai_project(project_dir)
+    ai_runner = ai_dir / "run.bat" if ai_dir else None
     if _is_local_port_open(8080):
         print("[OK] FreeMindAI 連線埠 8080 已開啟，略過重複啟動。")
-    elif ai_runner.is_file():
+    elif ai_runner is not None:
         try:
             subprocess.Popen(
                 ["cmd.exe", "/d", "/k", f'cd /d "{ai_dir}" && call run.bat'],
                 cwd=str(ai_dir),
                 creationflags=create_console,
             )
-            print("[啟動] 已另開視窗啟動 FreeMindAI。")
+            print(f"[啟動] 已另開視窗啟動 FreeMindAI：{ai_dir}")
         except OSError as exc:
             print(f"[提示] FreeMindAI 自動啟動失敗：{type(exc).__name__}。")
     else:
-        print("[提示] 找不到旁邊的 FreeMindAI-main\\run.bat，略過 FreeMindAI 自動啟動。")
+        print("[提示] 找不到 FreeMindAI 專案；已搜尋 Bot 資料夾旁、Downloads、Desktop、OneDrive\\Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
 
     economy_editor = project_dir / "economy_editor.py"
     if _is_local_port_open(8766):
