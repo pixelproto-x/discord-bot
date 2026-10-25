@@ -110,7 +110,11 @@ def normalize_query(query: str) -> tuple[str | None, str | None]:
 
 def track_title(track) -> str:
     info = getattr(track, "title", None)
-    return str(info or "未知歌曲")
+    title = str(info or "未知歌曲")
+    # Track metadata is untrusted; prevent mass/user/role mentions and
+    # newline-based message-layout injection in bot-authored announcements.
+    title = discord.utils.escape_mentions(title)
+    return " ".join(title.split())
 
 
 def track_url(track) -> str:
