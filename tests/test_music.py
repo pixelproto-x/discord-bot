@@ -795,3 +795,53 @@ class MusicLoopRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_replacing_disconnected_player_preserves_track_queue_and_settings(self):
+        from types import SimpleNamespace
+
+        interrupted = SimpleNamespace(title="Interrupted song", uri="https://youtube.com/watch?v=one")
+        queued = SimpleNamespace(title="Queued song", uri="https://youtube.com/watch?v=two")
+        newly_requested = SimpleNamespace(title="New request", uri="https://youtube.com/watch?v=three")
+
+        class FakePlayer:
+            def __init__(self):
+                self.channel = None
+                self.playing = False
+                self.paused = False
+                self.set_volume = AsyncMock()
+                self.play = AsyncMock()
+                self.disconnect = AsyncMock()
+
+        restored_player = FakePlayer()
+        guild = SimpleNamespace(id=98765, voice_client=None)
+        channel = SimpleNamespace(connect=AsyncMock(return_value=restored_player))
+        restored_player.channel = channel
+        bot = SimpleNamespace(get_guild=lambda guild_id: guild)
+        cog = music.MusicCog(bot)
+        old_player = FakePlayer()
+        session = music.MusicSession(
+            player=old_player,
+            queue=[queued],
+            current=interrupted,
+            volume=37,
+            loop_mode="queue",
+        )
+        cog.sessions[guild.id] = session
+
+        with patch.object(music.wavelink, "Player", FakePlayer):
+            count, started = await cog.enqueue_tracks(
+                guild, channel, 555, 123, [newly_requested]
+            )
+
+        self.assertEqual(count, 1)
+        self.assertTrue(started)
+        self.assertIs(cog.sessions[guild.id], session)
+        self.assertIs(session.player, restored_player)
+        self.assertIs(session.current, interrupted)
+        self.assertEqual(session.queue, [queued, newly_requested])
+        self.assertEqual(session.volume, 37)
+        self.assertEqual(session.loop_mode, "queue")
+        restored_player.play.assert_awaited_once_with(interrupted)
+        restored_player.set_volume.assert_awaited_once_with(37)
