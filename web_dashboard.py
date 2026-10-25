@@ -9,7 +9,10 @@ import secrets
 import subprocess
 import time
 import webbrowser
+from pathlib import Path
 from urllib.parse import urlencode, urlsplit
+
+from process_safety import command_line_targets_script
 from aiohttp import ClientSession, web
 import discord
 
@@ -70,6 +73,30 @@ def _stop_previous_dashboard(port: int) -> bool:
             if len(fields) >= 5 and fields[1].rsplit(":", 1)[-1] == str(port) and fields[3].upper() == "LISTENING":
                 if fields[4].isdigit() and int(fields[4]) != os.getpid():
                     pids.add(int(fields[4]))
+        if pids:
+            # Never kill an arbitrary listener just because it owns the dashboard port.
+            # Only stop a process whose command line contains this project's exact bot.py path.
+            script_path = str(Path(__file__).resolve().parent / "bot.py")
+            pid_list = ",".join(str(pid) for pid in sorted(pids))
+            process_query = (
+                "$pids = @(" + pid_list + "); "
+                "Get-CimInstance Win32_Process | "
+                "Where-Object { $pids -contains $_.ProcessId -and $_.CommandLine } | "
+                "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.CommandLine) }"
+            )
+            process_result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", process_query],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=8, check=False,
+            )
+            target_pids = set()
+            for line in process_result.stdout.splitlines():
+                fields = line.split("\t", 1)
+                if len(fields) == 2 and fields[0].strip().isdigit():
+                    pid = int(fields[0].strip())
+                    if command_line_targets_script(fields[1], script_path):
+                        target_pids.add(pid)
+            pids.intersection_update(target_pids)
         for pid in pids:
             subprocess.run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
