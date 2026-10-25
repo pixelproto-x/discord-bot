@@ -84,6 +84,7 @@ class DashboardSecurityHeaderTests(unittest.TestCase):
         )
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertIn("Content-Security-Policy", response.headers)
+        self.assertIn("worker-src 'self'", response.headers["Content-Security-Policy"])
         self.assertIn("object-src 'none'", response.headers["Content-Security-Policy"])
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
         self.assertNotIn("Strict-Transport-Security", response.headers)
