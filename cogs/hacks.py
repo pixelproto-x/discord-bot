@@ -177,32 +177,57 @@ class Hacks(commands.Cog):
 
         async with lock:
             audio_path = None
+            voice_client = None
+            speech_cog = self.bot.get_cog("SpeechControlCog")
+            handoff_claimed = False
             try:
                 with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
                     audio_path = temp_file.name
                 await self._generate_tts_audio(text, audio_path)
 
-                voice_client = message.guild.voice_client
-                if voice_client and voice_client.is_connected():
-                    if voice_client.channel.id != voice_channel.id:
-                        await voice_client.move_to(voice_channel)
+                if speech_cog and hasattr(speech_cog, "prepare_local_audio"):
+                    # Use the same coordinator as slash/dashboard/terminal TTS so
+                    # this legacy automatic reader can coexist with Lavalink music.
+                    voice_client = await speech_cog.prepare_local_audio(voice_channel)
+                    handoff_claimed = True
                 else:
-                    voice_client = await voice_channel.connect()
-
-                if voice_client.is_playing():
-                    return
+                    voice_client = message.guild.voice_client
+                    try:
+                        import wavelink
+                        if isinstance(voice_client, wavelink.Player):
+                            raise RuntimeError("語音朗讀模組尚未載入，不能安全切換 Lavalink 音樂連線。")
+                    except ImportError:
+                        pass
+                    if voice_client and voice_client.is_connected():
+                        if voice_client.channel.id != voice_channel.id:
+                            await voice_client.move_to(voice_channel)
+                    else:
+                        voice_client = await voice_channel.connect()
+                    if voice_client.is_playing() or voice_client.is_paused():
+                        return
 
                 source = discord.FFmpegPCMAudio(audio_path, executable=imageio_ffmpeg.get_ffmpeg_exe())
                 done = asyncio.Event()
                 voice_client.play(source, after=lambda error: self.bot.loop.call_soon_threadsafe(done.set))
+                if handoff_claimed:
+                    speech_cog.local_audio_started(message.guild.id)
                 try:
                     await asyncio.wait_for(done.wait(), timeout=20)
                 except asyncio.TimeoutError:
-                    if voice_client.is_playing():
+                    if voice_client.is_playing() or voice_client.is_paused():
                         voice_client.stop()
-            except (discord.ClientException, discord.Forbidden, discord.HTTPException, OSError, RuntimeError, asyncio.TimeoutError) as exc:
+                    try:
+                        await asyncio.wait_for(done.wait(), timeout=2)
+                    except asyncio.TimeoutError:
+                        pass
+            except Exception as exc:
                 print(f"[TTS] guild={message.guild.id} channel={message.channel.id}: {type(exc).__name__}: {exc}")
             finally:
+                if handoff_claimed and speech_cog:
+                    try:
+                        await speech_cog.finish_local_audio(message.guild.id)
+                    except Exception as exc:
+                        print(f"[TTS] voice handoff restore failed: {type(exc).__name__}")
                 if audio_path:
                     try:
                         os.unlink(audio_path)
