@@ -990,6 +990,42 @@ class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(cog.node_error)
 
 
+    async def test_setup_retries_a_missing_fallback_without_closing_healthy_node(self):
+        class FakeNode:
+            def __init__(self, identifier, status):
+                self.identifier = identifier
+                self.status = status
+                self._session = None
+                self.close = AsyncMock()
+
+        healthy = FakeNode("healthy", wavelink.NodeStatus.CONNECTED)
+        missing = FakeNode("missing", wavelink.NodeStatus.CONNECTING)
+        pool_nodes = {"healthy": healthy}
+        cog = music.MusicCog(object())
+
+        async def connect(*, nodes, client):
+            node = next(iter(nodes))
+            node.status = wavelink.NodeStatus.CONNECTED
+            pool_nodes[node.identifier] = node
+
+        with (
+            patch.object(music, "LAVALINK_NODES", (
+                {"identifier": "healthy", "uri": "https://healthy.example", "password": "x"},
+                {"identifier": "missing", "uri": "https://missing.example", "password": "x"},
+            )),
+            patch.object(music.wavelink, "Node", return_value=missing),
+            patch.object(wavelink.Pool, "nodes", pool_nodes),
+            patch.object(wavelink.Pool, "connect", new=AsyncMock(side_effect=connect)),
+            redirect_stdout(io.StringIO()),
+        ):
+            await cog.setup_nodes()
+
+        healthy.close.assert_not_awaited()
+        self.assertIs(pool_nodes["healthy"], healthy)
+        self.assertIs(pool_nodes["missing"], missing)
+        self.assertIsNone(cog.node_error)
+
+
 class MusicQueueRenderingTests(unittest.TestCase):
     def test_large_queue_shows_the_controllable_tracks_and_remaining_count(self):
         from types import SimpleNamespace
