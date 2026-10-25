@@ -642,5 +642,62 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [track])
         self.assertEqual(calls, ["ytsearch:artist track", "ytmsearch:artist track"])
 
+
+class MusicPlaybackFlowIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_search_result_reaches_player_and_becomes_current_track(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(
+            title="Verified Search Track",
+            author="Verified Artist",
+            source="youtube",
+            uri="https://www.youtube.com/watch?v=FGBhQbmPwH8",
+            encoded="encoded-track",
+            extras={},
+        )
+        node = SimpleNamespace(identifier="live-like-node", status=wavelink.NodeStatus.CONNECTED)
+        player = SimpleNamespace(
+            channel=None,
+            playing=False,
+            set_volume=AsyncMock(),
+            play=AsyncMock(),
+        )
+        channel = SimpleNamespace(connect=AsyncMock(return_value=player))
+        player.channel = channel
+        guild = SimpleNamespace(id=987654, voice_client=None)
+        cog = music.MusicCog(SimpleNamespace())
+        searches = []
+
+        async def search(identifier, *, source=None, node=None):
+            searches.append((identifier, source, node.identifier))
+            if identifier == "ytsearch:Verified Artist Verified Search Track":
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", {node.identifier: node}),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            found = await cog.resolve_query("Verified Artist Verified Search Track")
+            count, started = await cog.enqueue_tracks(
+                guild,
+                channel,
+                text_channel_id=111,
+                requester_id=222,
+                tracks=found,
+            )
+
+        self.assertEqual(searches, [
+            ("ytsearch:Verified Artist Verified Search Track", None, "live-like-node"),
+        ])
+        self.assertEqual(count, 1)
+        self.assertTrue(started)
+        self.assertIs(cog.sessions[guild.id].current, track)
+        self.assertEqual(cog.sessions[guild.id].queue, [])
+        self.assertEqual(track.extras["requester_id"], "222")
+        channel.connect.assert_awaited_once_with(cls=wavelink.Player, self_deaf=False)
+        player.set_volume.assert_awaited_once_with(80)
+        player.play.assert_awaited_once_with(track)
+
 if __name__ == "__main__":
     unittest.main()
