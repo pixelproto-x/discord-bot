@@ -1,4 +1,6 @@
+import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from cogs.browser_mic import BrowserMicAudioSource, BrowserMicCog
@@ -23,6 +25,32 @@ class BrowserMicWebSocketCleanupTests(unittest.IsolatedAsyncioTestCase):
             )
 
         speech.stop_stream.assert_awaited_once_with(123)
+
+
+class BrowserMicTicketCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_expired_unclaimed_ticket_stops_the_voice_stream(self):
+        bot = SimpleNamespace(get_guild=lambda guild_id: None, get_cog=lambda name: None)
+        cog = BrowserMicCog(bot=bot)
+        ticket = cog.issue_ticket(123)
+        cog.tickets[ticket] = (123, time.monotonic() - 1)
+
+        with unittest.mock.patch.object(cog, "stop_stream", new_callable=AsyncMock) as stop_stream:
+            await cog._expire_unclaimed_ticket(123, ticket)
+
+        self.assertNotIn(ticket, cog.tickets)
+        stop_stream.assert_awaited_once_with(123)
+
+    async def test_stopping_stream_invalidates_pending_tickets(self):
+        bot = SimpleNamespace(get_guild=lambda guild_id: None, get_cog=lambda name: None)
+        cog = BrowserMicCog(bot=bot)
+        source = BrowserMicAudioSource()
+        cog.sources[123] = source
+        ticket = cog.issue_ticket(123)
+
+        self.assertTrue(await cog.stop_stream(123))
+        self.assertNotIn(ticket, cog.tickets)
+        self.assertNotIn(123, cog.sources)
+        self.assertTrue(source._closed)
 
 
 class BrowserMicAudioSourceTests(unittest.TestCase):
