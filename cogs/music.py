@@ -20,6 +20,7 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
     """Load configured nodes first, then the currently listed public fallbacks."""
     nodes: list[dict[str, str]] = []
     seen_uris: set[str] = set()
+    seen_identifiers: set[str] = set()
 
     for index in range(1, 4):
         uri = os.getenv(f"LAVALINK_{index}_URI", "").strip()
@@ -30,8 +31,12 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
             print(f"[Music] LAVALINK_{index}_URI 和 LAVALINK_{index}_PASSWORD 必須一起設定。")
             continue
         identifier = os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}"
+        if identifier in seen_identifiers:
+            print(f"[Music] 重複的 Lavalink 節點識別碼 {identifier}，略過 LAVALINK_{index}。")
+            continue
         nodes.append({"identifier": identifier, "uri": uri, "password": password})
         seen_uris.add(uri.rstrip("/").lower())
+        seen_identifiers.add(identifier)
 
     # Public fallbacks verified with live ytsearch requests. These services are
     # community-operated and can change availability or credentials at any time.
@@ -45,10 +50,11 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
     )
     for identifier, uri, password in public_nodes:
         normalized_uri = uri.rstrip("/").lower()
-        if normalized_uri in seen_uris:
+        if normalized_uri in seen_uris or identifier in seen_identifiers:
             continue
         nodes.append({"identifier": identifier, "uri": uri, "password": password})
         seen_uris.add(normalized_uri)
+        seen_identifiers.add(identifier)
 
     print(f"[Music] 已載入 {len(nodes)} 個 Lavalink 候選節點（含免費公開備援）。")
     return tuple(nodes)
