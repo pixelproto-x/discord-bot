@@ -1107,7 +1107,7 @@ def _start_companion_services():
     elif ai_runner is not None:
         try:
             subprocess.Popen(
-                ["cmd.exe", "/d", "/k", "call", str(ai_runner)],
+                ["cmd.exe", "/d", "/k", f'call "{ai_runner}"'],
                 cwd=str(ai_dir),
                 creationflags=create_console,
             )
