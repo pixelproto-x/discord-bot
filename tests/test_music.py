@@ -900,5 +900,47 @@ class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(session.current)
         self.assertEqual(session.queue, [interrupted, queued_duplicate])
 
+
+class MusicNodeRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_search_retries_node_setup_when_all_nodes_are_down(self):
+        from types import SimpleNamespace
+
+        node = SimpleNamespace(identifier="recovered", status=wavelink.NodeStatus.CONNECTED)
+        track = SimpleNamespace(title="Recovered track", source="youtube")
+        pool_nodes = {}
+        cog = music.MusicCog(SimpleNamespace())
+        cog.last_node_setup_attempt = 0.0
+
+        async def reconnect():
+            pool_nodes["recovered"] = node
+            cog.last_node_setup_attempt = time.monotonic()
+
+        with (
+            patch.object(wavelink.Pool, "nodes", pool_nodes),
+            patch.object(cog, "setup_nodes", new=AsyncMock(side_effect=reconnect)) as setup_nodes,
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[track])),
+        ):
+            result = await cog.resolve_query("recovered track")
+
+        setup_nodes.assert_awaited_once()
+        self.assertEqual(result, [track])
+
+    async def test_search_respects_node_reconnect_cooldown(self):
+        from types import SimpleNamespace
+
+        pool_nodes = {}
+        cog = music.MusicCog(SimpleNamespace())
+        cog.last_node_setup_attempt = time.monotonic()
+
+        with (
+            patch.object(wavelink.Pool, "nodes", pool_nodes),
+            patch.object(cog, "setup_nodes", new=AsyncMock()) as setup_nodes,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "再次嘗試連線"):
+                await cog.resolve_query("unavailable track")
+
+        setup_nodes.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()
