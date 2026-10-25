@@ -88,12 +88,10 @@ class LocalBanterCog(commands.Cog):
         return result
 
     def _is_triggered(self, message: discord.Message) -> bool:
-        if not self.bot.user:
-            return False
-        
-        
-        
-        return isinstance(message.channel, discord.DMChannel)
+        # Automatic DM replies overlap with the main AI provider and can send a
+        # second timeout message after the cloud provider has already replied.
+        # Keep local Ollama available through the explicit /local-ai command only.
+        return False
 
     def _clean_message(self, message: discord.Message) -> str:
         content = message.content or ""
