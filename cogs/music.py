@@ -557,6 +557,64 @@ class MusicCog(commands.Cog):
                 session.current = None
                 asyncio.create_task(self.play_next(guild_id))
 
+    @staticmethod
+    def _tracks_match(left, right) -> bool:
+        if left is right:
+            return True
+        if left is None or right is None:
+            return False
+        try:
+            return bool(left == right)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_youtube_track(track) -> bool:
+        source = str(getattr(track, "source", "") or "").strip().casefold()
+        if source in {"youtube", "youtube_music", "youtube music"}:
+            return True
+        uri = track_url(track)
+        if not uri:
+            return False
+        try:
+            host = (urlsplit(uri).hostname or "").casefold().rstrip(".")
+        except ValueError:
+            return False
+        return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
+
+    async def _find_soundcloud_fallback(self, track):
+        """Find a SoundCloud alternative when YouTube refuses to load a track."""
+        title = track_title(track).strip()
+        author = str(getattr(track, "author", "") or "").strip()
+        if not title or title == "未知歌曲":
+            return None
+
+        query = " ".join(part for part in (title, author) if part)[:MAX_QUERY_LENGTH]
+        try:
+            result = await wavelink.Playable.search(f"scsearch:{query}")
+            candidates = list(getattr(result, "tracks", result) or [])
+        except Exception as exc:
+            print(f"[Music] SoundCloud 備援搜尋失敗：{type(exc).__name__}: {exc}")
+            return None
+
+        for candidate in candidates:
+            if str(getattr(candidate, "source", "") or "").casefold() == "soundcloud":
+                return candidate
+        return None
+
+    async def _notify_music_channel(self, session: MusicSession, message: str) -> None:
+        channel_id = getattr(session, "text_channel_id", None)
+        get_channel = getattr(self.bot, "get_channel", None)
+        if not channel_id or not callable(get_channel):
+            return
+        try:
+            channel = get_channel(channel_id)
+            if channel is not None:
+                await channel.send(message)
+        except Exception:
+            # Audio recovery must not fail because a status message could not be sent.
+            pass
+
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player = getattr(payload, "player", None)
@@ -567,10 +625,69 @@ class MusicCog(commands.Cog):
             session = self.sessions.get(guild_id)
             if not session or session.player is not player or session.handoff:
                 return
-            ended_track = session.current or getattr(payload, "track", None)
+
+            reported_track = getattr(payload, "original", None) or getattr(payload, "track", None)
+            # A delayed end event from the previous song must not clear a newer track.
+            if (
+                session.current is not None
+                and reported_track is not None
+                and not self._tracks_match(session.current, reported_track)
+            ):
+                return
+
+            ended_track = session.current or reported_track
             reason = str(getattr(payload, "reason", "")).upper()
             skipped = session.skip_requested
             session.skip_requested = False
+
+            # YouTube's current source plugin can reject otherwise searchable tracks.
+            # Before dropping the failed song, try the same title/artist on SoundCloud.
+            if (
+                ended_track
+                and not skipped
+                and reason.endswith("LOAD_FAILED")
+                and self._is_youtube_track(ended_track)
+            ):
+                fallback = await self._find_soundcloud_fallback(ended_track)
+                if fallback is not None:
+                    try:
+                        old_extras = dict(getattr(ended_track, "extras", {}) or {})
+                    except (TypeError, ValueError):
+                        old_extras = {}
+                    try:
+                        fallback_extras = dict(getattr(fallback, "extras", {}) or {})
+                    except (TypeError, ValueError):
+                        fallback_extras = {}
+                    fallback_extras.update(old_extras)
+                    fallback_extras["fallback_from"] = "youtube"
+                    try:
+                        fallback.extras = fallback_extras
+                    except (AttributeError, TypeError, ValueError):
+                        pass
+
+                    session.current = fallback
+                    try:
+                        await player.play(fallback)
+                    except Exception as exc:
+                        session.current = None
+                        print(f"[Music] SoundCloud 備援播放失敗：{type(exc).__name__}: {exc}")
+                    else:
+                        print(
+                            f"[Music] YouTube 載入失敗，已切換 SoundCloud："
+                            f"{track_title(fallback)} (guild={guild_id})"
+                        )
+                        await self._notify_music_channel(
+                            session,
+                            f"⚠️ YouTube 音源載入失敗，已改用 SoundCloud 版本：**{track_title(fallback)}**",
+                        )
+                        return
+                else:
+                    print(f"[Music] YouTube 歌曲無法載入，且沒有找到 SoundCloud 備援：{track_title(ended_track)}")
+                    await self._notify_music_channel(
+                        session,
+                        f"⚠️ 這首歌的 YouTube 音源無法載入，也沒有找到可用的 SoundCloud 備援，已跳過：**{track_title(ended_track)}**",
+                    )
+
             if ended_track and not skipped and reason.endswith("FINISHED"):
                 if session.loop_mode == "one":
                     session.current = ended_track
