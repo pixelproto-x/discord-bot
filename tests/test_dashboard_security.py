@@ -58,7 +58,7 @@ class DashboardSingleTabTests(unittest.TestCase):
 class DashboardSingleTabTests(unittest.TestCase):
     def test_dashboard_retires_existing_tabs_including_uncontrolled_tabs(self):
         self.assertIn('navigator.serviceWorker.register("/dashboard-tab-manager.js"', PAGE)
-        self.assertIn('type: "takeover-dashboard-tabs"', PAGE)
+        self.assertIn('type:"takeover-dashboard-tabs"', PAGE)
         self.assertIn('self.clients.matchAll({type: "window", includeUncontrolled: true})', DASHBOARD_TAB_MANAGER_SCRIPT)
         self.assertIn('client.navigate(new URL("/__dashboard_replaced", expectedOrigin).href)', DASHBOARD_TAB_MANAGER_SCRIPT)
         self.assertIn('"/__dashboard_replaced"', DASHBOARD_RETIRED_PAGE)
