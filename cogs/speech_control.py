@@ -276,6 +276,12 @@ class SpeechControlCog(commands.Cog):
         if not ffmpeg:
             return "找不到 FFmpeg，請先安裝依賴或設定 FFMPEG_PATH。"
         voice_client = guild.voice_client
+        try:
+            import wavelink
+            if isinstance(voice_client, wavelink.Player):
+                return "目前音樂使用 Lavalink 連線，無法直接播放本機朗讀音檔。請先停止音樂播放器，再使用語音朗讀。"
+        except ImportError:
+            pass
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             return "我正在播放音訊；為避免打斷音樂或上一句，請先輸入 /stop。"
         filename = None
@@ -330,10 +336,17 @@ class SpeechControlCog(commands.Cog):
             if not voice_client or not voice_client.is_connected():
                 continue
             music_cog = self.bot.get_cog("MusicCog")
-            player = getattr(music_cog, "players", {}).get(guild.id) if music_cog else None
-            if player and (player.current or player.queue):
+            session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
+            if session and (session.current or session.queue):
                 print(f"[終端語音] {guild.name} 正在播放音樂，為保護音樂播放而不離開。")
                 continue
+            try:
+                import wavelink
+                if isinstance(voice_client, wavelink.Player):
+                    print(f"[終端語音] {guild.name} 使用 Lavalink 連線；不會用一般語音方法中斷音樂。")
+                    continue
+            except ImportError:
+                pass
             mic_source = self.active_mics.get(guild.id)
             if (guild.id in self.active_guilds or mic_source) and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
@@ -351,11 +364,17 @@ class SpeechControlCog(commands.Cog):
         if guild.id in self.active_mics:
             return "麥克風已經在傳送了。輸入 /stop 可停止。"
         voice_client = guild.voice_client
+        try:
+            import wavelink
+            if isinstance(voice_client, wavelink.Player):
+                return "目前語音連線由 Lavalink 音樂播放器管理，無法直接播放本機麥克風音訊。請先停止音樂並讓播放器離開語音頻道，再啟動麥克風。"
+        except ImportError:
+            pass
         if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
             return "我正在播放其他音訊；請先輸入 /stop，確認沒有音樂播放後再啟動麥克風。"
         music_cog = self.bot.get_cog("MusicCog")
-        player = getattr(music_cog, "players", {}).get(guild.id) if music_cog else None
-        if player and (getattr(player, "current", None) or bool(getattr(player, "queue", None))):
+        session = getattr(music_cog, "sessions", {}).get(guild.id) if music_cog else None
+        if session and (getattr(session, "current", None) or bool(getattr(session, "queue", None))):
             return "這個伺服器的音樂播放器仍有歌曲，為避免打斷音樂，我不會接管語音。"
         source = None
         try:
@@ -403,7 +422,12 @@ class SpeechControlCog(commands.Cog):
         for guild_id, source in list(self.active_mics.items()):
             guild = self.bot.get_guild(guild_id)
             voice_client = guild.voice_client if guild else None
-            if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            try:
+                import wavelink
+                is_wavelink = isinstance(voice_client, wavelink.Player)
+            except ImportError:
+                is_wavelink = False
+            if voice_client and not is_wavelink and (voice_client.is_playing() or voice_client.is_paused()):
                 voice_client.stop()
             await self._finish_mic(guild_id, source)
             stopped = True
@@ -433,6 +457,16 @@ class SpeechControlCog(commands.Cog):
         guild = interaction.guild
         voice_client = guild.voice_client
         mic_source = self.active_mics.get(guild.id)
+        try:
+            import wavelink
+            if isinstance(voice_client, wavelink.Player):
+                await interaction.response.send_message(
+                    "目前語音連線由 Lavalink 音樂播放器管理；這個指令不能停止本機朗讀或麥克風音訊。",
+                    ephemeral=True,
+                )
+                return
+        except ImportError:
+            pass
         if not voice_client or not (voice_client.is_playing() or voice_client.is_paused()) or (guild.id not in self.active_guilds and not mic_source):
             await interaction.response.send_message("我現在沒有正在唸話或傳送麥克風。", ephemeral=True)
             return
