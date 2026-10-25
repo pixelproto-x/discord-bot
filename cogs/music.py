@@ -504,9 +504,25 @@ class MusicCog(commands.Cog):
                 await player.move_to(channel)
         else:
             player = await channel.connect(cls=wavelink.Player, self_deaf=False)
-        if session is None or session.player is not player:
+        if session is None:
             session = MusicSession(player=player)
             self.sessions[guild.id] = session
+        elif session.player is not player:
+            # A voice disconnect can leave a session holding its old player.
+            # Replacing that session would silently discard the current track,
+            # the remaining queue, and its loop/volume settings.
+            interrupted_track = session.current
+            session.player = player
+            session.handoff = False
+            session.skip_requested = False
+            if interrupted_track is not None:
+                already_queued = any(
+                    self._tracks_match(queued_track, interrupted_track)
+                    for queued_track in session.queue
+                )
+                if not already_queued:
+                    session.queue.insert(0, interrupted_track)
+                session.current = None
         session.text_channel_id = text_channel_id
         try:
             await player.set_volume(session.volume)
