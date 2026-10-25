@@ -991,7 +991,7 @@ class MusicCog(commands.Cog):
             if len(tracks) > count:
                 note = f"佇列已滿，只加入前 {count} 首。"
             elif is_playlist:
-                note = f"播放清單已依 YouTube 順序加入 {count} 首。"
+                note = f"播放清單／專輯已依原始順序加入 {count} 首。"
             else:
                 note = f"已加入 {count} 首。"
             session = self.sessions[message.guild.id]
@@ -1059,7 +1059,7 @@ class MusicCog(commands.Cog):
             if len(selected_tracks) > count:
                 suffix = f"（佇列上限已到，只加入前 {count} 首）"
             elif is_playlist:
-                suffix = f"（播放清單共加入 {count} 首）"
+                suffix = f"（播放清單／專輯共加入 {count} 首）"
             else:
                 suffix = ""
             session = self.sessions[interaction.guild.id]
