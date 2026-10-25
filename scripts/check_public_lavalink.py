@@ -139,6 +139,13 @@ async def check_wavelink_search(node_config: tuple[str, str, str]) -> bool:
             wavelink.Pool.connect(nodes=[node], client=node.client),
             timeout=10,
         )
+        registered_node = wavelink.Pool.nodes.get(node.identifier)
+        if node.status is not wavelink.NodeStatus.CONNECTED or registered_node is not node:
+            print(
+                f"FAIL {name} Wavelink integration: status={node.status}; "
+                f"registered={registered_node is node}"
+            )
+            return False
         tracks = await asyncio.wait_for(
             wavelink.Playable.search(
                 "ytsearch:Daft Punk One More Time",
