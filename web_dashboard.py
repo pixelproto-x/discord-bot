@@ -422,6 +422,25 @@ def _is_allowed_websocket_origin(origin, expected_origin):
     return _is_same_origin(origin, expected_origin)
 
 
+async def _serve_browser_mic_websocket(request, speech, guild_id, ws):
+    """Serve microphone frames and always release the voice session, even if upgrade fails."""
+    try:
+        await ws.prepare(request)
+        async for msg in ws:
+            if msg.type == web.WSMsgType.BINARY:
+                if len(msg.data) != 1920:
+                    await ws.close(code=1003, message=b"expected 20ms mono PCM16 frame")
+                    break
+                if not speech.feed_frame(guild_id, msg.data):
+                    await ws.close(code=1011, message=b"audio source is no longer active")
+                    break
+            elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
+                break
+    finally:
+        await speech.stop_stream(guild_id)
+    return ws
+
+
 def _dashboard_content_security_policy():
     """Allow only the dashboard's exact inline script and deny plugin/base injection."""
     scripts = re.findall(r"<script>(.*?)</script>", PAGE, flags=re.DOTALL)
@@ -726,21 +745,7 @@ async def start_dashboard(bot):
         if guild_id is None:
             return _json_error("麥克風串流票證無效或已過期，請重新按開始。", 401)
         ws = web.WebSocketResponse(max_msg_size=4096, heartbeat=20)
-        await ws.prepare(request)
-        try:
-            async for msg in ws:
-                if msg.type == web.WSMsgType.BINARY:
-                    if len(msg.data) != 1920:
-                        await ws.close(code=1003, message=b"expected 20ms mono PCM16 frame")
-                        break
-                    if not speech.feed_frame(guild_id, msg.data):
-                        await ws.close(code=1011, message=b"audio source is no longer active")
-                        break
-                elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSED, web.WSMsgType.ERROR):
-                    break
-        finally:
-            await speech.stop_stream(guild_id)
-        return ws
+        return await _serve_browser_mic_websocket(request, speech, guild_id, ws)
 
     async def select_target(request):
         try:
