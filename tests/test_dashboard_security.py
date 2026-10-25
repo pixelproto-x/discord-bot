@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from web_dashboard import (
+    DASHBOARD_TAB_MANAGER_SCRIPT,
+    DASHBOARD_RETIRED_PAGE,
     PAGE,
     SlidingWindowRateLimiter,
     _apply_dashboard_security_headers,
@@ -51,6 +53,20 @@ class DashboardSingleTabTests(unittest.TestCase):
         self.assertIn('localStorage.setItem(CONTROL_TAB_KEY,CONTROL_TAB_ID)', PAGE)
         self.assertIn('window.location.replace("about:blank")', PAGE)
         self.assertIn('window.addEventListener("pagehide",releaseControlTab,{once:true})', PAGE)
+
+
+class DashboardSingleTabTests(unittest.TestCase):
+    def test_dashboard_retires_existing_tabs_including_uncontrolled_tabs(self):
+        self.assertIn('navigator.serviceWorker.register("/dashboard-tab-manager.js"', PAGE)
+        self.assertIn('type: "takeover-dashboard-tabs"', PAGE)
+        self.assertIn('self.clients.matchAll({type: "window", includeUncontrolled: true})', DASHBOARD_TAB_MANAGER_SCRIPT)
+        self.assertIn('client.navigate(new URL("/__dashboard_replaced", expectedOrigin).href)', DASHBOARD_TAB_MANAGER_SCRIPT)
+        self.assertIn('"/__dashboard_replaced"', DASHBOARD_RETIRED_PAGE)
+        self.assertIn('url=about:blank', DASHBOARD_RETIRED_PAGE)
+
+    def test_tab_manager_only_navigates_dashboard_root_tabs_for_its_origin(self):
+        self.assertIn('target.origin !== expectedOrigin', DASHBOARD_TAB_MANAGER_SCRIPT)
+        self.assertIn('["/", "/index.html"].includes(target.pathname)', DASHBOARD_TAB_MANAGER_SCRIPT)
 
 
 class DashboardSecurityHeaderTests(unittest.TestCase):
