@@ -732,7 +732,20 @@ class MemberEventsCog(commands.Cog):
 
         try:
             await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        except (discord.Forbidden, discord.HTTPException) as exc:
+        except discord.Forbidden as exc:
+            # A stale channel ID or missing View Channel/Send Messages/Embed Links
+            # permission cannot be repaired by retrying every deleted message.
+            blocked = getattr(self, "_delete_log_access_warnings", None)
+            if blocked is None:
+                blocked = self._delete_log_access_warnings = set()
+            key = (int(guild_id), int(log_channel_id))
+            if key not in blocked:
+                blocked.add(key)
+                print(
+                    f"[Message logs] 無法存取紀錄頻道 guild={guild_id}, channel={log_channel_id}; "
+                    "請在伺服器設定中心重新選擇紀錄頻道，並確認 Bot 有檢視頻道、傳送訊息及嵌入連結權限。"
+                )
+        except discord.HTTPException as exc:
             print(f"Message deletion log delivery failed in guild {guild_id}, channel {log_channel_id}: {exc!r}")
 
     @commands.Cog.listener()
