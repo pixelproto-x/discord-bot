@@ -191,6 +191,10 @@ class MusicSearchButton(discord.ui.Button):
             session = self.cog.sessions[interaction.guild.id]
             if started and session.current:
                 text = f"🎵 開始播放：**{track_title(session.current)}**"
+            elif started and session.queue:
+                text = "第一首歌曲無法啟動，正在嘗試後續曲目。"
+            elif started:
+                text = "這首歌曲無法啟動，請重新搜尋其他版本。"
             else:
                 text = f"已加入佇列：**{track_title(self.track)}**"
             for item in self.view.children:
@@ -993,8 +997,10 @@ class MusicCog(commands.Cog):
             session = self.sessions[message.guild.id]
             if started and session.current:
                 await message.channel.send(f"🎵 開始播放：**{track_title(session.current)}**")
-            elif started:
+            elif started and session.queue:
                 await message.channel.send("第一首歌曲無法啟動，正在嘗試後續曲目。")
+            elif started:
+                await message.channel.send("這首歌曲無法啟動，請重新搜尋其他版本。")
             else:
                 await message.channel.send(note)
         except OverflowError as exc:
@@ -1059,6 +1065,10 @@ class MusicCog(commands.Cog):
             session = self.sessions[interaction.guild.id]
             if started and session.current:
                 await interaction.followup.send(f"🎵 開始播放：**{track_title(session.current)}**{suffix}", ephemeral=not public)
+            elif started and session.queue:
+                await interaction.followup.send("第一首歌曲無法啟動，正在嘗試後續曲目。" + suffix, ephemeral=not public)
+            elif started:
+                await interaction.followup.send("這首歌曲無法啟動，請重新搜尋其他版本。", ephemeral=True)
             else:
                 await interaction.followup.send(f"已加入佇列：**{track_title(selected_tracks[0])}**{suffix}", ephemeral=not public)
         except OverflowError as exc:
