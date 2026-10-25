@@ -551,6 +551,7 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(identifier == url and source is None for identifier, _, source in calls))
 
     async def test_search_fails_clearly_when_no_lavalink_node_is_connected(self):
+        self.cog.last_node_setup_attempt = time.monotonic()
         with patch.object(wavelink.Pool, "nodes", {}):
             with self.assertRaisesRegex(RuntimeError, "沒有已連線的 Lavalink"):
                 await self.cog.resolve_query("artist track")
