@@ -120,6 +120,25 @@ label{display:block;color:#9ab8cc;font-size:12px;margin:12px 0 6px;letter-spacin
 </div></div>
 </main>
 <script>
+// Keep one active local Control tab. When a newer tab opens from the same
+// origin, older copies relinquish the dashboard instead of leaving duplicates.
+const CONTROL_TAB_KEY="yitiaoyu-control-active-tab";
+const CONTROL_TAB_ID=(()=>{
+ try{return String(Date.now())+"-"+Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-")}
+ catch{return String(Date.now())+"-"+String(Math.random())}
+})();
+window.addEventListener("storage",event=>{
+ if(event.key!==CONTROL_TAB_KEY||!event.newValue||event.newValue===CONTROL_TAB_ID)return;
+ try{window.close()}catch{}
+ setTimeout(()=>{
+  try{if(!window.closed)window.location.replace("about:blank")}catch{}
+ },0);
+});
+function releaseControlTab(){
+ try{if(localStorage.getItem(CONTROL_TAB_KEY)===CONTROL_TAB_ID)localStorage.removeItem(CONTROL_TAB_KEY)}catch{}
+}
+try{localStorage.setItem(CONTROL_TAB_KEY,CONTROL_TAB_ID)}catch{}
+window.addEventListener("pagehide",releaseControlTab,{once:true});
 let token="",selectedGuild="",selectedChannel="";
 const GUILD_PREF_KEY="discord-dashboard-last-guild";
 const $=id=>document.getElementById(id);
