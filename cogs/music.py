@@ -648,20 +648,21 @@ class MusicCog(commands.Cog):
         return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
 
     async def _find_soundcloud_fallback(self, track):
-        """Find a SoundCloud alternative when YouTube refuses to load a track."""
+        """Find a SoundCloud alternative using bounded searches across connected nodes."""
         title = track_title(track).strip()
         author = str(getattr(track, "author", "") or "").strip()
         if not title or title == "未知歌曲":
             return None
 
         query = " ".join(part for part in (title, author) if part)[:MAX_QUERY_LENGTH]
-        try:
-            result = await wavelink.Playable.search(f"scsearch:{query}", source=None)
-            candidates = list(getattr(result, "tracks", result) or [])
-        except Exception as exc:
-            print(f"[Music] SoundCloud 備援搜尋失敗：{type(exc).__name__}: {exc}")
+        nodes = tuple(
+            node
+            for node in wavelink.Pool.nodes.values()
+            if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
+        )
+        if not nodes:
             return None
-
+        candidates = await self._search_nodes(f"scsearch:{query}", nodes)
         for candidate in candidates:
             if str(getattr(candidate, "source", "") or "").casefold() == "soundcloud":
                 return candidate
