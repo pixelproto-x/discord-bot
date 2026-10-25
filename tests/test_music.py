@@ -186,5 +186,29 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         player.play.assert_not_awaited()
 
 
+
+    async def test_stop_during_handoff_disconnects_native_voice_client(self):
+        from types import SimpleNamespace
+
+        song = SimpleNamespace(title="Current song")
+        old_lavalink_player = SimpleNamespace(disconnect=AsyncMock())
+        native_voice_client = SimpleNamespace(connected=True, disconnect=AsyncMock())
+        guild = SimpleNamespace(id=789, voice_client=native_voice_client)
+        bot = SimpleNamespace(
+            get_guild=lambda guild_id: guild,
+            get_cog=lambda name: None,
+        )
+        cog = music.MusicCog(bot)
+        session = music.MusicSession(player=old_lavalink_player, current=song, handoff=True)
+        cog.sessions[guild.id] = session
+        cog.local_audio_handoffs[guild.id] = {"session": session, "track": song}
+
+        await cog.stop_player(guild.id)
+
+        native_voice_client.disconnect.assert_awaited_once_with(force=True)
+        old_lavalink_player.disconnect.assert_not_awaited()
+        self.assertNotIn(guild.id, cog.local_audio_handoffs)
+        self.assertNotIn(guild.id, cog.sessions)
+
 if __name__ == "__main__":
     unittest.main()
