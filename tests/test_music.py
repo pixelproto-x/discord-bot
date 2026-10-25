@@ -543,7 +543,11 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [track])
         self.assertEqual(
             [query for query, _ in calls],
-            ["ytsearch:artist track", "scsearch:artist track"],
+            [
+                "ytsearch:artist track",
+                "ytmsearch:artist track",
+                "scsearch:artist track",
+            ],
         )
         self.assertTrue(all(selected_node is node for _, selected_node in calls))
 
