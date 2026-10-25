@@ -990,8 +990,11 @@ class MusicCog(commands.Cog):
                 note = f"播放清單已依 YouTube 順序加入 {count} 首。"
             else:
                 note = f"已加入 {count} 首。"
-            if started:
-                await message.channel.send(f"🎵 開始播放：**{track_title(self.sessions[message.guild.id].current)}**")
+            session = self.sessions[message.guild.id]
+            if started and session.current:
+                await message.channel.send(f"🎵 開始播放：**{track_title(session.current)}**")
+            elif started:
+                await message.channel.send("第一首歌曲無法啟動，正在嘗試後續曲目。")
             else:
                 await message.channel.send(note)
         except OverflowError as exc:
