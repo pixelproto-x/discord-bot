@@ -43,6 +43,24 @@ class MusicInputValidationTests(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertIsNotNone(normalize_query(url)[1])
 
+    def test_collection_url_detection_handles_youtube_case_and_spotify_albums(self):
+        for url in (
+            "https://www.youtube.com/playlist?LIST=PL123",
+            "https://music.youtube.com/watch?v=abc&list=PL123",
+            "https://open.spotify.com/playlist/abc",
+            "https://open.spotify.com/album/abc",
+        ):
+            with self.subTest(url=url):
+                self.assertTrue(music.is_collection_url(url))
+
+        for url in (
+            "https://www.youtube.com/watch?v=abc",
+            "https://open.spotify.com/track/abc",
+            "https://example.com/playlist/abc",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(music.is_collection_url(url))
+
 
 class MusicTrackDisplayTests(unittest.TestCase):
     def test_track_metadata_has_safe_fallbacks(self):
