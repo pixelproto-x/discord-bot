@@ -73,6 +73,24 @@ class SpeechLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         voice_client.disconnect.assert_awaited_once_with(force=True)
         music_cog.resume_after_local_audio.assert_awaited_once_with(guild_id)
 
+
+    async def test_stale_cleanup_cannot_remove_another_active_tts_session(self):
+        guild_id = 444
+        music_cog = SimpleNamespace(
+            local_audio_handoffs={guild_id: {"track": object()}},
+            resume_after_local_audio=AsyncMock(return_value=True),
+        )
+        bot = SimpleNamespace(get_cog=lambda name: {"MusicCog": music_cog}.get(name))
+        speech = SpeechControlCog(bot)
+        speech.active_guilds.add(guild_id)
+        speech.temp_files[guild_id] = "currently-playing.mp3"
+
+        await speech._cleanup(guild_id, "late-callback.mp3")
+
+        self.assertIn(guild_id, speech.active_guilds)
+        self.assertEqual(speech.temp_files[guild_id], "currently-playing.mp3")
+        music_cog.resume_after_local_audio.assert_not_awaited()
+
     async def test_second_local_audio_is_rejected_without_disturbing_music(self):
         guild_id = 333
         channel = SimpleNamespace(guild=SimpleNamespace(id=guild_id))
