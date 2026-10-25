@@ -268,7 +268,7 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ) as search:
             await cog.on_wavelink_track_end(payload)
 
-        search.assert_awaited_once_with("scsearch:Test Track Test Artist")
+        search.assert_awaited_once_with("scsearch:Test Track Test Artist", source=None)
         player.play.assert_awaited_once_with(fallback)
         self.assertIs(session.current, fallback)
         self.assertEqual(session.queue, [queued])
@@ -300,7 +300,7 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ) as search:
             await cog.on_wavelink_track_end(payload)
 
-        search.assert_awaited_once_with("scsearch:Unavailable Track Test Artist")
+        search.assert_awaited_once_with("scsearch:Unavailable Track Test Artist", source=None)
         player.play.assert_awaited_once_with(queued)
         self.assertIs(session.current, queued)
         self.assertEqual(session.queue, [])
@@ -344,7 +344,7 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(player=player, track=song, original=song, reason="LOAD_FAILED")
             )
 
-        search.assert_awaited_once_with("scsearch:Track Exception Song Track Artist")
+        search.assert_awaited_once_with("scsearch:Track Exception Song Track Artist", source=None)
         player.play.assert_awaited_once_with(fallback)
         self.assertIs(session.current, fallback)
         self.assertEqual(session.queue, [queued])
@@ -377,7 +377,7 @@ class MusicTrackFailureRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ) as search:
             await cog.on_wavelink_track_exception(payload)
 
-        search.assert_awaited_once_with("scsearch:Unavailable Exception Song Track Artist")
+        search.assert_awaited_once_with("scsearch:Unavailable Exception Song Track Artist", source=None)
         player.play.assert_awaited_once_with(queued)
         self.assertIs(session.current, queued)
         self.assertEqual(session.queue, [])
@@ -427,8 +427,8 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         track = SimpleNamespace(title="Found Track", source="youtube")
         calls = []
 
-        async def search(identifier, *, node=None):
-            calls.append((identifier, node.identifier))
+        async def search(identifier, *, source=None, node=None):
+            calls.append((identifier, node.identifier, source))
             if identifier == "ytsearch:artist track" and node.identifier == "limited":
                 return []
             if identifier == "ytsearch:artist track" and node.identifier == "healthy":
@@ -443,9 +443,9 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
             result = await self.cog.resolve_query("artist track")
 
         self.assertEqual(result, [track])
-        self.assertIn(("ytsearch:artist track", "limited"), calls)
-        self.assertIn(("ytsearch:artist track", "healthy"), calls)
-        self.assertFalse(any(identifier.startswith("scsearch:") for identifier, _ in calls))
+        self.assertIn(("ytsearch:artist track", "limited", None), calls)
+        self.assertIn(("ytsearch:artist track", "healthy", None), calls)
+        self.assertFalse(any(identifier.startswith("scsearch:") for identifier, _, _ in calls))
 
     async def test_soundcloud_is_searched_when_all_youtube_nodes_return_empty(self):
         from types import SimpleNamespace
@@ -453,8 +453,8 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         track = SimpleNamespace(title="SoundCloud Track", source="soundcloud")
         calls = []
 
-        async def search(identifier, *, node=None):
-            calls.append((identifier, node.identifier))
+        async def search(identifier, *, source=None, node=None):
+            calls.append((identifier, node.identifier, source))
             if identifier.startswith("scsearch:") and node.identifier == "healthy":
                 await asyncio.sleep(0.01)
                 return [track]
@@ -467,9 +467,9 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
             result = await self.cog.resolve_query("artist track")
 
         self.assertEqual(result, [track])
-        self.assertIn(("ytsearch:artist track", "limited"), calls)
-        self.assertIn(("ytsearch:artist track", "healthy"), calls)
-        self.assertTrue(any(identifier == "scsearch:artist track" for identifier, _ in calls))
+        self.assertIn(("ytsearch:artist track", "limited", None), calls)
+        self.assertIn(("ytsearch:artist track", "healthy", None), calls)
+        self.assertIn(("scsearch:artist track", "healthy", None), calls)
 
     async def test_url_search_does_not_change_into_keyword_or_soundcloud_search(self):
         from types import SimpleNamespace
@@ -478,8 +478,8 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         track = SimpleNamespace(title="URL Track", source="youtube")
         calls = []
 
-        async def search(identifier, *, node=None):
-            calls.append((identifier, node.identifier))
+        async def search(identifier, *, source=None, node=None):
+            calls.append((identifier, node.identifier, source))
             if identifier == url and node.identifier == "healthy":
                 await asyncio.sleep(0.01)
                 return [track]
@@ -493,12 +493,59 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, [track])
         self.assertTrue(calls)
-        self.assertTrue(all(identifier == url for identifier, _ in calls))
+        self.assertTrue(all(identifier == url and source is None for identifier, _, source in calls))
 
     async def test_search_fails_clearly_when_no_lavalink_node_is_connected(self):
         with patch.object(wavelink.Pool, "nodes", {}):
             with self.assertRaisesRegex(RuntimeError, "沒有已連線的 Lavalink"):
                 await self.cog.resolve_query("artist track")
+
+    async def test_youtube_prefix_reaches_lavalink_without_wavelink_auto_prefix(self):
+        from types import SimpleNamespace
+
+        node = SimpleNamespace(identifier="only-node", status=wavelink.NodeStatus.CONNECTED)
+        track = SimpleNamespace(title="Found Track", source="youtube")
+        calls = []
+
+        async def fetch_tracks(query, /, *, node=None):
+            calls.append((query, node))
+            return [track] if query == "ytsearch:artist track" else []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", {"only-node": node}),
+            patch.object(wavelink.Pool, "fetch_tracks", new=AsyncMock(side_effect=fetch_tracks)),
+        ):
+            result = await self.cog.resolve_query("artist track")
+
+        self.assertEqual(result, [track])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ("ytsearch:artist track", node))
+
+    async def test_soundcloud_prefix_reaches_lavalink_without_wavelink_auto_prefix(self):
+        from types import SimpleNamespace
+
+        node = SimpleNamespace(identifier="only-node", status=wavelink.NodeStatus.CONNECTED)
+        track = SimpleNamespace(title="SoundCloud Track", source="soundcloud")
+        calls = []
+
+        async def fetch_tracks(query, /, *, node=None):
+            calls.append((query, node))
+            if query == "scsearch:artist track":
+                return [track]
+            return []
+
+        with (
+            patch.object(wavelink.Pool, "nodes", {"only-node": node}),
+            patch.object(wavelink.Pool, "fetch_tracks", new=AsyncMock(side_effect=fetch_tracks)),
+        ):
+            result = await self.cog.resolve_query("artist track")
+
+        self.assertEqual(result, [track])
+        self.assertEqual(
+            [query for query, _ in calls],
+            ["ytsearch:artist track", "scsearch:artist track"],
+        )
+        self.assertTrue(all(selected_node is node for _, selected_node in calls))
 
 
 if __name__ == "__main__":
