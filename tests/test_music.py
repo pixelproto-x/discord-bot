@@ -1046,6 +1046,24 @@ class MusicQueueRenderingTests(unittest.TestCase):
         self.assertNotIn("Track 25", rendered)
         self.assertIn("其餘 5 首仍保留在清單", rendered)
 
+    def test_long_titles_do_not_hide_queue_remaining_count(self):
+        from types import SimpleNamespace
+
+        tracks = [
+            SimpleNamespace(title=f"Track {index:02} " + "x" * 100, length=1000)
+            for index in range(25)
+        ]
+        cog = music.MusicCog(object())
+        session = music.MusicSession(
+            player=SimpleNamespace(paused=False),
+            queue=tracks,
+        )
+
+        rendered = cog.render_queue(session)
+        self.assertLessEqual(len(rendered), 1900)
+        self.assertIn("畫面顯示前", rendered)
+        self.assertIn("仍保留在清單", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
