@@ -7,6 +7,9 @@ import wavelink
 
 NODES = (
     ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
+    ("nazha-sg-1", "https://sg-1.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
+    ("nazha-sg-2", "https://sg-2.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
+    ("nazha-sg-3", "https://sg-3.nazha.online:443", "https://discord.gg/XeSCnk57ZF"),
     ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
     ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
 )
