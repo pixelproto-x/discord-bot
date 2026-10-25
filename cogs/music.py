@@ -317,10 +317,21 @@ class MusicCog(commands.Cog):
                 pass
 
     async def _connect_node_once(self, node: wavelink.Node) -> bool:
-        """Try one node once, with a short timeout and no propagated error."""
+        """Connect once, wait for Lavalink readiness, and clean up on failure."""
+        async def wait_for_ready() -> bool:
+            while node.status is wavelink.NodeStatus.CONNECTING:
+                await asyncio.sleep(0.05)
+            return node.status is wavelink.NodeStatus.CONNECTED
+
         try:
             await asyncio.wait_for(
                 wavelink.Pool.connect(nodes=(node,), client=self.bot),
+                timeout=LAVALINK_CONNECT_TIMEOUT_SECONDS,
+            )
+            # Pool.connect returns after the websocket handshake is created,
+            # before Lavalink's asynchronous "ready" event necessarily arrives.
+            connected = await asyncio.wait_for(
+                wait_for_ready(),
                 timeout=LAVALINK_CONNECT_TIMEOUT_SECONDS,
             )
         except asyncio.CancelledError:
@@ -329,22 +340,6 @@ class MusicCog(commands.Cog):
         except Exception:
             await self._discard_failed_node(node)
             return False
-
-        # Pool.connect returns after the websocket handshake is created, before
-        # Lavalink's asynchronous "ready" event necessarily arrives. Wait for
-        # CONNECTED instead of either accepting CONNECTING or discarding a healthy node.
-        async def wait_for_ready() -> bool:
-            while node.status is wavelink.NodeStatus.CONNECTING:
-                await asyncio.sleep(0.05)
-            return node.status is wavelink.NodeStatus.CONNECTED
-
-        try:
-            connected = await asyncio.wait_for(
-                wait_for_ready(),
-                timeout=LAVALINK_CONNECT_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            connected = False
 
         if not connected:
             await self._discard_failed_node(node)
