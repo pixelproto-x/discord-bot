@@ -41,7 +41,6 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         # but timed out on live track searches, so they are not active defaults.
         ("nazha-v4", "https://lavalink.nazha.online:443", "nazhafreelava"),
         ("millohost-v4", "https://lava-v4.millohost.my.id:443", "https://discord.gg/mjS5J2K3ep"),
-        ("serenetia-v4", "https://lavalinkv4.serenetia.com:443", "https://seretia.link/discord"),
     )
     for identifier, uri, password in public_nodes:
         normalized_uri = uri.rstrip("/").lower()
