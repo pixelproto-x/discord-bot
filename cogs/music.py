@@ -130,7 +130,7 @@ def is_collection_url(value: str) -> bool:
     if host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com"):
         return bool(re.search(r"(?:^|&)list=", parsed.query, re.IGNORECASE)) or path == "/playlist"
     if host == "spotify.com" or host.endswith(".spotify.com"):
-        return bool(re.match(r"^/(?:playlist|album)/", path))
+        return bool(re.match(r"^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?:playlist|album)/", path))
     return False
 
 def track_url(track) -> str:
