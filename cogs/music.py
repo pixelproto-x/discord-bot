@@ -1067,7 +1067,10 @@ class MusicCog(commands.Cog):
             lines.append("\n🎶 **目前播放**\n沒有歌曲正在播放")
         lines.append("\n📃 **待播清單**")
         if session.queue:
-            lines.extend(f"{index}. {track_title(track)} · {track_duration(track)}" for index, track in enumerate(session.queue, 1))
+            lines.extend(
+                f"{index}. {track_title(track)} · {track_duration(track)}"
+                for index, track in enumerate(session.queue[:25], 1)
+            )
         else:
             lines.append("（沒有待播歌曲）")
         if len(session.queue) > 25:
