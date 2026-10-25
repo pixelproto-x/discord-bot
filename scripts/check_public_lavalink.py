@@ -95,7 +95,7 @@ async def check_websocket(session: aiohttp.ClientSession, node: tuple[str, str, 
                 headers={
                     "Authorization": password,
                     "User-Id": "123456789012345678",
-                    "Client-Name": "Wavelink/3.5.0",
+                    "Client-Name": f"Wavelink/{getattr(wavelink, '__version__', 'unknown')}",
                 },
                 heartbeat=15,
             ),
