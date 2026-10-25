@@ -395,6 +395,11 @@ class MusicCog(commands.Cog):
             if connected_now:
                 self.node_error = None
                 return
+            if (
+                self.last_node_setup_attempt
+                and time.monotonic() - self.last_node_setup_attempt < LAVALINK_NODE_RETRY_COOLDOWN_SECONDS
+            ):
+                return
 
             self.last_node_setup_attempt = time.monotonic()
             # A node that exhausted its reconnect attempts may remain registered
