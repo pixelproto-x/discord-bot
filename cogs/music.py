@@ -239,9 +239,14 @@ class MusicQueueSelect(discord.ui.Select):
         if not session or self.values[0] == "none":
             await interaction.response.send_message("目前沒有可刪除的待播歌曲。", ephemeral=True)
             return
-        index = int(self.values[0])
+        try:
+            index = int(self.values[0])
+        except (TypeError, ValueError):
+            await interaction.response.send_message("清單已變動，請重新開啟控制台。", ephemeral=True)
+            return
         if (
-            index >= len(session.queue)
+            index < 0
+            or index >= len(session.queue)
             or index >= len(self.queue_snapshot)
             or session.queue[index] is not self.queue_snapshot[index]
         ):
