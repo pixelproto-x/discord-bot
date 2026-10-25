@@ -21,6 +21,39 @@ DASHBOARD_WHITELIST_IDS = {
 }
 DASHBOARD_OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
 
+DASHBOARD_TAB_MANAGER_SCRIPT = r"""
+self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
+self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("message", event => {
+    if (!event.data || event.data.type !== "takeover-dashboard-tabs") return;
+    const sourceClientId = event.source && event.source.id;
+    const expectedOrigin = new URL(self.registration.scope).origin;
+    event.waitUntil((async () => {
+        const clients = await self.clients.matchAll({type: "window", includeUncontrolled: true});
+        await Promise.all(clients.map(async client => {
+            if (client.id === sourceClientId) return;
+            let target;
+            try { target = new URL(client.url); } catch { return; }
+            if (target.origin !== expectedOrigin || !["/", "/index.html"].includes(target.pathname)) return;
+            try {
+                await client.navigate(new URL("/__dashboard_replaced", expectedOrigin).href);
+            } catch (error) {
+                // The storage-event fallback below still handles current-version tabs.
+            }
+        }));
+    })());
+});
+"""
+
+DASHBOARD_RETIRED_PAGE = """<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>控制台已更新</title>
+<meta http-equiv="refresh" content="0;url=about:blank">
+</head><body>此控制台分頁已被新版接管，可以關閉此分頁。</body></html>"""
+
+
+
 def _stop_previous_dashboard(port: int) -> bool:
     """Stop an older local dashboard listener before starting this version."""
     if os.name != "nt":
@@ -139,6 +172,18 @@ function releaseControlTab(){
 }
 try{localStorage.setItem(CONTROL_TAB_KEY,CONTROL_TAB_ID)}catch{}
 window.addEventListener("pagehide",releaseControlTab,{once:true});
+async function takeOverOlderDashboardTabs(){
+ if(!("serviceWorker" in navigator)||location.protocol==="file:")return;
+ try{
+  const registration=await navigator.serviceWorker.register("/dashboard-tab-manager.js",{scope:"/"});
+  await navigator.serviceWorker.ready;
+  const worker=registration.active||navigator.serviceWorker.controller;
+  if(worker)worker.postMessage({type:"takeover-dashboard-tabs"});
+ }catch(e){
+  // The localStorage handoff above remains available when Service Workers are unsupported.
+ }
+}
+void takeOverOlderDashboardTabs();
 let token="",selectedGuild="",selectedChannel="";
 const GUILD_PREF_KEY="discord-dashboard-last-guild";
 const $=id=>document.getElementById(id);
@@ -418,7 +463,7 @@ async def start_dashboard(bot):
         # The WebSocket uses a short-lived, single-use ticket issued by the authenticated POST endpoint.
         if request.path == "/api/mic/stream":
             return await handler(request)
-        if request.path in ("/", "/login", "/oauth/callback", "/logout") and request.method == "GET":
+        if request.path in ("/", "/login", "/oauth/callback", "/logout", "/dashboard-tab-manager.js", "/__dashboard_replaced") and request.method == "GET":
             return await handler(request)
         session_uid = _verify_session(request.cookies.get("dashboard_session", ""))
         if session_uid is not None:
@@ -454,6 +499,16 @@ async def start_dashboard(bot):
         response = web.Response(text=PAGE, content_type="text/html", charset="utf-8")
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+        return response
+
+    async def dashboard_tab_manager(request):
+        response = web.Response(text=DASHBOARD_TAB_MANAGER_SCRIPT, content_type="application/javascript", charset="utf-8")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+    async def dashboard_replaced(request):
+        response = web.Response(text=DASHBOARD_RETIRED_PAGE, content_type="text/html", charset="utf-8")
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     async def favicon(request):
@@ -759,6 +814,8 @@ async def start_dashboard(bot):
         return web.json_response({"message": "已在 #" + channel.name + " 引用 " + str(target.author) + " 的訊息並回覆。"})
 
     app.router.add_get("/", index)
+    app.router.add_get("/dashboard-tab-manager.js", dashboard_tab_manager)
+    app.router.add_get("/__dashboard_replaced", dashboard_replaced)
     app.router.add_get("/favicon.ico", favicon)
     app.router.add_get("/login", login)
     app.router.add_get("/oauth/callback", oauth_callback)
