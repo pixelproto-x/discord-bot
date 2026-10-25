@@ -62,6 +62,17 @@ class MusicTrackDisplayTests(unittest.TestCase):
         self.assertEqual(track_url(track), "")
         self.assertEqual(track_duration(track), "直播／未知長度")
 
+    def test_untrusted_track_title_cannot_ping_mentions_or_inject_new_lines(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="@everyone\n<@123456789>\nSong title")
+        title = track_title(track)
+        self.assertNotIn("@everyone", title)
+        self.assertNotIn("<@123456789>", title)
+        self.assertNotIn("\\n", title)
+        self.assertEqual(len(title.splitlines()), 1)
+        self.assertIn("Song title", title)
+
 
 class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_nodes_are_bounded_and_do_not_block_a_healthy_node(self):
