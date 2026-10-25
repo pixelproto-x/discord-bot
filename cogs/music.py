@@ -1103,17 +1103,23 @@ class MusicCog(commands.Cog):
         else:
             lines.append("\n🎶 **目前播放**\n沒有歌曲正在播放")
         lines.append("\n📃 **待播清單**")
+        displayed_count = 0
         if session.queue:
-            lines.extend(
-                f"{index}. {track_title(track)} · {track_duration(track)}"
-                for index, track in enumerate(session.queue[:25], 1)
-            )
+            for index, track in enumerate(session.queue[:25], 1):
+                line = f"{index}. {track_title(track)} · {track_duration(track)}"
+                if len("\n".join((*lines, line))) > 1600:
+                    break
+                lines.append(line)
+                displayed_count += 1
         else:
             lines.append("（沒有待播歌曲）")
-        if len(session.queue) > 25:
-            lines.append(f"下拉選單最多可操作前 25 首；其餘 {len(session.queue) - 25} 首仍保留在清單。")
+        hidden_count = len(session.queue) - displayed_count
+        if hidden_count > 0:
+            lines.append(
+                f"畫面顯示前 {displayed_count} 首；下拉選單最多可操作前 25 首；"
+                f"其餘 {hidden_count} 首仍保留在清單。"
+            )
         return "\n".join(lines)[:1900]
-
     @music.command(name=app_commands.locale_str("queue", zh_TW="控制台"), description=app_commands.locale_str("查看並控制目前音樂與待播清單", zh_TW="查看並控制目前音樂與待播清單"))
     @app_commands.describe(public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
