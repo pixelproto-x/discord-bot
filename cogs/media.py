@@ -719,7 +719,7 @@ class SearchCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Reply to DMs directly and to mentions/replies in servers."""
+        """Reply in DMs directly; in servers, only an explicit @mention triggers AI."""
         if message.author.bot or self.bot.user is None:
             return
         if message.guild is None:
@@ -729,20 +729,9 @@ class SearchCog(commands.Cog):
 
         bot_id = self.bot.user.id
         is_mentioned = any(user.id == bot_id for user in message.mentions)
-        is_reply_to_bot = False
-        reference = message.reference
-        if reference and reference.message_id:
-            referenced = reference.resolved
-            if referenced is None:
-                try:
-                    referenced = await message.channel.fetch_message(reference.message_id)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    referenced = None
-            is_reply_to_bot = bool(
-                referenced and getattr(getattr(referenced, "author", None), "id", None) == bot_id
-            )
-
-        if not (is_mentioned or is_reply_to_bot):
+        # Replies to bot command output are ordinary replies, not an AI trigger.
+        # The user must explicitly @mention the bot in a server message.
+        if not is_mentioned:
             return
 
         # Escalating persona penalties persist across restarts until an admin resets them.
