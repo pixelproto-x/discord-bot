@@ -50,6 +50,13 @@ class WorldEconomy:
                     updated_at INTEGER NOT NULL,
                     PRIMARY KEY (guild_id, item)
                 );
+                CREATE TABLE IF NOT EXISTS world_inventory (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    item TEXT NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (guild_id, user_id, item)
+                );
                 CREATE TABLE IF NOT EXISTS world_companies (
                     guild_id INTEGER NOT NULL,
                     owner_id INTEGER NOT NULL,
@@ -160,10 +167,23 @@ class WorldEconomy:
                     "UPDATE world_market SET stock=stock-?,demand=MIN(3.5,demand+?) WHERE guild_id=? AND item=?",
                     (amount, amount / 1000, guild_id, item),
                 )
+                con.execute(
+                    "INSERT INTO world_inventory(guild_id,user_id,item,quantity) VALUES(?,?,?,?) "
+                    "ON CONFLICT(guild_id,user_id,item) DO UPDATE SET quantity=quantity+excluded.quantity",
+                    (guild_id, user_id, item, amount),
+                )
                 self.ledger(con, guild_id, user_id, "market_buy", -total, f"買入 {GOODS[item][0]} x{amount}")
                 con.commit()
                 return True, f"買入 **{GOODS[item][0]} × {amount:,}**，單價 {_money(price)}，總額 {_money(total)}。"
             if action == "sell":
+                owned = con.execute(
+                    "SELECT quantity FROM world_inventory WHERE guild_id=? AND user_id=? AND item=?",
+                    (guild_id, user_id, item),
+                ).fetchone()
+                if not owned or int(owned["quantity"]) < amount:
+                    con.rollback()
+                    have = int(owned["quantity"]) if owned else 0
+                    return False, f"持有數量不足，你只有 {have:,} 件；不能賣出未持有的商品。"
                 proceeds = max(0, price * amount)
                 if not _is_inf(wallet) and int(wallet) + proceeds > MAX_BALANCE:
                     con.rollback()
@@ -173,6 +193,10 @@ class WorldEconomy:
                 con.execute(
                     "UPDATE world_market SET stock=MIN(100000000,stock+?),demand=MAX(0.35,demand-?) WHERE guild_id=? AND item=?",
                     (amount, amount / 1500, guild_id, item),
+                )
+                con.execute(
+                    "UPDATE world_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item=?",
+                    (amount, guild_id, user_id, item),
                 )
                 self.ledger(con, guild_id, user_id, "market_sell", proceeds, f"賣出 {GOODS[item][0]} x{amount}")
                 con.commit()
@@ -308,7 +332,8 @@ class WorldEconomy:
                 if not rows:
                     con.rollback()
                     return False, "目前沒有未清償貸款。"
-                remaining = amount if amount > 0 else sum(int(r["balance"]) for r in rows)
+                total_due = sum(int(r["balance"]) + (max(1, int(r["balance"]) // 100) if now > r["due_at"] else 0) for r in rows)
+                remaining = min(amount, total_due) if amount > 0 else total_due
                 if not _is_inf(wallet) and int(wallet) < remaining:
                     con.rollback()
                     return False, f"現金不足，需要 {remaining:,}。"
