@@ -202,19 +202,17 @@ class EconomyStore:
             if last and now < last + timedelta(seconds=COOLDOWNS["rob"]):
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
-            robber_wallet = int(robber["wallet"])
-            target_wallet = int(target["wallet"])
             if success:
-                stolen = int(Decimal(target_wallet) * Decimal(str(fraction)))
-                if robber_wallet + stolen > MAX_BALANCE:
+                stolen = int(Decimal(target["wallet"]) * Decimal(str(fraction)))
+                if robber["wallet"] + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target_wallet - stolen), target_id))
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber_wallet + stolen), robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target["wallet"] - stolen), target_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] + stolen), robber_id))
                 result = ("success", stolen)
             else:
-                fine = min(robber_wallet, max(1, int(Decimal(robber_wallet) * Decimal(str(fine_fraction))))) if robber_wallet else 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber_wallet - fine), robber_id))
+                fine = min(robber["wallet"], max(1, int(Decimal(robber["wallet"]) * Decimal(str(fine_fraction))))) if robber["wallet"] else 0
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] - fine), robber_id))
                 result = ("failed", fine)
             if success:
                 con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
