@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai
+from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai, stop_stale_freemind_ai_launch_windows
 
 
 def make_project(root: Path) -> Path:
@@ -31,24 +31,42 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
             )
 
     def test_detects_active_freemindai_batch_launch(self):
-        result = type("Result", (), {
-            "stdout": "123\tcmd.exe\tC:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat",
-            "returncode": 0,
-        })()
+        process = (123, 1, "cmd.exe", "C:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat")
         with patch("startup_services.os.name", "nt"), patch(
-            "startup_services.subprocess.run", return_value=result
+            "startup_services._windows_process_snapshot", return_value=[process]
         ):
             self.assertTrue(freemind_ai_launcher_running())
 
     def test_ignores_old_idle_cmd_k_window(self):
-        result = type("Result", (), {
-            "stdout": "123\tcmd.exe\tcmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat",
-            "returncode": 0,
-        })()
+        process = (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
         with patch("startup_services.os.name", "nt"), patch(
-            "startup_services.subprocess.run", return_value=result
+            "startup_services._windows_process_snapshot", return_value=[process]
         ):
             self.assertFalse(freemind_ai_launcher_running())
+
+    def test_closes_only_orphaned_legacy_error_window(self):
+        process = (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
+        result = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        with patch("startup_services.os.name", "nt"), patch(
+            "startup_services._windows_process_snapshot", return_value=[process]
+        ), patch("startup_services.subprocess.run", return_value=result) as run:
+            self.assertEqual(stop_stale_freemind_ai_launch_windows(), [123])
+            run.assert_called_once_with(
+                ["taskkill.exe", "/PID", "123", "/T", "/F"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=5, check=False,
+            )
+
+    def test_keeps_a_legacy_window_that_still_has_a_child_process(self):
+        processes = [
+            (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat"),
+            (124, 123, "powershell.exe", "powershell.exe -file C:/Users/Test/FreeMindAI-main/update.bat"),
+        ]
+        with patch("startup_services.os.name", "nt"), patch(
+            "startup_services._windows_process_snapshot", return_value=processes
+        ), patch("startup_services.subprocess.run") as run:
+            self.assertEqual(stop_stale_freemind_ai_launch_windows(), [])
+            run.assert_not_called()
 
 
 class FindFreeMindAIProjectTests(unittest.TestCase):
