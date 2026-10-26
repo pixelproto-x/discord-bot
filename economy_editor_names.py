@@ -7,7 +7,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -181,6 +180,17 @@ async function load(){
  table.appendChild(tbody);root.replaceChildren(table);
 }
 load().catch(err=>document.getElementById("content").textContent="讀取失敗："+err);
+let serverWasOffline=false,healthCheckRunning=false;
+setInterval(async()=>{
+ if(healthCheckRunning)return;
+ healthCheckRunning=true;
+ try{
+  const response=await fetch("/api/health",{cache:"no-store"});
+  if(!response.ok)throw new Error("服務尚未就緒");
+  if(serverWasOffline)location.reload();
+ }catch{serverWasOffline=true}
+ finally{healthCheckRunning=false}
+},1500);
 </script></body></html>"""
 
 
@@ -212,6 +222,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(html)
+            return
+        if self.path == "/api/health":
+            self.send_json(200, {"ok": True})
             return
         if self.path == "/api/users":
             try:
@@ -278,7 +291,7 @@ def main():
     url = f"http://{HOST}:{PORT}/"
     print(f"經濟資料庫編輯器已啟動：{url}")
     print("關閉此視窗即可停止編輯器。建議修改前先停止 Discord Bot。")
-    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    print("已停用自動開新分頁；保留原本的編輯器分頁即可，服務重啟後會自動重新載入。")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
