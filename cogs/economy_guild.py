@@ -9,6 +9,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.public_response import PublicizeView
+
 DB_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent / "economy.db"
 MAX_AMOUNT = 9_000_000_000_000_000
 UTC = timezone.utc
@@ -320,10 +322,14 @@ class GuildEconomyStore:
                 "INSERT INTO guild_economy_event_claims(event_id,user_id,amount,claimed_at) VALUES(?,?,?,?)",
                 (event["id"], user_id, str(payout), now),
             )
-            con.execute(
-                "UPDATE users SET wallet=CASE WHEN lower(wallet)='inf' THEN 'inf' ELSE CAST(CAST(wallet AS INTEGER)+? AS TEXT) END "
-                "WHERE user_id=?", (payout, user_id)
-            )
+            wallet_row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            wallet = str(wallet_row["wallet"]) if wallet_row else "1000"
+            if wallet.strip().lower() != "inf":
+                new_wallet = int(wallet) + payout
+                if new_wallet > int("9" * 2000):
+                    con.rollback()
+                    return False, "獎勵入帳會超出錢包上限，請聯絡管理員處理。"
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(new_wallet), user_id))
             con.commit()
             return True, f"已領取公會活動獎勵 **{_money(payout)}** 金幣。"
 
@@ -369,8 +375,9 @@ class GuildEconomyCog(commands.Cog):
         await interaction.response.send_message("這項功能只能在 Discord 伺服器使用。", ephemeral=True)
         return False
 
-    async def _reply(self, interaction: discord.Interaction, message: str, *, public: bool = False):
-        await interaction.response.send_message(message, ephemeral=not public)
+    async def _reply(self, interaction: discord.Interaction, message: str | None = None, *, embed: discord.Embed | None = None, public: bool = False):
+        view = None if public else PublicizeView(interaction.user.id, message, embed)
+        await interaction.response.send_message(content=message, embed=embed, ephemeral=not public, view=view)
 
     @app_commands.command(name=app_commands.locale_str("guild-bank", zh_TW="公會銀行"), description="查看金庫、捐款或由管理員提領共同資金")
     @app_commands.choices(action=[
@@ -453,7 +460,7 @@ class GuildEconomyCog(commands.Cog):
                 color=0x5865F2 if event["status"] == "active" else 0x57F287 if event["status"] == "completed" else 0x95A5A6,
                 timestamp=datetime.fromtimestamp(int(event["created_at"]), UTC),
             )
-            await interaction.response.send_message(embed=embed, ephemeral=not public)
+            await self._reply(interaction, embed=embed, public=public)
 
 
 async def setup(bot: commands.Bot):
