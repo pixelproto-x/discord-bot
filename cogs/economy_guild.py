@@ -384,7 +384,8 @@ class GuildEconomyStore:
                 "INSERT INTO guild_economy_event_claims(event_id,user_id,amount,claimed_at) VALUES(?,?,?,?)",
                 (event["id"], user_id, str(payout), now),
             )
-            wallet_row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            con.execute("INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?,'1000','0')", (guild_id, user_id))
+            wallet_row = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             wallet = str(wallet_row["wallet"]) if wallet_row else "1000"
             if wallet.strip().lower() != "inf":
                 new_wallet = int(wallet) + payout
