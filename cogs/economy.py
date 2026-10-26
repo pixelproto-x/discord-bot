@@ -560,7 +560,7 @@ class EconomyCog(commands.Cog):
             await self._reply(interaction, "你的背包目前是空的，可以先到 /商店 查看商品。", public=False)
             return
         lines = [f"**{ITEMS[key][0]}** × {quantity}" for key, quantity in rows]
-        embed = discord.Embed(title="我的背包", description="\\n".join(lines), color=0x1ABC9C)
+        embed = discord.Embed(title="我的背包", description="\n".join(lines), color=0x1ABC9C)
         await self._reply(interaction, "", embed=embed, public=False)
 
     @app_commands.command(name=app_commands.locale_str("buy-item", zh_TW="購買"), description="購買固定商店商品")
