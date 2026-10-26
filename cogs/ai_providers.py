@@ -176,7 +176,7 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
     seen = set()
     loop = asyncio.get_running_loop()
     try:
-        chain_timeout = max(10, min(120, int(_env("AI_PROVIDER_CHAIN_TIMEOUT", "10"))))
+        chain_timeout = max(8, min(12, int(_env("AI_PROVIDER_CHAIN_TIMEOUT", "10"))))
     except ValueError:
         chain_timeout = 45
     deadline = loop.time() + chain_timeout
