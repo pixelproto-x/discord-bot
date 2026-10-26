@@ -383,6 +383,7 @@ class WorldEconomy:
 
 
 class WorldEconomyCog(commands.Cog):
+    world_group = app_commands.Group(name=app_commands.locale_str("economy-world", zh_TW="經濟世界"), description="市場、企業與貸款")
     def __init__(self, bot):
         self.bot = bot
         self.store = WorldEconomy()
@@ -399,7 +400,7 @@ class WorldEconomyCog(commands.Cog):
         embed = discord.Embed(description=message, color=color, timestamp=datetime.now(UTC))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name=app_commands.locale_str("market", zh_TW="市場"), description="查看市場價格，或買賣商品")
+    @world_group.command(name=app_commands.locale_str("market", zh_TW="市場"), description="查看市場價格，或買賣商品")
     @app_commands.choices(action=[
         app_commands.Choice(name="查詢", value="info"),
         app_commands.Choice(name="買入", value="buy"),
@@ -448,7 +449,7 @@ class WorldEconomyCog(commands.Cog):
             return
         await self._run(interaction, self.store.trade(interaction.guild_id, interaction.user.id, item.value, action.value, amount))
 
-    @app_commands.command(name=app_commands.locale_str("company", zh_TW="企業"), description="建立企業、查看營運或領取營收")
+    @world_group.command(name=app_commands.locale_str("company", zh_TW="企業"), description="建立企業、查看營運或領取營收")
     @app_commands.choices(action=[
         app_commands.Choice(name="成立", value="create"),
         app_commands.Choice(name="查看", value="info"),
@@ -461,7 +462,7 @@ class WorldEconomyCog(commands.Cog):
             return
         await self._run(interaction, self.store.company(interaction.guild_id, interaction.user.id, action.value, name))
 
-    @app_commands.command(name=app_commands.locale_str("loan", zh_TW="貸款"), description="申請、查看或償還模擬銀行貸款")
+    @world_group.command(name=app_commands.locale_str("loan", zh_TW="貸款"), description="申請、查看或償還模擬銀行貸款")
     @app_commands.choices(action=[
         app_commands.Choice(name="申請", value="apply"),
         app_commands.Choice(name="查看", value="status"),
@@ -473,7 +474,7 @@ class WorldEconomyCog(commands.Cog):
             return
         await self._run(interaction, self.store.loan(interaction.guild_id, interaction.user.id, action.value, amount))
 
-    @app_commands.command(name=app_commands.locale_str("economy", zh_TW="經濟概況"), description="查看伺服器市場與企業經濟指標")
+    @world_group.command(name=app_commands.locale_str("economy", zh_TW="經濟概況"), description="查看伺服器市場與企業經濟指標")
     async def economy(self, interaction: discord.Interaction):
         if not await self._guild(interaction):
             return
@@ -493,7 +494,7 @@ class WorldEconomyCog(commands.Cog):
         embed.set_footer(text="價格指數只反映本伺服器的模擬商品市場，並非真實金融數據")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name=app_commands.locale_str("inventory", zh_TW="資產清單"), description="查看自己持有的市場商品")
+    @world_group.command(name=app_commands.locale_str("inventory", zh_TW="資產清單"), description="查看自己持有的市場商品")
     async def inventory(self, interaction: discord.Interaction):
         if not await self._guild(interaction):
             return
@@ -508,7 +509,7 @@ class WorldEconomyCog(commands.Cog):
         lines = [f"**{GOODS[row['item']][0]}**：{int(row['quantity']):,} 件" for row in rows if row["item"] in GOODS]
         await interaction.response.send_message(embed=discord.Embed(title="我的商品庫存", description="\\n".join(lines), color=0x1ABC9C), ephemeral=True)
 
-    @app_commands.command(name=app_commands.locale_str("transactions", zh_TW="交易紀錄"), description="查看自己的近期市場、企業與貸款紀錄")
+    @world_group.command(name=app_commands.locale_str("transactions", zh_TW="交易紀錄"), description="查看自己的近期市場、企業與貸款紀錄")
     @app_commands.rename(limit=app_commands.locale_str("筆數", zh_TW="筆數"))
     async def transactions(self, interaction: discord.Interaction, limit: app_commands.Range[int, 1, 10] = 5):
         if not await self._guild(interaction):
