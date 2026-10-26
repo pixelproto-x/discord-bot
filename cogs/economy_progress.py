@@ -9,6 +9,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.public_response import PublicizeView
+
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
 UTC = timezone.utc
 
@@ -158,7 +160,11 @@ class EconomyProgressCog(commands.Cog):
     async def _guild_only(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id:
             return True
-        await interaction.response.send_message("這個經濟功能只能在伺服器使用。", ephemeral=True)
+        await interaction.response.send_message(
+            "這個經濟功能只能在伺服器使用。",
+            ephemeral=True,
+            view=PublicizeView(interaction.user.id, "這個經濟功能只能在伺服器使用。"),
+        )
         return False
 
     @app_commands.command(name=app_commands.locale_str("leaderboard", zh_TW="排行榜"), description="查看伺服器經濟排行榜")
@@ -167,15 +173,17 @@ class EconomyProgressCog(commands.Cog):
         app_commands.Choice(name="現金", value="wallet"),
         app_commands.Choice(name="銀行存款", value="bank"),
     ])
-    @app_commands.rename(category=app_commands.locale_str("類別", zh_TW="類別"))
-    async def leaderboard(self, interaction: discord.Interaction, category: app_commands.Choice[str] = None):
+    @app_commands.rename(category=app_commands.locale_str("類別", zh_TW="類別"), public=app_commands.locale_str("公開", zh_TW="公開"))
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    async def leaderboard(self, interaction: discord.Interaction, category: app_commands.Choice[str] = None, public: bool = False):
         if not await self._guild_only(interaction):
             return
         selected = category.value if category else "wealth"
         rows = self.store.leaderboard(interaction.guild_id, selected)
         title = {"wealth": "總資產排行榜", "wallet": "現金排行榜", "bank": "銀行存款排行榜"}[selected]
         if not rows:
-            await interaction.response.send_message("目前還沒有經濟資料，先使用經濟指令開始遊玩吧。", ephemeral=True)
+            msg = "目前還沒有經濟資料，先使用經濟指令開始遊玩吧。"
+            await interaction.response.send_message(msg, ephemeral=not public, view=None if public else PublicizeView(interaction.user.id, msg))
             return
         lines = []
         for index, row in enumerate(rows, 1):
@@ -192,10 +200,12 @@ class EconomyProgressCog(commands.Cog):
             lines.append(f"**{index}.** {label} — **{amount}**")
         embed = discord.Embed(title=title, description="\n".join(lines), color=0xF1C40F, timestamp=datetime.now(UTC))
         embed.set_footer(text="僅計算本伺服器資料；總資產 = 現金 + 銀行存款")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=not public, view=None if public else PublicizeView(interaction.user.id, None, embed))
 
     @app_commands.command(name=app_commands.locale_str("achievements", zh_TW="成就"), description="查看已解鎖成就與目前進度")
-    async def achievements(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def achievements(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
             return
         stats, conditions, unlocked, newly = self.store.evaluate(interaction.guild_id, interaction.user.id)
@@ -228,7 +238,7 @@ class EconomyProgressCog(commands.Cog):
         embed.set_footer(text=f"已解鎖 {len(unlocked)}/{len(ACHIEVEMENTS)} 項；成就點為遊戲紀錄，不會自動發放金幣")
         if newly:
             embed.add_field(name="新成就！", value="、".join(ACHIEVEMENTS[key][0] for key in newly), inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=not public, view=None if public else PublicizeView(interaction.user.id, None, embed))
 
 
 async def setup(bot: commands.Bot):
