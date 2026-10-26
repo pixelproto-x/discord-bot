@@ -22,9 +22,14 @@ def _valid_freemind_ai_project(path: Path) -> Path | None:
     return None
 
 
-def freemind_ai_launch_command(project_dir: Path) -> list[str]:
-    """Build a CMD argument list that preserves paths containing spaces."""
-    return ["cmd.exe", "/d", "/k", "call", str(project_dir / "run.bat")]
+def freemind_ai_launch_command() -> list[str]:
+    """Launch run.bat by name; the caller must set cwd to the FreeMindAI project root.
+
+    Passing a quoted absolute .bat path through cmd.exe arguments can turn the
+    quotes into literal backslash-quote characters on Windows. Using a relative
+    command avoids that quoting boundary and still handles spaces in the folder.
+    """
+    return ["cmd.exe", "/d", "/k", "run.bat"]
 
 
 def find_freemind_ai_project(
