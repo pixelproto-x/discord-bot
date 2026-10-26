@@ -136,6 +136,7 @@ from cogs import (
     economy_stocks,
     economy_games,
     economy_guild,
+    economy_classes,
 )
 
 
@@ -292,6 +293,7 @@ class Bot(commands.Bot):
             economy_stocks,
             economy_games,
             economy_guild,
+            economy_classes,
         ]
         failed_modules = []
         for module in modules:
