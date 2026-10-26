@@ -584,7 +584,14 @@ async def start_dashboard(bot):
             async with ClientSession() as session:
                 async with session.post("https://discord.com/api/oauth2/token", data={"client_id": oauth_client_id, "client_secret": oauth_client_secret, "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15) as response:
                     if response.status != 200:
-                        return web.Response(text="Discord OAuth 換取 Token 失敗。", status=502, content_type="text/plain", charset="utf-8")
+                        try:
+                            error_data = await response.json()
+                        except Exception:
+                            error_data = {}
+                        error_code = str(error_data.get("error", "unknown"))[:100]
+                        error_description = str(error_data.get("error_description", "No error description returned"))[:300]
+                        print(f"[Dashboard OAuth] Token exchange failed: HTTP {response.status}; error={error_code}; description={error_description}; redirect_uri={redirect_uri}")
+                        return web.Response(text="Discord OAuth 換取 Token 失敗。請查看啟動 Bot 的終端機中 [Dashboard OAuth] 訊息，以確認是用戶端密碼、回呼網址或登入授權碼問題。", status=502, content_type="text/plain", charset="utf-8")
                     oauth_data = await response.json()
                 async with session.get("https://discord.com/api/users/@me", headers={"Authorization": "Bearer " + oauth_data.get("access_token", "")}, timeout=15) as response:
                     if response.status != 200:
