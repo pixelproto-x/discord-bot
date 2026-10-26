@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import startup_services
 from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai, stop_stale_freemind_ai_launch_windows
 
 
@@ -30,6 +31,17 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
                 str(launcher.resolve()), "open", cwd=str(project.resolve())
             )
 
+    def test_process_snapshot_parses_windows_tab_separated_fields(self):
+        output = "98765\t1\tcmd.exe\tC:/Users/Test/FreeMindAI-main (3)/run.bat\r\n"
+        result = type("Result", (), {"stdout": output, "returncode": 0})()
+        with patch("startup_services.os.name", "nt"), patch(
+            "startup_services.subprocess.run", return_value=result
+        ):
+            self.assertEqual(
+                startup_services._windows_process_snapshot(),
+                [(98765, 1, "cmd.exe", "c:/users/test/freemindai-main (3)/run.bat")],
+            )
+
     def test_detects_active_freemindai_batch_launch(self):
         process = (98765, 1, "cmd.exe", "C:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat")
         with patch("startup_services.os.name", "nt"), patch(
@@ -45,7 +57,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
             self.assertFalse(freemind_ai_launcher_running())
 
     def test_closes_only_orphaned_legacy_error_window(self):
-        process = (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
+        process = (98765, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
         result = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         with patch("startup_services.os.name", "nt"), patch(
             "startup_services._windows_process_snapshot", return_value=[process]
@@ -59,7 +71,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
 
     def test_keeps_a_legacy_window_that_still_has_a_child_process(self):
         processes = [
-            (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat"),
+            (98765, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat"),
             (98766, 98765, "powershell.exe", "powershell.exe -file C:/Users/Test/FreeMindAI-main/update.bat"),
         ]
         with patch("startup_services.os.name", "nt"), patch(
