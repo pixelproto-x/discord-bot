@@ -245,7 +245,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, "成立企業需要 10,000 現金。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) - 10000))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) - 10000))
                 con.execute(
                     "INSERT INTO world_companies(guild_id,owner_id,name,level,last_collect,created_at) VALUES(?,?,?,1,?,?)",
                     (guild_id, user_id, name.strip(), now, now),
@@ -267,7 +267,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, f"升級需要 {cost:,} 現金。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) - cost))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) - cost))
                 con.execute(
                     "UPDATE world_companies SET level=level+1 WHERE guild_id=? AND owner_id=?",
                     (guild_id, user_id),
@@ -288,7 +288,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, "入帳後現金會超出系統上限。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) + income))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) + income))
                 con.execute(
                     "UPDATE world_companies SET last_collect=? WHERE guild_id=? AND owner_id=?",
                     (now - ((now - row["last_collect"]) % 3600), guild_id, user_id),
@@ -335,7 +335,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, "入帳後現金會超出系統上限。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) + amount))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) + amount))
                 due = now + 7 * 86400
                 con.execute(
                     "INSERT INTO world_loans(guild_id,user_id,principal,balance,rate,created_at,due_at,status) VALUES(?,?,?,?,?,?,?,'active')",
@@ -358,7 +358,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, f"現金不足，需要 {remaining:,}。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) - remaining))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) - remaining))
                 due_amount = remaining
                 for row in rows:
                     balance = int(row["balance"])
