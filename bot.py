@@ -130,6 +130,7 @@ from cogs import (
     marriage,
     economy,
     economy_world,
+    economy_progress,
 )
 
 
@@ -280,6 +281,7 @@ class Bot(commands.Bot):
             marriage,
             economy,
             economy_world,
+            economy_progress,
         ]
         failed_modules = []
         for module in modules:
