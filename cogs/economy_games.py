@@ -55,6 +55,7 @@ class MiniGameStore:
 
 
 class EconomyMiniGames(commands.Cog):
+    games_group = app_commands.Group(name=app_commands.locale_str("economy-games", zh_TW="經濟遊戲"), description="金幣小遊戲")
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.store = MiniGameStore()
@@ -76,7 +77,7 @@ class EconomyMiniGames(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
 
-    @app_commands.command(name=app_commands.locale_str("guess-number", zh_TW="猜數字"), description="猜中 1 至 5 的數字可獲得 4 倍返還")
+    @games_group.command(name=app_commands.locale_str("guess-number", zh_TW="猜數字"), description="猜中 1 至 5 的數字可獲得 4 倍返還")
     @app_commands.choices(guess=[
         app_commands.Choice(name="1", value=1),
         app_commands.Choice(name="2", value=2),
@@ -95,7 +96,7 @@ class EconomyMiniGames(commands.Cog):
         _, message = self.store.play(interaction.guild_id, interaction.user.id, bet, payout, "guess", detail)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name=app_commands.locale_str("rock-paper-scissors", zh_TW="猜拳"), description="與機器人猜拳，贏得 2 倍返還，平手退回下注")
+    @games_group.command(name=app_commands.locale_str("rock-paper-scissors", zh_TW="猜拳"), description="與機器人猜拳，贏得 2 倍返還，平手退回下注")
     @app_commands.choices(choice=[
         app_commands.Choice(name="石頭", value="rock"),
         app_commands.Choice(name="剪刀", value="scissors"),
@@ -118,7 +119,7 @@ class EconomyMiniGames(commands.Cog):
         _, message = self.store.play(interaction.guild_id, interaction.user.id, bet, payout, "rps", detail)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name=app_commands.locale_str("scratch-card", zh_TW="刮刮樂"), description="購買一張虛擬刮刮樂，隨機獲得不同返還")
+    @games_group.command(name=app_commands.locale_str("scratch-card", zh_TW="刮刮樂"), description="購買一張虛擬刮刮樂，隨機獲得不同返還")
     @app_commands.rename(bet=app_commands.locale_str("bet", zh_TW="票券價格"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(bet="每張 1 至 100,000 金幣", public="是否將遊戲結果公開發到頻道")
     async def scratch_card(self, interaction: discord.Interaction, bet: app_commands.Range[int, 1, MAX_BET], public: bool = False):

@@ -215,6 +215,7 @@ class EconomyClassStore:
 
 
 class EconomyClassesCog(commands.Cog):
+    rpg_group = app_commands.Group(name=app_commands.locale_str("rpg", zh_TW="冒險系統"), description="角色職業與冒險")
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.store = EconomyClassStore()
@@ -233,7 +234,7 @@ class EconomyClassesCog(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    @app_commands.command(name=app_commands.locale_str("class-info", zh_TW="職業資訊"), description="查看可選職業與專屬加成")
+    @rpg_group.command(name=app_commands.locale_str("class-info", zh_TW="職業資訊"), description="查看可選職業與專屬加成")
     @app_commands.describe(public="是否公開顯示")
     async def class_info(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
@@ -244,7 +245,7 @@ class EconomyClassesCog(commands.Cog):
         ]
         await self._reply(interaction, "**可選職業**\n\n" + "\n\n".join(lines) + f"\n\n首次選職業免費；之後轉職需 {CLASS_CHANGE_COST:,} 金幣，且有 7 天冷卻。", public)
 
-    @app_commands.command(name=app_commands.locale_str("choose-class", zh_TW="選擇職業"), description="選擇或轉換你的冒險職業")
+    @rpg_group.command(name=app_commands.locale_str("choose-class", zh_TW="選擇職業"), description="選擇或轉換你的冒險職業")
     @app_commands.choices(class_key=[
         app_commands.Choice(name="戰士", value="warrior"),
         app_commands.Choice(name="商人", value="merchant"),
@@ -259,7 +260,7 @@ class EconomyClassesCog(commands.Cog):
         _, message = self.store.choose_class(interaction.guild_id, interaction.user.id, class_key.value)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name=app_commands.locale_str("adventure", zh_TW="冒險"), description="進行冒險，獲得職業經驗與金幣")
+    @rpg_group.command(name=app_commands.locale_str("adventure", zh_TW="冒險"), description="進行冒險，獲得職業經驗與金幣")
     @app_commands.describe(public="是否公開顯示")
     async def adventure(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
@@ -267,7 +268,7 @@ class EconomyClassesCog(commands.Cog):
         _, message = self.store.adventure(interaction.guild_id, interaction.user.id)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name=app_commands.locale_str("character-status", zh_TW="角色狀態"), description="查看冒險等級、職業與經驗進度")
+    @rpg_group.command(name=app_commands.locale_str("character-status", zh_TW="角色狀態"), description="查看冒險等級、職業與經驗進度")
     @app_commands.describe(member="要查看的成員；不填則查看自己", public="是否公開顯示")
     @app_commands.rename(member=app_commands.locale_str("成員", zh_TW="成員"), public=app_commands.locale_str("公開", zh_TW="公開"))
     async def character_status(self, interaction: discord.Interaction, member: discord.Member | None = None, public: bool = False):
@@ -297,7 +298,7 @@ class EconomyClassesCog(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    @app_commands.command(name=app_commands.locale_str("class-leaderboard", zh_TW="職業排行榜"), description="查看本伺服器冒險等級排行榜")
+    @rpg_group.command(name=app_commands.locale_str("class-leaderboard", zh_TW="職業排行榜"), description="查看本伺服器冒險等級排行榜")
     @app_commands.describe(public="是否公開顯示")
     async def class_leaderboard(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
