@@ -34,7 +34,7 @@ class MiniGameStore:
         with closing(self.economy.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.economy.ensure(con, guild_id, user_id)
-            row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            row = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             wallet = row["wallet"]
             if not is_infinite(wallet) and int(wallet) < bet:
                 con.rollback()
@@ -43,7 +43,7 @@ class MiniGameStore:
                 con.rollback()
                 return False, "結算後現金會超出系統上限，本局取消。"
             updated = "inf" if is_infinite(wallet) else str(int(wallet) - bet + payout)
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (updated, user_id))
+            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (updated, guild_id, user_id))
             con.commit()
         net = payout - bet
         result = "贏得" if net > 0 else "退回" if net == 0 else "損失"
