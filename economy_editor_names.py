@@ -142,16 +142,17 @@ async function load(){
  [...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
  thead.appendChild(headrow);table.appendChild(thead);const tbody=document.createElement("tbody");
  for(const user of data.users){
-  const tr=document.createElement("tr"),form=document.createElement("form");form.style.display="contents";
+  const tr=document.createElement("tr"),form=document.createElement("form");
+  const formId="economy-save-"+String(user.user_id);form.id=formId;
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
-   input.name=key;input.value=user[key]??"";input.readOnly=key==="display_name";input.setAttribute("aria-label",label);
+   input.name=key;input.value=user[key]??"";input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
    if(key==="wallet"||key==="bank"){input.type="number";input.min="0";input.step="1"}
    else if(key.startsWith("last_")){input.className="time";input.placeholder="留空代表沒有紀錄"}
-   td.appendChild(input);form.appendChild(td);
+   td.appendChild(input);tr.appendChild(td);
   }
   const action=document.createElement("td");action.dataset.label="操作";const button=document.createElement("button");
-  button.className="save";button.textContent="儲存";button.type="submit";action.appendChild(button);form.appendChild(action);
+  button.className="save";button.textContent="儲存";button.type="submit";form.appendChild(button);action.appendChild(form);tr.appendChild(action);
   form.addEventListener("submit",async e=>{
    e.preventDefault();button.disabled=true;button.textContent="儲存中…";const payload={user_id:user.user_id};
    for(const [key] of fields)if(key!=="display_name")payload[key]=form.elements[key].value;
