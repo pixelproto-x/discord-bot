@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from startup_services import find_freemind_ai_project, freemind_ai_launch_command
+from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai
 
 
 def make_project(root: Path) -> Path:
@@ -17,10 +17,38 @@ def make_project(root: Path) -> Path:
 
 
 class FreeMindAILaunchCommandTests(unittest.TestCase):
-    def test_launch_command_uses_relative_batch_name_to_avoid_cmd_quote_escaping(self):
-        command = freemind_ai_launch_command()
-        self.assertEqual(command, ["cmd.exe", "/d", "/k", "run.bat"])
-        self.assertTrue(all("\\\"" not in item for item in command))
+    def test_launch_uses_windows_shell_execute_without_cmd_quoting(self):
+        with tempfile.TemporaryDirectory(prefix="FreeMind AI (3) ") as temp:
+            project = Path(temp)
+            launcher = project / "run.bat"
+            launcher.write_text("@echo off\\r\\necho test\\r\\n", encoding="utf-8")
+            with patch("startup_services.os.name", "nt"), patch(
+                "startup_services.os.startfile", create=True
+            ) as startfile:
+                launch_freemind_ai(launcher)
+            startfile.assert_called_once_with(
+                str(launcher.resolve()), "open", cwd=str(project.resolve())
+            )
+
+    def test_detects_active_freemindai_batch_launch(self):
+        result = type("Result", (), {
+            "stdout": "123\\tcmd.exe\\tC:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat",
+            "returncode": 0,
+        })()
+        with patch("startup_services.os.name", "nt"), patch(
+            "startup_services.subprocess.run", return_value=result
+        ):
+            self.assertTrue(freemind_ai_launcher_running())
+
+    def test_ignores_old_idle_cmd_k_window(self):
+        result = type("Result", (), {
+            "stdout": "123\\tcmd.exe\\tcmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat",
+            "returncode": 0,
+        })()
+        with patch("startup_services.os.name", "nt"), patch(
+            "startup_services.subprocess.run", return_value=result
+        ):
+            self.assertFalse(freemind_ai_launcher_running())
 
 
 class FindFreeMindAIProjectTests(unittest.TestCase):
@@ -46,6 +74,19 @@ class FindFreeMindAIProjectTests(unittest.TestCase):
                     home_dir=home,
                 )
             self.assertEqual(found, expected)
+
+    def test_prefers_downloads_when_duplicate_desktop_checkout_exists(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            expected = make_project(home / "Downloads" / "FreeMindAI-main (3)" / "FreeMindAI-main")
+            stale = make_project(home / "OneDrive" / "Desktop" / "FreeMindAI-main (3)" / "FreeMindAI-main")
+            with patch.dict(os.environ, {"FREEMIND_AI_PROJECT_DIR": ""}):
+                found = find_freemind_ai_project(
+                    home / "OneDrive" / "Desktop" / "discord-bot",
+                    home_dir=home,
+                )
+            self.assertEqual(found, expected)
+            self.assertNotEqual(found, stale)
 
     def test_discovers_normal_sibling_project_folder(self):
         with tempfile.TemporaryDirectory() as temp:
