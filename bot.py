@@ -13,7 +13,7 @@ import sys
 import threading
 
 from safe_logging import redact_sensitive_text
-from startup_services import find_freemind_ai_project
+from startup_services import find_freemind_ai_project, freemind_ai_launch_command
 from process_safety import command_line_targets_script
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
@@ -1157,7 +1157,7 @@ def _start_companion_services():
     elif ai_runner is not None:
         try:
             subprocess.Popen(
-                ["cmd.exe", "/d", "/k", f'call "{ai_runner}"'],
+                freemind_ai_launch_command(ai_dir),
                 cwd=str(ai_dir),
                 creationflags=create_console,
             )
