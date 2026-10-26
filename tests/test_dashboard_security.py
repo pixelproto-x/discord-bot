@@ -51,7 +51,8 @@ class DashboardLocalStorageTabTests(unittest.TestCase):
         self.assertIn('const CONTROL_TAB_KEY="yitiaoyu-control-active-tab";', PAGE)
         self.assertIn('window.addEventListener("storage"', PAGE)
         self.assertIn('localStorage.setItem(CONTROL_TAB_KEY,CONTROL_TAB_ID)', PAGE)
-        self.assertIn('window.location.replace("about:blank")', PAGE)
+        self.assertIn('window.location.replace("/__dashboard_replaced")', PAGE)
+        self.assertNotIn('window.location.replace("about:blank")', PAGE)
         self.assertIn('window.addEventListener("pagehide",releaseControlTab,{once:true})', PAGE)
 
 
@@ -61,8 +62,10 @@ class DashboardServiceWorkerTabTests(unittest.TestCase):
         self.assertIn('type:"takeover-dashboard-tabs"', PAGE)
         self.assertIn('self.clients.matchAll({type: "window", includeUncontrolled: true})', DASHBOARD_TAB_MANAGER_SCRIPT)
         self.assertIn('client.navigate(new URL("/__dashboard_replaced", expectedOrigin).href)', DASHBOARD_TAB_MANAGER_SCRIPT)
-        self.assertIn("控制台已更新", DASHBOARD_RETIRED_PAGE)
-        self.assertIn('url=about:blank', DASHBOARD_RETIRED_PAGE)
+        self.assertIn("控制台分頁已更新", DASHBOARD_RETIRED_PAGE)
+        self.assertIn("新版控制台已經開啟", DASHBOARD_RETIRED_PAGE)
+        self.assertIn('onclick="window.close()"', DASHBOARD_RETIRED_PAGE)
+        self.assertNotIn("url=about:blank", DASHBOARD_RETIRED_PAGE)
 
     def test_tab_manager_only_navigates_dashboard_root_tabs_for_its_origin(self):
         self.assertIn('target.origin !== expectedOrigin', DASHBOARD_TAB_MANAGER_SCRIPT)

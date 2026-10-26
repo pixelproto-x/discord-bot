@@ -1185,7 +1185,7 @@ class SearchCog(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException):
                         pass
 
-            if not protected_author and accidental_english:
+            if not protected_author and english_output:
                 answer = "我剛剛語言切錯了 這句不算 我用繁體中文重新接"
             if not violation_detected and recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
