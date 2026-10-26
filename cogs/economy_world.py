@@ -16,14 +16,26 @@ MAX_BALANCE = int("9" * 2000)
 UTC = timezone.utc
 
 GOODS = {
-    "water": ("礦泉水", 30, "瓶裝飲用水，名稱與用途明確"),
-    "instant_noodles": ("泡麵", 45, "即食泡麵，日常食品"),
-    "bread": ("吐司麵包", 60, "包裝吐司，可直接辨認的食品"),
-    "coffee": ("咖啡豆", 180, "用來沖煮咖啡的咖啡豆"),
-    "headphones": ("藍牙耳機", 1200, "可辨認的消費電子商品"),
-    "phone": ("智慧型手機", 9000, "完整的手機商品，不是籠統的電子產品"),
-    "laptop": ("筆記型電腦", 22000, "可攜式個人電腦"),
-    "graphics_card": ("獨立顯示卡", 15000, "桌上型電腦使用的顯示卡"),
+    "coca_cola_600": ("可口可樂 600ml", 35, "台灣超商單瓶參考售價；單位：1 瓶"),
+    "uni_noodles_5": ("統一肉燥麵 5 入組", 85, "台灣零售通路參考價；單位：1 組"),
+    "ime_puff": ("義美小泡芙 57g", 35, "台灣零售通路參考價；單位：1 包"),
+    "ime_soymilk": ("義美豆奶 400ml", 30, "台灣零售通路參考價；單位：1 瓶"),
+    "big_mac_meal": ("麥當勞大麥克套餐", 150, "台灣門市參考價；單位：1 套"),
+    "scott_tissue": ("舒潔抽取式衛生紙 12 包", 199, "台灣零售通路參考價；單位：1 串"),
+    "persil_detergent": ("白蘭洗衣精 1.8kg", 199, "台灣零售通路參考價；單位：1 瓶"),
+    "scotch_tape": ("3M Scotch 膠帶", 45, "台灣文具零售參考價；單位：1 卷"),
+    "nike_af1": ("Nike Air Force 1 '07", 3600, "台灣官方定價參考；單位：1 雙"),
+    "adidas_track_top": ("adidas 運動外套", 2590, "台灣零售參考價；單位：1 件"),
+    "airpods4": ("Apple AirPods 4", 4490, "Apple 台灣官方售價；單位：1 組"),
+    "iphone17": ("Apple iPhone 17 256GB", 32900, "Apple 台灣官方售價；單位：1 支"),
+    "ipad11": ("Apple iPad 11 吋 128GB Wi-Fi", 14900, "Apple 台灣官方售價參考；單位：1 台"),
+    "macbook_air": ("Apple MacBook Air 13 吋", 39900, "台灣官方通路參考價；單位：1 台"),
+    "ps5_slim": ("Sony PlayStation 5 Slim", 14980, "台灣零售通路參考價；單位：1 台"),
+    "switch2": ("Nintendo Switch 2", 14980, "台灣零售通路參考價；單位：1 台"),
+    "rtx5070": ("NVIDIA GeForce RTX 5070 顯示卡", 23990, "台灣零售通路參考價；單位：1 張"),
+    "asus_rtx5070_laptop": ("ASUS RTX 5070 電競筆電", 56999, "台灣零售通路參考價；單位：1 台"),
+    "iphone17_pro": ("Apple iPhone 17 Pro 256GB", 39900, "台灣上市建議售價參考；單位：1 支"),
+    "toyota_corolla_cross": ("Toyota Corolla Cross 汽油豪華型", 809000, "台灣 2026 年式建議售價；單位：1 輛"),
 }
 
 
@@ -90,6 +102,12 @@ class WorldEconomy:
                     created_at INTEGER NOT NULL
                 );
             """)
+            # Replace the old generic catalog completely; remove its market and inventory rows.
+            valid_items = tuple(GOODS)
+            placeholders = ",".join("?" for _ in valid_items)
+            con.execute(f"DELETE FROM world_market WHERE item NOT IN ({placeholders})", valid_items)
+            con.execute(f"DELETE FROM world_inventory WHERE item NOT IN ({placeholders})", valid_items)
+
 
     def connect(self):
         con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
@@ -388,14 +406,26 @@ class WorldEconomyCog(commands.Cog):
         app_commands.Choice(name="賣出", value="sell"),
     ])
     @app_commands.choices(item=[
-        app_commands.Choice(name="礦泉水", value="water"),
-        app_commands.Choice(name="泡麵", value="instant_noodles"),
-        app_commands.Choice(name="吐司麵包", value="bread"),
-        app_commands.Choice(name="咖啡豆", value="coffee"),
-        app_commands.Choice(name="藍牙耳機", value="headphones"),
-        app_commands.Choice(name="智慧型手機", value="phone"),
-        app_commands.Choice(name="筆記型電腦", value="laptop"),
-        app_commands.Choice(name="獨立顯示卡", value="graphics_card"),
+        app_commands.Choice(name="可口可樂 600ml", value="coca_cola_600"),
+        app_commands.Choice(name="統一肉燥麵 5 入組", value="uni_noodles_5"),
+        app_commands.Choice(name="義美小泡芙 57g", value="ime_puff"),
+        app_commands.Choice(name="義美豆奶 400ml", value="ime_soymilk"),
+        app_commands.Choice(name="麥當勞大麥克套餐", value="big_mac_meal"),
+        app_commands.Choice(name="舒潔抽取式衛生紙 12 包", value="scott_tissue"),
+        app_commands.Choice(name="白蘭洗衣精 1.8kg", value="persil_detergent"),
+        app_commands.Choice(name="3M Scotch 膠帶", value="scotch_tape"),
+        app_commands.Choice(name="Nike Air Force 1 '07", value="nike_af1"),
+        app_commands.Choice(name="adidas 運動外套", value="adidas_track_top"),
+        app_commands.Choice(name="Apple AirPods 4", value="airpods4"),
+        app_commands.Choice(name="Apple iPhone 17 256GB", value="iphone17"),
+        app_commands.Choice(name="Apple iPad 11 吋 128GB", value="ipad11"),
+        app_commands.Choice(name="Apple MacBook Air 13 吋", value="macbook_air"),
+        app_commands.Choice(name="Sony PlayStation 5 Slim", value="ps5_slim"),
+        app_commands.Choice(name="Nintendo Switch 2", value="switch2"),
+        app_commands.Choice(name="NVIDIA RTX 5070 顯示卡", value="rtx5070"),
+        app_commands.Choice(name="ASUS RTX 5070 電競筆電", value="asus_rtx5070_laptop"),
+        app_commands.Choice(name="Apple iPhone 17 Pro 256GB", value="iphone17_pro"),
+        app_commands.Choice(name="Toyota Corolla Cross 汽油豪華型", value="toyota_corolla_cross"),
     ])
     @app_commands.rename(action=app_commands.locale_str("動作", zh_TW="動作"), item=app_commands.locale_str("商品", zh_TW="商品"), amount=app_commands.locale_str("數量", zh_TW="數量"))
     async def market(self, interaction: discord.Interaction, action: app_commands.Choice[str], item: app_commands.Choice[str], amount: app_commands.Range[int, 1, 100000] = 1):
