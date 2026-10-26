@@ -199,32 +199,42 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
         providers.append(("Ollama", None))
 
     seen = set()
+    loop = asyncio.get_running_loop()
+    try:
+        chain_timeout = max(10, min(120, int(_env("AI_PROVIDER_CHAIN_TIMEOUT", "45"))))
+    except ValueError:
+        chain_timeout = 45
+    deadline = loop.time() + chain_timeout
+
     for name, provider in providers:
         if name in seen:
             continue
         seen.add(name)
+        remaining = deadline - loop.time()
+        if remaining < 2:
+            print(f"[{label}] provider chain time budget exhausted")
+            break
+        provider_timeout = min(timeout_seconds_for(name), max(1, int(remaining) - 1))
         try:
             if provider is None:
-                answer = await asyncio.wait_for(
-                    _request_ollama(prompt, system_instruction, max_tokens=max_tokens,
-                                    temperature=temperature, timeout_seconds=min(12, max(5, timeout_seconds_for(name))),
-                    ),
-                    timeout=max(5, timeout_seconds_for(name) + 1),
+                request = _request_ollama(
+                    prompt, system_instruction, max_tokens=max_tokens,
+                    temperature=temperature, timeout_seconds=provider_timeout,
                 )
             elif callable(provider):
-                answer = await asyncio.wait_for(
-                    provider(prompt, system_instruction, max_tokens=max_tokens,
-                             temperature=temperature, timeout_seconds=timeout_seconds_for(name)),
-                    timeout=timeout_seconds_for(name) + 1,
+                request = provider(
+                    prompt, system_instruction, max_tokens=max_tokens,
+                    temperature=temperature, timeout_seconds=provider_timeout,
                 )
             else:
-                answer = await asyncio.wait_for(
-                    _request_provider(provider, prompt, system_instruction, max_tokens=max_tokens,
-                                      temperature=temperature, timeout_seconds=timeout_seconds_for(name)),
-                    timeout=timeout_seconds_for(name) + 1,
+                request = _request_provider(
+                    provider, prompt, system_instruction, max_tokens=max_tokens,
+                    temperature=temperature, timeout_seconds=provider_timeout,
                 )
+            answer = await asyncio.wait_for(request, timeout=provider_timeout + 1)
             if answer:
-                print(f"[{label}] provider={name} model={_env(name.upper().replace(' ', '_') + '_MODEL', '') or 'configured'} chars={len(answer)}")
+                model = provider.get("model", "local") if isinstance(provider, dict) else "configured"
+                print(f"[{label}] provider={name} model={model} chars={len(answer)}")
                 return answer
         except Exception as exc:
             print(f"[{label}] provider={name} error={type(exc).__name__}")
@@ -232,8 +242,8 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
 
 
 def timeout_seconds_for(name: str) -> int:
-    raw = _env("AI_PROVIDER_TIMEOUT", "12")
+    raw = _env("AI_PROVIDER_TIMEOUT", "8")
     try:
-        return max(5, min(25, int(raw)))
+        return max(5, min(15, int(raw)))
     except ValueError:
-        return 12
+        return 8
