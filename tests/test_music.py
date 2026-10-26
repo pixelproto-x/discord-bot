@@ -855,6 +855,32 @@ class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [second])
 
 
+class MusicQueueStartRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_queue_starts_when_player_flag_is_stale_but_no_track_is_known(self):
+        from types import SimpleNamespace
+
+        track = SimpleNamespace(title="First queued track")
+        player = SimpleNamespace(playing=True, current=None)
+        guild = SimpleNamespace(id=654319)
+        channel = SimpleNamespace()
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(player=player)
+        cog.sessions[guild.id] = session
+
+        with (
+            patch.object(cog, "ensure_player", new=AsyncMock(return_value=session)),
+            patch.object(cog, "play_next", new=AsyncMock()) as play_next,
+        ):
+            count, started = await cog.enqueue_tracks(
+                guild, channel, text_channel_id=1, requester_id=2, tracks=[track]
+            )
+
+        self.assertEqual(count, 1)
+        self.assertTrue(started)
+        play_next.assert_awaited_once_with(guild.id)
+        self.assertEqual(session.queue, [track])
+
+
 class MusicTrackEventIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_end_event_without_current_track_does_not_consume_queue(self):
         from types import SimpleNamespace
