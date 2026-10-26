@@ -118,17 +118,16 @@ class WorldEconomy:
 
     def ensure_user(self, con, guild_id: int, user_id: int):
         con.execute(
-            "INSERT OR IGNORE INTO users(user_id,guild_id,wallet,bank) VALUES(?,?, '1000','0')",
-            (user_id, guild_id),
+            "INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')",
+            (guild_id, user_id),
         )
-        con.execute("UPDATE users SET guild_id=? WHERE user_id=?", (guild_id, user_id))
 
     def wallet(self, con, guild_id: int, user_id: int) -> str:
         self.ensure_user(con, guild_id, user_id)
-        return str(con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()["wallet"])
+        return str(con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()["wallet"])
 
-    def set_wallet(self, con, user_id: int, value: str):
-        con.execute("UPDATE users SET wallet=? WHERE user_id=?", (value, user_id))
+    def set_wallet(self, con, guild_id: int, user_id: int, value: str):
+        con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (value, guild_id, user_id))
 
     def ledger(self, con, guild_id: int, user_id: int, kind: str, amount: int, detail: str):
         con.execute(
@@ -183,7 +182,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, f"資金不足，需要 {total:,}，目前現金 {_money(wallet)}。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) - total))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) - total))
                 con.execute(
                     "UPDATE world_market SET stock=stock-?,demand=MIN(3.5,demand+?) WHERE guild_id=? AND item=?",
                     (amount, amount / 1000, guild_id, item),
@@ -210,7 +209,7 @@ class WorldEconomy:
                     con.rollback()
                     return False, "出售後現金會超出系統上限，交易取消。"
                 if not _is_inf(wallet):
-                    self.set_wallet(con, user_id, str(int(wallet) + proceeds))
+                    self.set_wallet(con, guild_id, user_id, str(int(wallet) + proceeds))
                 con.execute(
                     "UPDATE world_market SET stock=MIN(100000000,stock+?),demand=MAX(0.35,demand-?) WHERE guild_id=? AND item=?",
                     (amount, amount / 1500, guild_id, item),
