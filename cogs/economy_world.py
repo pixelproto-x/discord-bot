@@ -156,8 +156,8 @@ class WorldEconomy:
             if elapsed_days:
                 demand = 1.0 + (demand - 1.0) * (0.82 ** min(elapsed_days, 30))
             stock = int(row["stock"])
-            scarcity = 1.0 + max(-0.55, min(2.0, (1000 - stock) / 1000))
-            price = max(1, int(base * max(0.35, min(3.5, demand * scarcity))))
+            # Catalog prices are real-world Taiwan-dollar reference prices, not simulated prices.
+            price = base
             con.execute(
                 "UPDATE world_market SET demand=?,last_price=?,updated_at=? WHERE guild_id=? AND item=?",
                 (demand, price, now, guild_id, key),
@@ -195,7 +195,7 @@ class WorldEconomy:
                 )
                 self.ledger(con, guild_id, user_id, "market_buy", -total, f"買入 {GOODS[item][0]} x{amount}")
                 con.commit()
-                return True, f"買入 **{GOODS[item][0]} × {amount:,}**，單價 {_money(price)}，總額 {_money(total)}。"
+                return True, f"買入 **{GOODS[item][0]} × {amount:,}**，單價 NT$ {price:,}，總額 NT$ {total:,}。"
             if action == "sell":
                 owned = con.execute(
                     "SELECT quantity FROM world_inventory WHERE guild_id=? AND user_id=? AND item=?",
@@ -221,7 +221,7 @@ class WorldEconomy:
                 )
                 self.ledger(con, guild_id, user_id, "market_sell", proceeds, f"賣出 {GOODS[item][0]} x{amount}")
                 con.commit()
-                return True, f"賣出 **{GOODS[item][0]} × {amount:,}**，單價 {_money(price)}，收入 {_money(proceeds)}。"
+                return True, f"賣出 **{GOODS[item][0]} × {amount:,}**，單價 NT$ {price:,}，收入 NT$ {proceeds:,}。"
             con.rollback()
             return False, "不支援的交易類型。"
 
@@ -443,7 +443,7 @@ class WorldEconomyCog(commands.Cog):
             data = rows[key]
             label, base, desc = GOODS[key]
             trend = "高於基準" if data["price"] > base else "低於基準" if data["price"] < base else "接近基準"
-            embed = discord.Embed(title=f"商品市場｜{label}", description=f"現價：**{data['price']:,}**\n庫存：{data['stock']:,}\n需求指數：{data['demand']:.2f}\n{trend} · {desc}\n買入價差約 5%，賣出折價約 5%。", color=0x3498DB)
+            embed = discord.Embed(title=f"商品市場｜{label}", description=f"現價：**NT$ {data['price']:,}**\n庫存：{data['stock']:,}\n需求指數：{data['demand']:.2f}\n{trend} · {desc}\n買入價差約 5%，賣出折價約 5%。", color=0x3498DB)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await self._run(interaction, self.store.trade(interaction.guild_id, interaction.user.id, item.value, action.value, amount))
