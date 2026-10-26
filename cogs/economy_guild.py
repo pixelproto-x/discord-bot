@@ -264,7 +264,7 @@ class GuildEconomyStore:
                 con.commit()
                 return False, "活動已到期，未發放的獎勵已退回公會金庫，不能再增加進度。"
             self._ensure_treasury(con, guild_id)
-            user = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            user = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             if not user:
                 con.execute("INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')", (guild_id,user_id))
                 wallet = "1000"
