@@ -1047,7 +1047,7 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
         # If the command deferred first, update that original response rather
         # than creating a second ephemeral message.
         if response_type is discord.InteractionResponseType.deferred_channel_message:
-            await interaction.edit_original_response(content=msg, embed=None, embeds=[], view=None)
+            await interaction.edit_original_response(content=msg, embed=None, view=None)
             return
 
         if not interaction.response.is_done():
