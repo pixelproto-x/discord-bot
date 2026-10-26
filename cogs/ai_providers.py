@@ -164,40 +164,13 @@ async def _request_gemini(prompt: str, system_instruction: str, *, max_tokens: i
     return "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
 
 
-async def _request_ollama(prompt: str, system_instruction: str, *, max_tokens: int,
-                          temperature: float, timeout_seconds: float) -> str:
-    base_url = _env("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    model = _env("OLLAMA_MODEL", "qwen2.5:3b")
-    payload = {
-        "model": model,
-        "stream": False,
-        "messages": [
-            {"role": "system", "content": system_instruction or "用自然的繁體中文回答"},
-            {"role": "user", "content": prompt},
-        ],
-        "options": {"num_predict": max_tokens, "temperature": temperature},
-    }
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(base_url + "/api/chat", json=payload) as response:
-            if response.status < 200 or response.status >= 300:
-                print(f"[AI fallback] provider=Ollama http_status={response.status}")
-                return ""
-            data = await response.json(content_type=None)
-    return str((data.get("message") or {}).get("content") or "").strip()
-
-
 async def generate_fallback(prompt: str, system_instruction: str, *, label: str = "AI fallback",
                             max_tokens: int = 320, temperature: float = 0.75,
                             top_p: float | None = None) -> str:
-    """Try configured cloud providers in a predictable order, then local Ollama."""
+    """Try configured cloud providers in a predictable order."""
     # Gemini is the primary SDK provider in cogs/media.py; avoid retrying it here
     # after its primary attempt has already failed or hit a quota limit.
     providers = list((spec["name"], spec) for spec in _provider_specs())
-    ollama_enabled = _env("OLLAMA_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
-    if ollama_enabled:
-        providers.append(("Ollama", None))
-
     seen = set()
     loop = asyncio.get_running_loop()
     try:
@@ -216,12 +189,7 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
             break
         provider_timeout = min(timeout_seconds_for(name), max(1, int(remaining) - 1))
         try:
-            if provider is None:
-                request = _request_ollama(
-                    prompt, system_instruction, max_tokens=max_tokens,
-                    temperature=temperature, timeout_seconds=provider_timeout,
-                )
-            elif callable(provider):
+            if callable(provider):
                 request = provider(
                     prompt, system_instruction, max_tokens=max_tokens,
                     temperature=temperature, timeout_seconds=provider_timeout,
@@ -233,7 +201,7 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
                 )
             answer = await asyncio.wait_for(request, timeout=provider_timeout + 1)
             if answer:
-                model = provider.get("model", "local") if isinstance(provider, dict) else "configured"
+                model = provider.get("model", "configured") if isinstance(provider, dict) else "configured"
                 print(f"[{label}] provider={name} model={model} chars={len(answer)}")
                 return answer
         except Exception as exc:
