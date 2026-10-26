@@ -1433,7 +1433,7 @@ class SearchCog(commands.Cog):
 
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商。",
                 ephemeral=True,
             )
             return
@@ -1500,7 +1500,7 @@ class SearchCog(commands.Cog):
             await interaction.response.send_message("內容太長了，請控制在 2000 字內。", ephemeral=True)
             return
         if not self._has_ai_provider_configured():
-            await interaction.response.send_message("目前沒有可用的 AI 服務，請檢查供應商 API Key、模型名稱或本機 Ollama。", ephemeral=True)
+            await interaction.response.send_message("目前沒有可用的 AI 服務，請檢查供應商 API Key、模型名稱。", ephemeral=True)
             return
         if not await self._check_ai_limit(interaction):
             return
@@ -1540,7 +1540,7 @@ class SearchCog(commands.Cog):
 
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商。",
                 ephemeral=True,
             )
             return
@@ -1583,7 +1583,7 @@ class SearchCog(commands.Cog):
 
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商。",
                 ephemeral=True,
             )
             return
@@ -1627,7 +1627,7 @@ class SearchCog(commands.Cog):
         question = question.strip()
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商。",
                 ephemeral=True,
             )
             return
@@ -1662,7 +1662,7 @@ class SearchCog(commands.Cog):
             )
             if not answer:
                 await interaction.followup.send(
-                    "AI 目前沒有成功回覆。請確認至少有一個雲端 API Key 設定正確，或本機 Ollama 正在執行且模型已下載。"
+                    "AI 目前沒有成功回覆。請確認至少有一個雲端 API Key 設定正確。"
                 )
                 return
             await self._send_ai_output(
@@ -1693,7 +1693,7 @@ class SearchCog(commands.Cog):
             )
         else:
             await interaction.followup.send(
-                "沒有任何已設定的 AI 供應商成功回覆。請檢查 .env 的 API Key、模型名稱，或確認 Ollama 正在本機執行。",
+                "沒有任何已設定的 AI 供應商成功回覆。請檢查 .env 的 API Key、模型名稱。",
                 ephemeral=True,
             )
 
