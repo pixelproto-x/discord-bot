@@ -163,8 +163,7 @@ class PropertyStore:
             return True, f"已出售 {label} #{property_id}，回收 {refund:,} 現金（估值 60% × 等級）。"
 
 
-class PropertyCog(commands.Cog):
-    property_group = app_commands.Group(name=app_commands.locale_str("property", zh_TW="房產"), description="房產管理")
+class PropertyCog(commands.GroupCog, group_name=app_commands.locale_str("property", zh_TW="房產"), group_description="房產管理"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.store = PropertyStore()
@@ -181,7 +180,7 @@ class PropertyCog(commands.Cog):
         else:
             await interaction.response.send_message(content, ephemeral=True, view=PublicizeView(interaction.user.id, content=content), allowed_mentions=discord.AllowedMentions.none())
 
-    @property_group.command(name=app_commands.locale_str("properties", zh_TW="房產"), description="查看自己的房產或伺服器近期房產")
+    @app_commands.command(name=app_commands.locale_str("properties", zh_TW="房產"), description="查看自己的房產或伺服器近期房產")
     @app_commands.choices(scope=[
         app_commands.Choice(name="我的房產", value="mine"),
         app_commands.Choice(name="伺服器近期房產", value="server"),
@@ -204,7 +203,7 @@ class PropertyCog(commands.Cog):
             text = "房產清單\n\n" + "\n\n".join(lines)
         await self._reply(interaction, text, public)
 
-    @property_group.command(name=app_commands.locale_str("buy-property", zh_TW="購買房產"), description="購買一筆新的模擬房產")
+    @app_commands.command(name=app_commands.locale_str("buy-property", zh_TW="購買房產"), description="購買一筆新的模擬房產")
     @app_commands.choices(property_type=[
         app_commands.Choice(name="小套房（50,000）", value="studio"),
         app_commands.Choice(name="市區公寓（180,000）", value="apartment"),
@@ -220,7 +219,7 @@ class PropertyCog(commands.Cog):
         _, result = self.store.buy(interaction.guild_id, interaction.user.id, property_type.value)
         await self._reply(interaction, result, public)
 
-    @property_group.command(name=app_commands.locale_str("collect-rent", zh_TW="領取租金"), description="領取已累積的房產租金")
+    @app_commands.command(name=app_commands.locale_str("collect-rent", zh_TW="領取租金"), description="領取已累積的房產租金")
     @app_commands.rename(property_id=app_commands.locale_str("property_id", zh_TW="房產編號"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(property_id="留空即可領取所有已到期房產的租金", public="是否將領租結果公開發到頻道")
     async def collect_rent(self, interaction: discord.Interaction, property_id: app_commands.Range[int, 1, 2147483647] = None, public: bool = False):
@@ -229,7 +228,7 @@ class PropertyCog(commands.Cog):
         _, result = self.store.collect(interaction.guild_id, interaction.user.id, property_id)
         await self._reply(interaction, result, public)
 
-    @property_group.command(name=app_commands.locale_str("upgrade-property", zh_TW="升級房產"), description="升級房產，提高每日租金")
+    @app_commands.command(name=app_commands.locale_str("upgrade-property", zh_TW="升級房產"), description="升級房產，提高每日租金")
     @app_commands.rename(property_id=app_commands.locale_str("property_id", zh_TW="房產編號"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(property_id="你持有的房產編號", public="是否將升級結果公開發到頻道")
     async def upgrade_property(self, interaction: discord.Interaction, property_id: app_commands.Range[int, 1, 2147483647], public: bool = False):
@@ -238,7 +237,7 @@ class PropertyCog(commands.Cog):
         _, result = self.store.upgrade(interaction.guild_id, interaction.user.id, property_id)
         await self._reply(interaction, result, public)
 
-    @property_group.command(name=app_commands.locale_str("sell-property", zh_TW="出售房產"), description="出售房產並回收部分資金")
+    @app_commands.command(name=app_commands.locale_str("sell-property", zh_TW="出售房產"), description="出售房產並回收部分資金")
     @app_commands.rename(property_id=app_commands.locale_str("property_id", zh_TW="房產編號"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(property_id="你持有的房產編號", public="是否將出售結果公開發到頻道")
     async def sell_property(self, interaction: discord.Interaction, property_id: app_commands.Range[int, 1, 2147483647], public: bool = False):
