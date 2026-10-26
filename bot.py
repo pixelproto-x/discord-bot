@@ -13,7 +13,7 @@ import sys
 import threading
 
 from safe_logging import redact_sensitive_text
-from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai
+from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai, stop_stale_freemind_ai_launch_windows
 from process_safety import command_line_targets_script
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
@@ -1156,6 +1156,10 @@ def _start_companion_services():
 
     project_dir = Path(__file__).resolve().parent
     create_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
+    stale_launch_pids = stop_stale_freemind_ai_launch_windows()
+    if stale_launch_pids:
+        print(f"[清理] 已關閉舊版 FreeMindAI 啟動錯誤視窗：{len(stale_launch_pids)} 個。")
 
     ai_dir = find_freemind_ai_project(project_dir)
     ai_runner = ai_dir / "run.bat" if ai_dir else None
