@@ -225,7 +225,12 @@ class EconomyStore:
                 if is_infinite(target["wallet"]):
                     con.rollback()
                     return "unstealable", 0
-                stolen = max(0, int(Decimal(target["wallet"]) * Decimal(str(fraction))))
+                target_wallet = int(target["wallet"])
+                if target_wallet <= 0:
+                    con.rollback()
+                    return "empty", 0
+                # A successful robbery must transfer at least one coin when the target has cash.
+                stolen = max(1, int(Decimal(target_wallet) * Decimal(str(fraction))))
                 if not is_infinite(robber["wallet"]) and int(robber["wallet"]) + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
@@ -471,6 +476,8 @@ class EconomyCog(commands.Cog):
             message = "你的錢包接近系統上限，這次無法完成。"
         elif outcome == "unstealable":
             message = f"{member.mention} 的錢包是無限金額，無法搶走。"
+        elif outcome == "empty":
+            message = f"{member.mention} 的錢包沒有可搶的現金，這次沒搶到錢。"
         elif outcome == "success":
             message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{value:,}** 金幣。"
         else:
