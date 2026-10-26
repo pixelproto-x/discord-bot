@@ -195,6 +195,7 @@ class PlayerMarketCog(commands.Cog):
 
     @app_commands.command(name=app_commands.locale_str("player-market", zh_TW="玩家市場"), description="查看玩家自行定價上架的商品")
     @app_commands.describe(public="是否將這次查詢公開發到頻道")
+    @app_commands.rename(public=app_commands.locale_str("public", zh_TW="公開"))
     async def player_market(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
             return
@@ -233,7 +234,7 @@ class PlayerMarketCog(commands.Cog):
         app_commands.Choice(name="Apple iPhone 17 Pro 256GB", value="iphone17_pro"),
         app_commands.Choice(name="Toyota Corolla Cross 汽油豪華型", value="toyota_corolla_cross"),
     ])
-    @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"), quantity=app_commands.locale_str("數量", zh_TW="數量"), unit_price=app_commands.locale_str("unit-price", zh_TW="單價"), public=app_commands.locale_str("公開", zh_TW="公開"))
+    @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"), quantity=app_commands.locale_str("數量", zh_TW="數量"), unit_price=app_commands.locale_str("unit_price", zh_TW="單價"), public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(quantity="要出售的數量", unit_price="每件商品的自訂售價（新台幣）", public="是否將上架結果公開發到頻道")
     async def player_list(self, interaction: discord.Interaction, item: app_commands.Choice[str], quantity: app_commands.Range[int, 1, MAX_QUANTITY], unit_price: app_commands.Range[int, 1, MAX_LISTING_PRICE], public: bool = False):
         if not await self._guild_only(interaction):
@@ -242,7 +243,7 @@ class PlayerMarketCog(commands.Cog):
         await self._reply(interaction, message, public)
 
     @app_commands.command(name=app_commands.locale_str("player-buy", zh_TW="玩家購買"), description="購買其他玩家上架的商品")
-    @app_commands.rename(listing_id=app_commands.locale_str("listing-id", zh_TW="商品編號"), quantity=app_commands.locale_str("數量", zh_TW="數量"), public=app_commands.locale_str("公開", zh_TW="公開"))
+    @app_commands.rename(listing_id=app_commands.locale_str("listing_id", zh_TW="商品編號"), quantity=app_commands.locale_str("數量", zh_TW="數量"), public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(listing_id="在玩家市場看到的商品編號", quantity="購買數量", public="是否將購買結果公開發到頻道")
     async def player_buy(self, interaction: discord.Interaction, listing_id: app_commands.Range[int, 1, 2_147_483_647], quantity: app_commands.Range[int, 1, MAX_QUANTITY] = 1, public: bool = False):
         if not await self._guild_only(interaction):
