@@ -31,14 +31,14 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
             )
 
     def test_detects_active_freemindai_batch_launch(self):
-        process = (123, 1, "cmd.exe", "C:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat")
+        process = (98765, 1, "cmd.exe", "C:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat")
         with patch("startup_services.os.name", "nt"), patch(
             "startup_services._windows_process_snapshot", return_value=[process]
         ):
             self.assertTrue(freemind_ai_launcher_running())
 
     def test_ignores_old_idle_cmd_k_window(self):
-        process = (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
+        process = (98765, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat")
         with patch("startup_services.os.name", "nt"), patch(
             "startup_services._windows_process_snapshot", return_value=[process]
         ):
@@ -50,9 +50,9 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
         with patch("startup_services.os.name", "nt"), patch(
             "startup_services._windows_process_snapshot", return_value=[process]
         ), patch("startup_services.subprocess.run", return_value=result) as run:
-            self.assertEqual(stop_stale_freemind_ai_launch_windows(), [123])
+            self.assertEqual(stop_stale_freemind_ai_launch_windows(), [98765])
             run.assert_called_once_with(
-                ["taskkill.exe", "/PID", "123", "/T", "/F"],
+                ["taskkill.exe", "/PID", "98765", "/T", "/F"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=5, check=False,
             )
@@ -60,7 +60,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
     def test_keeps_a_legacy_window_that_still_has_a_child_process(self):
         processes = [
             (123, 1, "cmd.exe", "cmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat"),
-            (124, 123, "powershell.exe", "powershell.exe -file C:/Users/Test/FreeMindAI-main/update.bat"),
+            (98766, 98765, "powershell.exe", "powershell.exe -file C:/Users/Test/FreeMindAI-main/update.bat"),
         ]
         with patch("startup_services.os.name", "nt"), patch(
             "startup_services._windows_process_snapshot", return_value=processes
