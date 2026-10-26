@@ -16,11 +16,14 @@ MAX_BALANCE = int("9" * 2000)
 UTC = timezone.utc
 
 GOODS = {
-    "food": ("民生食品", 120, "日常消費品，需求穩定"),
-    "fuel": ("燃料", 260, "受供需與市場事件影響"),
-    "electronics": ("電子產品", 900, "高價商品，價格波動較大"),
-    "materials": ("工業原料", 420, "企業營運所需原料"),
-    "medicine": ("醫療用品", 350, "需求穩定，短缺時容易漲價"),
+    "water": ("礦泉水", 30, "瓶裝飲用水，名稱與用途明確"),
+    "instant_noodles": ("泡麵", 45, "即食泡麵，日常食品"),
+    "bread": ("吐司麵包", 60, "包裝吐司，可直接辨認的食品"),
+    "coffee": ("咖啡豆", 180, "用來沖煮咖啡的咖啡豆"),
+    "headphones": ("藍牙耳機", 1200, "可辨認的消費電子商品"),
+    "phone": ("智慧型手機", 9000, "完整的手機商品，不是籠統的電子產品"),
+    "laptop": ("筆記型電腦", 22000, "可攜式個人電腦"),
+    "graphics_card": ("獨立顯示卡", 15000, "桌上型電腦使用的顯示卡"),
 }
 
 
@@ -385,11 +388,14 @@ class WorldEconomyCog(commands.Cog):
         app_commands.Choice(name="賣出", value="sell"),
     ])
     @app_commands.choices(item=[
-        app_commands.Choice(name="民生食品", value="food"),
-        app_commands.Choice(name="燃料", value="fuel"),
-        app_commands.Choice(name="電子產品", value="electronics"),
-        app_commands.Choice(name="工業原料", value="materials"),
-        app_commands.Choice(name="醫療用品", value="medicine"),
+        app_commands.Choice(name="礦泉水", value="water"),
+        app_commands.Choice(name="泡麵", value="instant_noodles"),
+        app_commands.Choice(name="吐司麵包", value="bread"),
+        app_commands.Choice(name="咖啡豆", value="coffee"),
+        app_commands.Choice(name="藍牙耳機", value="headphones"),
+        app_commands.Choice(name="智慧型手機", value="phone"),
+        app_commands.Choice(name="筆記型電腦", value="laptop"),
+        app_commands.Choice(name="獨立顯示卡", value="graphics_card"),
     ])
     @app_commands.rename(action=app_commands.locale_str("動作", zh_TW="動作"), item=app_commands.locale_str("商品", zh_TW="商品"), amount=app_commands.locale_str("數量", zh_TW="數量"))
     async def market(self, interaction: discord.Interaction, action: app_commands.Choice[str], item: app_commands.Choice[str], amount: app_commands.Range[int, 1, 100000] = 1):
