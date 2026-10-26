@@ -223,7 +223,9 @@ class EconomyProgressCog(commands.Cog):
                 detail = f"{description} · 進度：{progress}"
             lines.append(f"**{name}** — {status}\n{detail}\n獎勵：{reward:,} 成就點")
         embed = discord.Embed(title="個人成就", description="\n\n".join(lines), color=0x9B59B6)
-        embed.set_footer(text=f"已解鎖 {len(unlocked)}/{len(ACHIEVEMENTS)} 項；成就點目前只作為紀錄，不會自動發放金幣")
+        total_points = sum(ACHIEVEMENTS[key][2] for key in unlocked if key in ACHIEVEMENTS)
+        embed.add_field(name="成就點數", value=f"**{total_points:,}** 點", inline=False)
+        embed.set_footer(text=f"已解鎖 {len(unlocked)}/{len(ACHIEVEMENTS)} 項；成就點為遊戲紀錄，不會自動發放金幣")
         if newly:
             embed.add_field(name="新成就！", value="、".join(ACHIEVEMENTS[key][0] for key in newly), inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
