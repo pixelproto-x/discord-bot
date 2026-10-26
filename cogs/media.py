@@ -729,10 +729,28 @@ class SearchCog(commands.Cog):
 
         bot_id = self.bot.user.id
         is_mentioned = any(user.id == bot_id for user in message.mentions)
-        # Replies to bot command output are ordinary replies, not an AI trigger.
-        # The user must explicitly @mention the bot in a server message.
         if not is_mentioned:
             return
+
+        # A reply to a slash-command response must not wake the AI, even if the
+        # reply also happens to contain a mention. Ordinary @mentions still work.
+        reference = message.reference
+        if reference and reference.message_id:
+            referenced = reference.resolved
+            if referenced is None:
+                try:
+                    referenced = await message.channel.fetch_message(reference.message_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    referenced = None
+            if (
+                referenced
+                and getattr(getattr(referenced, "author", None), "id", None) == bot_id
+                and (
+                    getattr(referenced, "interaction", None)
+                    or getattr(referenced, "interaction_metadata", None)
+                )
+            ):
+                return
 
         # Escalating persona penalties persist across restarts until an admin resets them.
         if storage.get_setting(message.guild.id, "fish_persona_disabled", False):
