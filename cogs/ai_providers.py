@@ -78,6 +78,8 @@ def _provider_specs() -> list[dict[str, Any]]:
                       "model": hf_model, "kind": "openai"})
     openai_compatible("NVIDIA NIM", "NVIDIA_NIM_API_KEY", "https://integrate.api.nvidia.com/v1",
                       "NVIDIA_NIM_MODEL", "meta/llama-3.3-70b-instruct")
+    openai_compatible("OpenAI", "OPENAI_API_KEY", "https://api.openai.com/v1",
+                      "OPENAI_MODEL", "gpt-4.1-mini")
     return specs
 
 
