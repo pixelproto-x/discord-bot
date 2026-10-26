@@ -107,13 +107,18 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(other_guild["wallet"], "1000")
         self.assertEqual(original_guild["wallet"], "4321")
 
-    def test_transfer_cannot_cross_guild_account_boundaries(self):
+    def test_transfer_only_changes_receiver_account_in_current_guild(self):
         user_id, receiver = 456, 789
         self.cog.store.get(123, user_id)
         self.cog.store.get(789, receiver)
-        self.assertFalse(self.cog.store.transfer(123, user_id, receiver, 1))
-        self.assertEqual(self.cog.store.get(123, user_id)["wallet"], "1000")
-        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "1000")
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                ("777", 789, receiver),
+            )
+        self.assertTrue(self.cog.store.transfer(123, user_id, receiver, 1))
+        self.assertEqual(self.cog.store.get(123, receiver)["wallet"], "1001")
+        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "777")
 
 
 class LegacyEconomyMigrationTests(unittest.TestCase):
