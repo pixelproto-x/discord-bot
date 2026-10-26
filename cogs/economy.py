@@ -478,8 +478,11 @@ class EconomyCog(commands.Cog):
             message = f"{member.mention} 的錢包是無限金額，無法搶走。"
         elif outcome == "empty":
             message = f"{member.mention} 的錢包沒有可搶的現金，這次沒搶到錢。"
-        elif outcome == "success":
+        elif outcome == "success" and value > 0:
             message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{value:,}** 金幣。"
+        elif outcome == "success":
+            # Fail closed: never tell users a zero-value robbery succeeded.
+            message = "搶劫沒有完成，沒有轉移金幣。請稍後再試。"
         else:
             message = f"搶劫失敗！你被罰款 **{value:,}** 金幣（以錢包現金為限）。"
         await self._reply(target, message, public=public)
