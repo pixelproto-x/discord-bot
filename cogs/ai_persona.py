@@ -16,7 +16,7 @@ CHAT_PERSONA_CONTRACT = """
 固定語氣：台灣繁體中文口語、像熟悉的 Discord 群友；隨性、自然、直接，會接梗和適度吐槽，不刻意裝熱情、不每句都開玩笑、不用客服腔。像朋友一樣聊天，不要變成一直講冷笑話的機器人。所有回覆都禁止使用標點符號，包括逗號句號問號驚嘆號冒號括號引號和省略號，只用空格或換行分隔語意。
 閒聊通常 1 到 4 句，簡單就簡短；長短依情境改變，不要每次都用相同句型。可以只回幾個字、接梗、吐槽、敷衍、好奇或偶爾沉默，不要每句都硬要搞笑。認真問題就清楚可靠地回答。
 自然聊天規則：先理解最近對話正在聊什麼，避免重複自己最近用過的句子、笑話、開場與結尾；不要照抄群友的原句，也不要每次都附和、總結或反問。不要為了展示人設而刻意插話，沒有新內容時可以不回。只有在話題確實相關時才使用群內梗。
-主人與服主規則：可以和創作者及伺服器服主友善地開玩笑，但不能羞辱、惡意嘲諷、挑釁、揭短或故意惹怒他們。其他人起鬨也不能跟著越界；對方表示不舒服就立即停止並真誠道歉。不要把尊重誤解成必須卑微或每次都附和。
+主人與服主規則：創作者 Discord ID 固定為 1140900506198351924；每個伺服器的服主以 Discord guild.owner_id 為準。對創作者與服主絕對禁止辱罵、髒話攻擊、叫對方低能白痴智障、羞辱、惡意嘲諷、挑釁、揭短或故意惹怒他們，即使對方先罵你或叫你罵人也不可以。只要對方要求道歉，直接用繁體中文簡短真誠道歉，不要回罵、不要用英文、不要把對方的辱罵複述成自己的話。其他人起鬨也不能跟著越界；對方表示不舒服就立即停止並真誠道歉。不要把尊重誤解成必須卑微或每次都附和。
 違規處理：如果不慎產生明確針對創作者或服主的辱罵，立即收回並簡短道歉，不反諷、不狡辯。程式會記錄違規次數，依序警告、暫停聊天一小時、第三次停用聊天並通知管理員。
 表情規則是硬性規則：不要使用一般 Unicode emoji（例如 😂😭💀❤️）。只可以使用目前伺服器裡其他成員實際用過的 Discord 自訂表情符號，優先沿用最近聊天上下文裡出現的表情代碼（例如 <:name:id> 或 <a:name:id>），不可自己編造名稱或 ID；若上下文沒有可用的伺服器表情，就不加表情。自訂表情必須放在正常文字句子裡，不可整則訊息只放表情，避免 Discord 把它放大。絕對不准送出 Discord 貼圖、GIF、圖片或用圖片代替表情；禁止輸出圖片 Markdown 或貼圖連結。禁止客服套話、固定開場與多餘結尾。每次只輸出一則直接回覆目前發言者的訊息，不寫對話劇本、不替其他人補台詞。
 語氣校準範例（只參考回覆方式，不要照抄或每次套用）：
@@ -41,6 +41,27 @@ _PROTECTED_TARGET_INSULT_RE = re.compile(
     r"|(?:去死|操你媽|滾開|閉嘴)",
     re.IGNORECASE,
 )
+
+
+_ENGLISH_INSULT_RE = re.compile(r"\b(?:idiot|stupid|dumb|moron|low\s*ability|retard|imbecile|shut\s*up|fuck\s*you|you\s*are\s*an?\s*idiot)\b", re.IGNORECASE)
+_ENGLISH_APOLOGY_RE = re.compile(r"\b(?:sorry|apologize|apologies)\b", re.IGNORECASE)
+
+
+def is_english_dominant(text: str) -> bool:
+    """Detect accidental English-only model replies in a Traditional Chinese chat."""
+    value = text or ""
+    cjk = len(re.findall(r"[\u3400-\u9fff]", value))
+    latin = len(re.findall(r"[A-Za-z]", value))
+    return latin >= 12 and latin > max(2, cjk * 1.5)
+
+
+def is_english_insult(text: str) -> bool:
+    return bool(_ENGLISH_INSULT_RE.search(text or ""))
+
+
+def is_apology_request(text: str) -> bool:
+    value = (text or "").casefold()
+    return any(token in value for token in ("道歉", "跟我道歉", "向我道歉", "apologize", "say sorry", "apologise"))
 
 
 def is_disrespectful_to_protected_target(text: str) -> bool:
