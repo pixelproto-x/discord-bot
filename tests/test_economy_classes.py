@@ -30,6 +30,10 @@ class EconomyClassStoreTests(unittest.TestCase):
 
     def set_wallet(self, user_id, amount):
         with sqlite3.connect(self.db_path) as con:
+            con.execute(
+                "INSERT OR IGNORE INTO users(user_id,guild_id,wallet,bank) VALUES(?,10,?,'0')",
+                (user_id, str(amount)),
+            )
             con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(amount), user_id))
 
     def test_first_class_is_free_and_duplicate_class_is_rejected(self):
