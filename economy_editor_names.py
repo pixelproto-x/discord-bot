@@ -79,7 +79,12 @@ def _add_display_names(rows: list[dict]) -> list[dict]:
     token = _discord_token()
     if not token:
         return [
-            {**row, "user_id": str(row["user_id"]), "display_name": "未設定 Discord Token"}
+            {
+                **row,
+                "user_id": str(row["user_id"]),
+                "guild_id": str(row.get("guild_id") or 0),
+                "display_name": "未設定 Discord Token",
+            }
             for row in rows
         ]
 
