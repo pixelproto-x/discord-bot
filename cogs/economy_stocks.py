@@ -31,6 +31,7 @@ MAX_PRICE = 10**18
 class StockStore:
     def __init__(self):
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.world = WorldEconomy()
         with closing(self.connect()) as con:
             con.executescript("""
                 CREATE TABLE IF NOT EXISTS stock_quotes (
@@ -120,7 +121,7 @@ class StockStore:
             if total > MAX_BALANCE:
                 con.rollback()
                 return False, "交易總額超過系統上限。"
-            world = WorldEconomy()
+            world = self.world
             world.ensure_user(con, guild_id, user_id)
             wallet = world.wallet(con, guild_id, user_id)
             holding = con.execute(
