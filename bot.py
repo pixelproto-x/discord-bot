@@ -13,7 +13,7 @@ import sys
 import threading
 
 from safe_logging import redact_sensitive_text
-from startup_services import find_freemind_ai_project, freemind_ai_launch_command
+from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai
 from process_safety import command_line_targets_script
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
@@ -1161,18 +1161,16 @@ def _start_companion_services():
     ai_runner = ai_dir / "run.bat" if ai_dir else None
     if _is_local_port_open(8080):
         print("[OK] FreeMindAI 連線埠 8080 已開啟，略過重複啟動。")
+    elif freemind_ai_launcher_running():
+        print("[OK] 偵測到 FreeMindAI 已在啟動中，略過重複視窗。")
     elif ai_runner is not None:
         try:
-            subprocess.Popen(
-                freemind_ai_launch_command(),
-                cwd=str(ai_dir),
-                creationflags=create_console,
-            )
-            print(f"[啟動] 已另開視窗啟動 FreeMindAI：{ai_dir}")
-        except OSError as exc:
+            launch_freemind_ai(ai_runner)
+            print(f"[啟動] 已透過 Windows 檔案啟動器啟動 FreeMindAI：{ai_dir}")
+        except (OSError, NotImplementedError) as exc:
             print(f"[提示] FreeMindAI 自動啟動失敗：{type(exc).__name__}。")
     else:
-        print("[提示] 找不到 FreeMindAI 專案；已搜尋 Bot 資料夾旁、Downloads、Desktop、OneDrive\\Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
+        print("[提示] 找不到 FreeMindAI 專案；已搜尋 Downloads、OneDrive\\Desktop、Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
 
     preferred_editor = project_dir / "economy_editor_names.py"
     legacy_editor = project_dir / "economy_editor.py"
