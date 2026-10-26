@@ -10,6 +10,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -226,7 +227,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/":
+        path = urlsplit(self.path).path
+        if path == "/":
             html = PAGE.replace("__DB_PATH__", str(DB_PATH)).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -235,10 +237,10 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html)
             return
-        if self.path == "/api/health":
+        if path == "/api/health":
             self.send_json(200, {"ok": True})
             return
-        if self.path == "/api/users":
+        if path == "/api/users":
             try:
                 with connect() as con:
                     rows = con.execute(
@@ -251,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
-        if self.path != "/api/save":
+        path = urlsplit(self.path).path
+        if path != "/api/save":
             self.send_error(404)
             return
         try:
