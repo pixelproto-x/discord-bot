@@ -386,47 +386,23 @@ class SearchCog(commands.Cog):
         prompt: str,
         system_instruction: str,
         *,
-        label: str = "Groq fallback",
+        label: str = "AI fallback",
         max_tokens: int = 768,
         temperature: float = 0.7,
         top_p: float | None = None,
     ) -> str:
-        """Generate a fallback answer through Groq using the same task instructions."""
-        if not self.groq_client:
-            print(f"[{label}] skipped; GROQ_API_KEY is not configured")
-            return ""
-        request = (
-            f"{system_instruction}\n\n"
-            "可以自然使用 emoji 或表情符號，但不要每句都加，也不要使用顏文字。"
-        )
+        """Use configured AI providers in order, then local Ollama, preserving shared fallback behavior."""
         try:
-            request_kwargs = {
-                "model": self.groq_model,
-                "messages": [
-                    {"role": "system", "content": request},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": temperature,
-                "max_completion_tokens": max_tokens,
-            }
-            if top_p is not None:
-                request_kwargs["top_p"] = top_p
-            response = await asyncio.wait_for(
-                self.groq_client.chat.completions.create(**request_kwargs),
-                timeout=25,
+            from cogs.ai_providers import generate_fallback
+            answer = await generate_fallback(
+                prompt,
+                system_instruction,
+                label=label,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
             )
-            choices = getattr(response, "choices", None) or []
-            choice = choices[0] if choices else None
-            answer = ((getattr(getattr(choice, "message", None), "content", None) or "") if choice else "").strip()
-            finish_reason = getattr(choice, "finish_reason", None) or "UNKNOWN"
-            usage = getattr(response, "usage", None)
-            input_tokens = getattr(usage, "prompt_tokens", None) or 0
-            output_tokens = getattr(usage, "completion_tokens", None) or 0
-            print(
-                f"[{label}] model={self.groq_model} finish_reason={finish_reason} "
-                f"chars={len(answer)} input_tokens={input_tokens} output_tokens={output_tokens}"
-            )
-            return _strip_emojis(answer)
+            return _strip_emojis(answer or "")
         except Exception as exc:
             self._log_ai_error(label, exc)
             return ""
