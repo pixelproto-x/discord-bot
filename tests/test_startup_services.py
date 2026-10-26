@@ -17,12 +17,10 @@ def make_project(root: Path) -> Path:
 
 
 class FreeMindAILaunchCommandTests(unittest.TestCase):
-    def test_launch_command_keeps_spaced_path_as_a_separate_argument(self):
-        project = Path(r"C:\Users\Test User\OneDrive\Desktop\FreeMindAI-main (3)\FreeMindAI-main")
-        command = freemind_ai_launch_command(project)
-        self.assertEqual(command[:4], ["cmd.exe", "/d", "/k", "call"])
-        self.assertEqual(command[4], str(project / "run.bat"))
-        self.assertNotIn('"', command[4])
+    def test_launch_command_uses_relative_batch_name_to_avoid_cmd_quote_escaping(self):
+        command = freemind_ai_launch_command()
+        self.assertEqual(command, ["cmd.exe", "/d", "/k", "run.bat"])
+        self.assertTrue(all("\\\"" not in item for item in command))
 
 
 class FindFreeMindAIProjectTests(unittest.TestCase):
