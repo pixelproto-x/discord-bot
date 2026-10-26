@@ -130,7 +130,8 @@ from cogs import (
     browser_mic,
     marriage,
     economy,
-)
+    economy_world,
+
 
 
 OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
@@ -279,6 +280,7 @@ class Bot(commands.Bot):
             browser_mic,
             marriage,
             economy,
+            economy_world,
         ]
         failed_modules = []
         for module in modules:
