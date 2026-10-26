@@ -619,7 +619,11 @@ class MusicCog(commands.Cog):
                 # A player can outlive a cog/session rebuild. Adopt its active
                 # track so new requests append to the queue instead of becoming
                 # stranded behind a player that is already playing.
-                session = MusicSession(player=player, current=getattr(player, "current", None))
+                player_active = bool(
+                    getattr(player, "playing", False) or getattr(player, "paused", False)
+                )
+                active_track = getattr(player, "current", None) if player_active else None
+                session = MusicSession(player=player, current=active_track)
                 self.sessions[guild.id] = session
             elif session.player is not player:
                 # A voice disconnect can leave a session holding its old player.
@@ -638,7 +642,9 @@ class MusicCog(commands.Cog):
                     if not already_queued:
                         session.queue.insert(0, interrupted_track)
                     session.current = None
-            if session.current is None and getattr(player, "playing", False):
+            if session.current is None and (
+                getattr(player, "playing", False) or getattr(player, "paused", False)
+            ):
                 active_track = getattr(player, "current", None)
                 if active_track is not None:
                     session.current = active_track
