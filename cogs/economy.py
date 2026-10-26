@@ -298,7 +298,7 @@ class EconomyStore:
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
-            wallet = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()["wallet"]
+            wallet = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()["wallet"]
             if not is_infinite(wallet) and int(wallet) < total:
                 con.rollback()
                 return False, f"金幣不足，需要 {total:,}，目前現金 {format_coins(wallet)}。"
