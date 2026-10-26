@@ -502,7 +502,7 @@ class SearchCog(commands.Cog):
                             "thinking_config": {"thinking_level": "low"},
                         },
                     ),
-                    timeout=15,
+                    timeout=8,
                 )
             except Exception as exc:
                 failure_reason = "gemini_error"
