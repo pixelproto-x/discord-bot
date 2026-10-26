@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 from typing import Any
 
 import aiohttp
@@ -192,12 +191,9 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
                             max_tokens: int = 320, temperature: float = 0.75,
                             top_p: float | None = None) -> str:
     """Try configured cloud providers in a predictable order, then local Ollama."""
-    # Gemini is included here for cases where the primary SDK path is unavailable.
-    providers = []
-    gemini_key = _env("GEMINI_API_KEY") or _env("GOOGLE_API_KEY")
-    if gemini_key:
-        providers.append(("Google AI Studio (Gemini)", _request_gemini))
-    providers.extend((spec["name"], spec) for spec in _provider_specs())
+    # Gemini is the primary SDK provider in cogs/media.py; avoid retrying it here
+    # after its primary attempt has already failed or hit a quota limit.
+    providers = list((spec["name"], spec) for spec in _provider_specs())
     ollama_enabled = _env("OLLAMA_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
     if ollama_enabled:
         providers.append(("Ollama", None))
