@@ -897,6 +897,76 @@ class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [second])
 
 
+class MusicQueueControlButtonTests(unittest.IsolatedAsyncioTestCase):
+    def make_interaction(self, user_id=77):
+        from types import SimpleNamespace
+
+        response = SimpleNamespace(
+            defer=AsyncMock(),
+            send_message=AsyncMock(),
+            is_done=lambda: True,
+        )
+        return SimpleNamespace(
+            user=SimpleNamespace(id=user_id),
+            response=response,
+            edit_original_response=AsyncMock(),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+
+    async def test_pause_button_toggles_active_player(self):
+        from types import SimpleNamespace
+
+        player = SimpleNamespace(paused=False, pause=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace())
+        cog.sessions[76501] = music.MusicSession(
+            player=player, current=SimpleNamespace(title="Current")
+        )
+        view = music.MusicQueueView(cog, 76501, requester_id=77)
+        button = next(item for item in view.children if getattr(item, "label", "") == "暫停／繼續")
+        interaction = self.make_interaction()
+
+        await button.callback(interaction)
+
+        player.pause.assert_awaited_once_with(True)
+        interaction.edit_original_response.assert_awaited_once()
+
+    async def test_rewind_button_clamps_position_to_zero(self):
+        from types import SimpleNamespace
+
+        player = SimpleNamespace(position=2000, seek=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace())
+        cog.sessions[76502] = music.MusicSession(
+            player=player, current=SimpleNamespace(title="Current")
+        )
+        view = music.MusicQueueView(cog, 76502, requester_id=77)
+        button = next(item for item in view.children if getattr(item, "label", "") == "倒退 5 秒")
+        interaction = self.make_interaction()
+
+        await button.callback(interaction)
+
+        player.seek.assert_awaited_once_with(0)
+        interaction.edit_original_response.assert_awaited_once()
+
+    async def test_next_button_marks_skip_and_stops_current_player(self):
+        from types import SimpleNamespace
+
+        player = SimpleNamespace(stop=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(
+            player=player, current=SimpleNamespace(title="Current")
+        )
+        cog.sessions[76503] = session
+        view = music.MusicQueueView(cog, 76503, requester_id=77)
+        button = next(item for item in view.children if getattr(item, "label", "") == "下一首")
+        interaction = self.make_interaction()
+
+        await button.callback(interaction)
+
+        player.stop.assert_awaited_once()
+        self.assertTrue(session.skip_requested)
+        interaction.edit_original_response.assert_awaited_once()
+
+
 class MusicQueueStartRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_queue_starts_when_player_flag_is_stale_but_no_track_is_known(self):
         from types import SimpleNamespace
