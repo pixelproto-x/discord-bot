@@ -188,7 +188,7 @@ class SearchCog(commands.Cog):
             )
 
     def _has_ai_provider_configured(self) -> bool:
-        """Return whether any configured cloud provider or local Ollama can be tried."""
+        """Return whether at least one cloud AI provider has credentials configured."""
         key_names = (
             "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
             "GITHUB_MODELS_TOKEN", "SILICONFLOW_API_KEY", "ZHIPU_API_KEY",
@@ -199,7 +199,7 @@ class SearchCog(commands.Cog):
             return True
         if os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() and os.getenv("CLOUDFLARE_API_TOKEN", "").strip():
             return True
-        return os.getenv("OLLAMA_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+        return False
 
     async def _check_cooldown(self, interaction, bucket, seconds):
         key = (interaction.guild.id if interaction.guild else 0, interaction.user.id)
@@ -402,7 +402,7 @@ class SearchCog(commands.Cog):
         temperature: float = 0.7,
         top_p: float | None = None,
     ) -> str:
-        """Use configured AI providers in order, then local Ollama, preserving shared fallback behavior."""
+        """Use configured cloud AI providers in order, preserving shared fallback behavior."""
         try:
             from cogs.ai_providers import generate_fallback
             answer = await generate_fallback(
