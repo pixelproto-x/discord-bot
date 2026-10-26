@@ -1185,7 +1185,7 @@ class SearchCog(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException):
                         pass
 
-            if not protected_author and accidental_english:
+            if not protected_author and english_output:
                 answer = "我剛剛語言切錯了 這句不算 我用繁體中文重新接"
             if not violation_detected and recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
@@ -1798,84 +1798,3 @@ class SearchCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        if not await self._check_ai_limit(interaction):
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            response = await asyncio.wait_for(
-                self.groq_client.chat.completions.create(
-                    model=self.groq_model,
-                    messages=[{"role": "user", "content": "請只回覆 OK。"}],
-                ),
-                timeout=25,
-            )
-            answer = (response.choices[0].message.content or "").strip()
-            await interaction.followup.send(
-                f"✅ Groq API 測試成功。\n模型：`{self.groq_model}`\n測試回覆：{answer[:150] or '(空白)'}",
-                ephemeral=True,
-            )
-        except asyncio.TimeoutError as exc:
-            self._log_ai_error("Groq test", exc)
-            await interaction.followup.send(
-                self._friendly_ai_error("Groq", exc),
-                ephemeral=True,
-            )
-        except Exception as exc:
-            self._log_ai_error("Groq test", exc)
-            await interaction.followup.send(
-                self._friendly_ai_error("Groq", exc),
-                ephemeral=True,
-            )
-
-    @ai.command(name=app_commands.locale_str("test", zh_TW="測試"), description=app_commands.locale_str("實際測試 Gemini API 與模型是否可用", zh_TW="實際測試 Gemini API 與模型是否可用"))
-    async def ai_test(self, interaction: discord.Interaction):
-        if not self.gemini_client:
-            file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
-            await interaction.response.send_message(
-                "❌ Gemini Client 沒有建立。\n"
-                f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
-                f".env 能讀到 Gemini API Key：{'是' if key_in_file else '否'}\n"
-                "不會顯示金鑰內容。請設定 GEMINI_API_KEY；確認 .env 位於 bot.py 同一層，然後重新啟動 Bot。",
-                ephemeral=True,
-            )
-            return
-
-        if not await self._check_ai_limit(interaction):
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            response = await asyncio.wait_for(
-                self.gemini_client.aio.models.generate_content(
-                    model=self.gemini_model,
-                    contents="請只回覆 OK。",
-                ),
-                timeout=25,
-            )
-            answer = (getattr(response, "text", "") or "").strip()
-            if answer:
-                await interaction.followup.send(
-                    f"✅ Gemini API 測試成功。\n模型：`{self.gemini_model}`\n測試回覆：{answer[:150]}",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    f"⚠️ Gemini API 有回應，但沒有文字輸出。模型：`{self.gemini_model}`",
-                    ephemeral=True,
-                )
-        except asyncio.TimeoutError as exc:
-            self._log_ai_error("Gemini test", exc)
-            await interaction.followup.send(
-                self._friendly_ai_error("Gemini", exc),
-                ephemeral=True,
-            )
-        except Exception as exc:
-            self._log_ai_error("Gemini test", exc)
-            await interaction.followup.send(
-                self._friendly_ai_error("Gemini", exc),
-                ephemeral=True,
-            )
-
-
-async def setup(bot):
-    await bot.add_cog(SearchCog(bot))
