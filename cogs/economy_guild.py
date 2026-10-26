@@ -165,6 +165,24 @@ class GuildEconomyStore:
             con.commit()
             return True, f"{'已捐入' if deposit else '已提領'} **{_money(amount)}** 金幣。公會金庫餘額：**{_money(balance)}**。"
 
+    def _refund_completed_event(self, con, event, now):
+        if event["status"] != "completed":
+            return
+        paid_rows = con.execute(
+            "SELECT amount FROM guild_economy_event_claims WHERE event_id=?", (event["id"],)
+        ).fetchall()
+        refund = max(0, int(event["reward_pool"]) - sum(int(row["amount"]) for row in paid_rows))
+        self._ensure_treasury(con, int(event["guild_id"]))
+        balance = int(con.execute(
+            "SELECT balance FROM guild_treasuries WHERE guild_id=?", (event["guild_id"],)
+        ).fetchone()["balance"])
+        balance += refund
+        con.execute("UPDATE guild_treasuries SET balance=?,updated_at=? WHERE guild_id=?",
+                    (str(balance), now, event["guild_id"]))
+        con.execute("UPDATE guild_economy_events SET status='expired' WHERE id=?", (event["id"],))
+        self._ledger(con, event["guild_id"], event["creator_id"], "event_expired_refund", refund, balance,
+                     f"活動 #{event['id']} 到期退回未領獎勵")
+
     def create_event(self, guild_id, creator_id, title, description, goal, reward_pool, duration_hours):
         now = _now()
         if not 2 <= len(title.strip()) <= 80:
@@ -190,12 +208,21 @@ class GuildEconomyStore:
                 con.rollback()
                 return False, f"目前已有進行中的公會活動（#{active['id']}），請先結束或等待活動到期。"
             pending = con.execute(
-                "SELECT e.id, (SELECT COUNT(*) FROM guild_economy_event_members m WHERE m.event_id=e.id AND m.contribution>0) AS participants, "
-                "(SELECT COUNT(*) FROM guild_economy_event_claims c WHERE c.event_id=e.id) AS claims "
-                "FROM guild_economy_events e WHERE e.guild_id=? AND e.status='completed' ORDER BY e.id DESC LIMIT 1",
+                "SELECT * FROM guild_economy_events WHERE guild_id=? AND status='completed' ORDER BY id DESC LIMIT 1",
                 (guild_id,),
             ).fetchone()
-            if pending and int(pending["claims"]) < int(pending["participants"]):
+            if pending and now >= int(pending["ends_at"]):
+                self._refund_completed_event(con, pending, now)
+                pending = None
+            if pending:
+                pending_counts = con.execute(
+                    "SELECT (SELECT COUNT(*) FROM guild_economy_event_members m WHERE m.event_id=? AND m.contribution>0) AS participants, "
+                    "(SELECT COUNT(*) FROM guild_economy_event_claims c WHERE c.event_id=?) AS claims",
+                    (pending["id"], pending["id"]),
+                ).fetchone()
+            else:
+                pending_counts = None
+            if pending_counts and int(pending_counts["claims"]) < int(pending_counts["participants"]):
                 con.rollback()
                 return False, f"上一場活動（#{pending['id']}）仍有成員未領獎，請先完成獎勵結算。"
             balance = int(con.execute(
@@ -290,6 +317,10 @@ class GuildEconomyStore:
                 self._refund_expired_event(con, event, now)
                 event = dict(event)
                 event["status"] = "expired"
+            elif event and event["status"] == "completed" and now >= event["ends_at"]:
+                self._refund_completed_event(con, event, now)
+                event = dict(event)
+                event["status"] = "expired"
             if event:
                 participants = con.execute(
                     "SELECT COUNT(*) FROM guild_economy_event_members WHERE event_id=? AND contribution>0",
@@ -314,9 +345,13 @@ class GuildEconomyStore:
             if not event:
                 con.rollback()
                 return False, "目前沒有公會活動紀錄。"
-            if event["status"] != "completed" or now >= event["ends_at"]:
+            if event["status"] == "completed" and now >= int(event["ends_at"]):
+                self._refund_completed_event(con, event, now)
+                con.commit()
+                return False, "活動已到期，未領取的獎勵已退回公會金庫。"
+            if event["status"] != "completed":
                 con.rollback()
-                return False, "活動尚未達標、已到期或已結束，不能領取獎勵。"
+                return False, "活動尚未達標或已結束，不能領取獎勵。"
             member = con.execute(
                 "SELECT contribution FROM guild_economy_event_members WHERE event_id=? AND user_id=?",
                 (event["id"], user_id),
