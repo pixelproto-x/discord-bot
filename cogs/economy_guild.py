@@ -181,8 +181,11 @@ class GuildEconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self._ensure_treasury(con, guild_id)
             active = con.execute(
-                "SELECT id FROM guild_economy_events WHERE guild_id=? AND status='active'", (guild_id,)
+                "SELECT * FROM guild_economy_events WHERE guild_id=? AND status='active'", (guild_id,)
             ).fetchone()
+            if active and now >= int(active["ends_at"]):
+                self._refund_expired_event(con, active, now)
+                active = None
             if active:
                 con.rollback()
                 return False, f"目前已有進行中的公會活動（#{active['id']}），請先結束或等待活動到期。"
