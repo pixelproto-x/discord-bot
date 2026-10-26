@@ -834,6 +834,30 @@ class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MusicTrackEventIdentityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exception_with_mismatched_track_without_original_is_ignored(self):
+        from types import SimpleNamespace
+
+        current = SimpleNamespace(title="Current", uri="https://youtube.com/watch?v=current")
+        stale = SimpleNamespace(title="Stale", uri="https://youtube.com/watch?v=stale")
+        player = SimpleNamespace(guild=SimpleNamespace(id=654323), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(player=player, current=current)
+        cog.sessions[654323] = session
+
+        with patch.object(cog, "_handle_track_load_failure_locked", new=AsyncMock()) as recover:
+            await cog.on_wavelink_track_exception(
+                SimpleNamespace(
+                    player=player,
+                    original=None,
+                    track=stale,
+                    exception=SimpleNamespace(message="stale failure"),
+                )
+            )
+
+        recover.assert_not_awaited()
+        self.assertIs(session.current, current)
+
+
     async def test_end_event_without_current_track_does_not_consume_queue(self):
         from types import SimpleNamespace
 
