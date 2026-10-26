@@ -54,5 +54,44 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(economy.format_coins("12345678901234567890"), "12,345,678,901,234,567,890")
 
 
+    def test_deposit_rejects_more_than_wallet_balance(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        self.assertFalse(self.cog.store.move(guild_id, user_id, 1001, True))
+        row = self.cog.store.get(guild_id, user_id)
+        self.assertEqual(row["wallet"], "1000")
+        self.assertEqual(row["bank"], "0")
+
+    def test_withdraw_rejects_more_than_bank_balance(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        self.assertFalse(self.cog.store.move(guild_id, user_id, 1, False))
+        row = self.cog.store.get(guild_id, user_id)
+        self.assertEqual(row["wallet"], "1000")
+        self.assertEqual(row["bank"], "0")
+
+    def test_transfer_rejects_insufficient_funds_and_self_transfer(self):
+        guild_id, sender, receiver = 123, 456, 789
+        self.cog.store.get(guild_id, sender)
+        self.cog.store.get(guild_id, receiver)
+        self.assertFalse(self.cog.store.transfer(guild_id, sender, receiver, 1001))
+        self.assertFalse(self.cog.store.transfer(guild_id, sender, sender, 1))
+        self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "1000")
+        self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "1000")
+
+    def test_dice_rejects_bet_larger_than_wallet(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        self.assertFalse(self.cog.store.dice(guild_id, user_id, 1001, 2000))
+        self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
+
+    def test_transactions_reject_invalid_amounts(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        self.assertFalse(self.cog.store.move(guild_id, user_id, 0, True))
+        self.assertFalse(self.cog.store.transfer(guild_id, user_id, 789, -1))
+        self.assertFalse(self.cog.store.dice(guild_id, user_id, 1, -1))
+        self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
+
 if __name__ == "__main__":
     unittest.main()
