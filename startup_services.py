@@ -57,7 +57,7 @@ def freemind_ai_launcher_running() -> bool:
         return False
 
     for line in result.stdout.splitlines():
-        fields = line.split("\\t", 2)
+        fields = line.split("\t", 2)
         if len(fields) != 3 or not fields[0].strip().isdigit():
             continue
         process_name = fields[1].strip().casefold()
