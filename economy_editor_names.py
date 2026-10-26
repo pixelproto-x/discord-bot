@@ -113,6 +113,7 @@ def _add_display_names(rows: list[dict]) -> list[dict]:
             # Discord snowflake IDs must be sent to JavaScript as strings to avoid
             # IEEE-754 Number precision loss for 17–20 digit identifiers.
             "user_id": str(row["user_id"]),
+            "guild_id": str(row.get("guild_id") or 0),
             "display_name": names.get(
                 (int(row.get("guild_id") or 0), int(row["user_id"])),
                 "無法取得名稱",
@@ -152,11 +153,12 @@ async function load(){
  if(!res.ok){root.textContent=data.error||"讀取失敗";return}
  if(!data.users.length){root.innerHTML='<div class="empty">目前沒有玩家資料。先在 Discord 使用一次經濟指令，建立資料後再重新整理。</div>';return}
  const table=document.createElement("table"),thead=document.createElement("thead"),headrow=document.createElement("tr");
- [...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
+ ["伺服器 ID",...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
  thead.appendChild(headrow);table.appendChild(thead);const tbody=document.createElement("tbody");
  for(const user of data.users){
   const tr=document.createElement("tr"),form=document.createElement("form");
-  const formId="economy-save-"+String(user.user_id);form.id=formId;
+  const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id);form.id=formId;
+  const guildCell=document.createElement("td");guildCell.dataset.label="伺服器 ID";guildCell.textContent=String(user.guild_id??"0");tr.appendChild(guildCell);
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
    input.name=key;input.value=user[key]??"";input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
@@ -167,7 +169,7 @@ async function load(){
   const action=document.createElement("td");action.dataset.label="操作";const button=document.createElement("button");
   button.className="save";button.textContent="儲存";button.type="submit";form.appendChild(button);action.appendChild(form);tr.appendChild(action);
   form.addEventListener("submit",async e=>{
-   e.preventDefault();button.disabled=true;button.textContent="儲存中…";const payload={user_id:user.user_id};
+   e.preventDefault();button.disabled=true;button.textContent="儲存中…";const payload={guild_id:user.guild_id,user_id:user.user_id};
    for(const [key] of fields)if(key!=="display_name")payload[key]=form.elements[key].value;
    try{
     const response=await fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
@@ -245,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with connect() as con:
                     rows = con.execute(
-                        "SELECT user_id,guild_id,wallet,bank,last_daily,last_work,last_fish,last_rob FROM users ORDER BY user_id"
+                        "SELECT user_id,guild_id,wallet,bank,last_daily,last_work,last_fish,last_rob FROM users ORDER BY guild_id,user_id"
                     ).fetchall()
                 self.send_json(200, {"users": _add_display_names([dict(row) for row in rows])})
             except Exception as exc:
@@ -264,9 +266,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "請求資料大小不正確。"})
                 return
             data = json.loads(self.rfile.read(length).decode("utf-8"))
+            guild_id = int(data["guild_id"])
             user_id = int(data["user_id"])
             wallet, bank = _parse_balance(data["wallet"]), _parse_balance(data["bank"])
-            if user_id <= 0 or wallet is None or bank is None:
+            if guild_id < 0 or user_id <= 0 or wallet is None or bank is None:
                 self.send_json(400, {"error": "ID 或金額不合法；金額可為整數、負數或 inf（無限），最多 2000 位數。"})
                 return
             times = {}
@@ -278,12 +281,12 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("時間欄位太長。")
                 times[key] = value or None
             with connect() as con:
-                if not con.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone():
+                if not con.execute("SELECT user_id FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone():
                     self.send_json(404, {"error": "找不到這位玩家，請重新整理頁面。"})
                     return
                 con.execute(
-                    "UPDATE users SET wallet=?,bank=?,last_daily=?,last_work=?,last_fish=?,last_rob=? WHERE user_id=?",
-                    (wallet, bank, times["last_daily"], times["last_work"], times["last_fish"], times["last_rob"], user_id),
+                    "UPDATE users SET wallet=?,bank=?,last_daily=?,last_work=?,last_fish=?,last_rob=? WHERE guild_id=? AND user_id=?",
+                    (wallet, bank, times["last_daily"], times["last_work"], times["last_fish"], times["last_rob"], guild_id, user_id),
                 )
                 con.commit()
             self.send_json(200, {"ok": True})
