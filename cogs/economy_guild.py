@@ -427,6 +427,7 @@ class GuildEconomyStore:
 
 
 class GuildEconomyCog(commands.Cog):
+    guild_group = app_commands.Group(name=app_commands.locale_str("guild-economy", zh_TW="公會經濟"), description="公會金庫與共同活動")
     def __init__(self, bot):
         self.bot = bot
         self.store = GuildEconomyStore()
@@ -441,7 +442,7 @@ class GuildEconomyCog(commands.Cog):
         view = None if public else PublicizeView(interaction.user.id, message, embed)
         await interaction.response.send_message(content=message, embed=embed, ephemeral=not public, view=view)
 
-    @app_commands.command(name=app_commands.locale_str("guild-bank", zh_TW="公會銀行"), description="查看金庫、捐款或由管理員提領共同資金")
+    @guild_group.command(name=app_commands.locale_str("guild-bank", zh_TW="公會銀行"), description="查看金庫、捐款或由管理員提領共同資金")
     @app_commands.choices(action=[
         app_commands.Choice(name="查看金庫", value="view"),
         app_commands.Choice(name="捐款", value="deposit"),
@@ -467,7 +468,7 @@ class GuildEconomyCog(commands.Cog):
         ok, message = self.store.transfer(interaction.guild_id, interaction.user.id, amount, action.value == "deposit")
         await self._reply(interaction, message, public=public if ok else False)
 
-    @app_commands.command(name=app_commands.locale_str("guild-event", zh_TW="公會活動"), description="建立共同任務、投入金幣、查看進度及領取獎勵")
+    @guild_group.command(name=app_commands.locale_str("guild-event", zh_TW="公會活動"), description="建立共同任務、投入金幣、查看進度及領取獎勵")
     @app_commands.choices(action=[
         app_commands.Choice(name="查看活動", value="view"),
         app_commands.Choice(name="建立活動（管理員）", value="create"),
