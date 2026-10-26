@@ -131,7 +131,7 @@ from cogs import (
     marriage,
     economy,
     economy_world,
-
+)
 
 
 OWNER_ID = int(os.getenv("OWNER_ID", "1140900506198351924"))
