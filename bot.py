@@ -1037,12 +1037,25 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
     print("Slash command error:", repr(error))
     msg = "剛剛那一下沒成功，你再試一次看看。"
     try:
-        if interaction.response.is_done():
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
+        response_type = interaction.response.type
+
+        # If the command already sent a normal response, do not append a
+        # contradictory failure message after a successful result.
+        if response_type is discord.InteractionResponseType.channel_message:
+            return
+
+        # If the command deferred first, update that original response rather
+        # than creating a second ephemeral message.
+        if response_type is discord.InteractionResponseType.deferred_channel_message:
+            await interaction.edit_original_response(content=msg, embed=None, embeds=[], view=None)
+            return
+
+        if not interaction.response.is_done():
             await interaction.response.send_message(msg, ephemeral=True)
-    except Exception:
+    except (discord.HTTPException, discord.NotFound, discord.InteractionResponded):
         pass
+    except Exception:
+        traceback.print_exc()
 
 
 @tasks.loop(seconds=15)
