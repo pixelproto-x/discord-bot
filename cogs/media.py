@@ -157,7 +157,7 @@ class SearchCog(commands.Cog):
         self.chat_history = {}
         self.chat_cooldown_seconds = 4
         self.chat_history_limit = 20
-        self.gemini_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip())
+        self.gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_cooldown_until = 0.0
         self.gemini_client = genai.Client(api_key=self.gemini_key) if self.gemini_key else None
@@ -180,17 +180,17 @@ class SearchCog(commands.Cog):
             print(f"[Gemini] GEMINI_API_KEY loaded; model={self.gemini_model}")
         else:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or file_values.get("GOOGLE_API_KEY") or "").strip())
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
             print(
-                "[Gemini] Gemini API key is missing (GEMINI_API_KEY / GOOGLE_API_KEY). "
+                "[Gemini] Gemini API key is missing (GEMINI_API_KEY). "
                 f".env exists={ENV_FILE.is_file()}, key parsed from .env={key_in_file}. "
-                "Check GEMINI_API_KEY or GOOGLE_API_KEY in the project-root .env."
+                "Check GEMINI_API_KEY in the project-root .env."
             )
 
     def _has_ai_provider_configured(self) -> bool:
         """Return whether at least one cloud AI provider has credentials configured."""
         key_names = (
-            "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
+            "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
             "GITHUB_MODELS_TOKEN", "SILICONFLOW_API_KEY", "ZHIPU_API_KEY",
             "SAMBANOVA_API_KEY", "CEREBRAS_API_KEY", "COHERE_API_KEY",
             "MISTRAL_API_KEY", "HUGGINGFACE_API_KEY", "NVIDIA_NIM_API_KEY",
@@ -1743,12 +1743,12 @@ class SearchCog(commands.Cog):
     async def ai_test(self, interaction: discord.Interaction):
         if not self.gemini_client:
             file_values = dotenv_values(ENV_FILE) if ENV_FILE.is_file() else {}
-            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or file_values.get("GOOGLE_API_KEY") or "").strip())
+            key_in_file = bool(str(file_values.get("GEMINI_API_KEY") or "").strip())
             await interaction.response.send_message(
                 "❌ Gemini Client 沒有建立。\n"
                 f".env 檔案存在：{'是' if ENV_FILE.is_file() else '否'}\n"
                 f".env 能讀到 Gemini API Key：{'是' if key_in_file else '否'}\n"
-                "不會顯示金鑰內容。可設定 GEMINI_API_KEY 或 GOOGLE_API_KEY；確認 .env 位於 bot.py 同一層，然後重新啟動 Bot。",
+                "不會顯示金鑰內容。請設定 GEMINI_API_KEY；確認 .env 位於 bot.py 同一層，然後重新啟動 Bot。",
                 ephemeral=True,
             )
             return
