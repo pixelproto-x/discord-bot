@@ -938,6 +938,10 @@ class MusicCog(commands.Cog):
             if not session or session.player is not player or session.handoff:
                 return
 
+            # Ignore stray end events when no track is active.
+            if session.current is None:
+                return
+
             # The original Playable identifies this exact queue occurrence. Matching
             # only by URI can let a delayed event end a later repeat of the same song.
             original_track = getattr(payload, "original", None)
