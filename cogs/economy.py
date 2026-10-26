@@ -61,10 +61,16 @@ def is_infinite(value):
 
 
 def format_coins(value):
-    """Format finite and unlimited database balances for display."""
+    """Format finite and unlimited database balances without oversized Discord output."""
     if is_infinite(value):
         return "∞（無限）"
-    return f"{int(value):,}"
+    amount = int(value)
+    digits = len(str(abs(amount)))
+    # Thousands separators can expand a 2000-digit balance beyond Discord's
+    # 2000-character message limit. Keep unusually large values readable.
+    if digits > 1200:
+        return f"超大金額（{digits} 位數）"
+    return f"{amount:,}"
 
 
 def add_balance(value, amount):
@@ -479,12 +485,12 @@ class EconomyCog(commands.Cog):
         elif outcome == "empty":
             message = f"{member.mention} 的錢包沒有可搶的現金，這次沒搶到錢。"
         elif outcome == "success" and value > 0:
-            message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{value:,}** 金幣。"
+            message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{format_coins(value)}** 金幣。"
         elif outcome == "success":
             # Fail closed: never tell users a zero-value robbery succeeded.
             message = "搶劫沒有完成，沒有轉移金幣。請稍後再試。"
         else:
-            message = f"搶劫失敗！你被罰款 **{value:,}** 金幣（以錢包現金為限）。"
+            message = f"搶劫失敗！你被罰款 **{format_coins(value)}** 金幣（以錢包現金為限）。"
         await self._reply(target, message, public=public)
 
     @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
