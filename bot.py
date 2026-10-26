@@ -501,7 +501,7 @@ async def relay_slash(interaction: discord.Interaction, action: app_commands.Cho
         try:
             webhook = await _get_relay_webhook(interaction.channel)
             if webhook is None:
-                await interaction.edit_original_response(content="無法建立轉發 Webhook，請確認頻道類型及 Bot 權限。", ephemeral=True)
+                await interaction.edit_original_response(content="無法建立轉發 Webhook，請確認頻道類型及 Bot 權限。")
                 return
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as exc:
             print(f"[Relay control] webhook setup failed in channel {interaction.channel.id}: {type(exc).__name__}: {exc}")
@@ -519,7 +519,7 @@ async def relay_slash(interaction: discord.Interaction, action: app_commands.Cho
             _schedule_relay_warm(interaction.guild, exclude_channel_id=interaction.channel.id)
     except Exception as exc:
         print(f"[Relay control] setting save failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}")
-        await interaction.edit_original_response(content="設定儲存失敗，請查看 Bot 控制台錯誤紀錄。", ephemeral=True)
+        await interaction.edit_original_response(content="設定儲存失敗，請查看 Bot 控制台錯誤紀錄。")
         return
 
     await interaction.edit_original_response(content=
