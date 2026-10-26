@@ -118,12 +118,12 @@ class GuildEconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self._ensure_treasury(con, guild_id)
             user = con.execute(
-                "SELECT wallet FROM users WHERE user_id=?", (user_id,)
+                "SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)
             ).fetchone()
             if user is None:
                 con.execute(
-                    "INSERT INTO users(user_id,guild_id,wallet,bank) VALUES(?,?, '1000','0')",
-                    (user_id, guild_id),
+                    "INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')",
+                    (guild_id, user_id),
                 )
                 wallet = "1000"
             else:
@@ -137,7 +137,7 @@ class GuildEconomyStore:
                     con.rollback()
                     return False, f"現金不足，你目前有 {_money(wallet)} 金幣。"
                 if wallet.strip().lower() != "inf":
-                    con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet)-amount), user_id))
+                    con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(int(wallet)-amount), guild_id, user_id))
                 balance += amount
                 action, detail = "deposit", "成員捐款"
             else:
@@ -154,7 +154,7 @@ class GuildEconomyStore:
                     con.rollback()
                     return False, "提領後會超出錢包上限，交易已取消。"
                 if wallet.strip().lower() != "inf":
-                    con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(current_wallet+amount), user_id))
+                    con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(current_wallet+amount), guild_id, user_id))
                 balance -= amount
                 action, detail = "withdraw", "公會金庫提領"
             con.execute(
@@ -266,7 +266,7 @@ class GuildEconomyStore:
             self._ensure_treasury(con, guild_id)
             user = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
             if not user:
-                con.execute("INSERT INTO users(user_id,guild_id,wallet,bank) VALUES(?,?, '1000','0')", (user_id,guild_id))
+                con.execute("INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')", (guild_id,user_id))
                 wallet = "1000"
             else:
                 wallet = str(user["wallet"])
@@ -274,7 +274,7 @@ class GuildEconomyStore:
                 con.rollback()
                 return False, f"現金不足，你目前有 {_money(wallet)} 金幣。"
             if wallet.strip().lower() != "inf":
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet)-amount), user_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(int(wallet)-amount), guild_id, user_id))
             treasury = int(con.execute("SELECT balance FROM guild_treasuries WHERE guild_id=?", (guild_id,)).fetchone()["balance"])
             treasury += amount
             con.execute("UPDATE guild_treasuries SET balance=?,updated_at=? WHERE guild_id=?", (str(treasury), now, guild_id))
@@ -391,7 +391,7 @@ class GuildEconomyStore:
                 if new_wallet > int("9" * 2000):
                     con.rollback()
                     return False, "獎勵入帳會超出錢包上限，請聯絡管理員處理。"
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(new_wallet), user_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(new_wallet), guild_id, user_id))
             con.commit()
             return True, f"已領取公會活動獎勵 **{_money(payout)}** 金幣。"
 
