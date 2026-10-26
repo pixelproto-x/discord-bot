@@ -187,6 +187,20 @@ class SearchCog(commands.Cog):
                 "Check GEMINI_API_KEY or GOOGLE_API_KEY in the project-root .env."
             )
 
+    def _has_ai_provider_configured(self) -> bool:
+        """Return whether any configured cloud provider or local Ollama can be tried."""
+        key_names = (
+            "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
+            "GITHUB_MODELS_TOKEN", "SILICONFLOW_API_KEY", "ZHIPU_API_KEY",
+            "SAMBANOVA_API_KEY", "CEREBRAS_API_KEY", "COHERE_API_KEY",
+            "MISTRAL_API_KEY", "HUGGINGFACE_API_KEY", "NVIDIA_NIM_API_KEY",
+        )
+        if any(os.getenv(name, "").strip() for name in key_names):
+            return True
+        if os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip() and os.getenv("CLOUDFLARE_API_TOKEN", "").strip():
+            return True
+        return os.getenv("OLLAMA_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+
     async def _check_cooldown(self, interaction, bucket, seconds):
         key = (interaction.guild.id if interaction.guild else 0, interaction.user.id)
         now = time.monotonic()
@@ -1417,9 +1431,9 @@ class SearchCog(commands.Cog):
     async def ask(self, interaction, prompt: str):
         prompt = prompt.strip()
 
-        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
+        if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
                 ephemeral=True,
             )
             return
@@ -1485,8 +1499,8 @@ class SearchCog(commands.Cog):
         if len(prompt) > 2000:
             await interaction.response.send_message("內容太長了，請控制在 2000 字內。", ephemeral=True)
             return
-        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
-            await interaction.response.send_message("目前沒有可用的 AI 服務，請先檢查 FreeMind AI、Gemini 或 Groq 設定。", ephemeral=True)
+        if not self._has_ai_provider_configured():
+            await interaction.response.send_message("目前沒有可用的 AI 服務，請檢查供應商 API Key、模型名稱或本機 Ollama。", ephemeral=True)
             return
         if not await self._check_ai_limit(interaction):
             return
@@ -1524,7 +1538,7 @@ class SearchCog(commands.Cog):
         text = text.strip()
         target = target.strip() or "繁體中文"
 
-        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
+        if not self._has_ai_provider_configured():
             await interaction.response.send_message(
                 "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
                 ephemeral=True,
@@ -1567,7 +1581,7 @@ class SearchCog(commands.Cog):
     async def summarize(self, interaction, text: str):
         text = text.strip()
 
-        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
+        if not self._has_ai_provider_configured():
             await interaction.response.send_message(
                 "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
                 ephemeral=True,
@@ -1607,13 +1621,13 @@ class SearchCog(commands.Cog):
 
 
 
-    @ai.command(name=app_commands.locale_str("ask", zh_TW="詢問"), description=app_commands.locale_str("使用 FreeMind AI 優先回答問題、協助解題與除錯", zh_TW="使用 FreeMind AI 優先回答問題、協助解題與除錯"))
+    @ai.command(name=app_commands.locale_str("ask", zh_TW="詢問"), description=app_commands.locale_str("使用目前可用的 AI 供應商回答問題、協助解題與除錯", zh_TW="使用目前可用的 AI 供應商回答問題、協助解題與除錯"))
     @app_commands.describe(question="想詢問或需要協助解決的問題")
     async def ai_ask(self, interaction: discord.Interaction, question: str):
         question = question.strip()
-        if not self.freemind_base_url and not self.gemini_client and not self.groq_client:
+        if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 FREEMIND_AI_BASE_URL / GEMINI_API_KEY / GROQ_API_KEY。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
                 ephemeral=True,
             )
             return
