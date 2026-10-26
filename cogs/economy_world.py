@@ -157,7 +157,7 @@ class WorldEconomy:
                 if market["stock"] < amount:
                     con.rollback()
                     return False, f"庫存不足，目前只剩 {market['stock']:,} 件。"
-                total = price * amount
+                total = math.ceil(price * amount * 1.05)
                 if not _is_inf(wallet) and int(wallet) < total:
                     con.rollback()
                     return False, f"資金不足，需要 {total:,}，目前現金 {_money(wallet)}。"
@@ -184,7 +184,7 @@ class WorldEconomy:
                     con.rollback()
                     have = int(owned["quantity"]) if owned else 0
                     return False, f"持有數量不足，你只有 {have:,} 件；不能賣出未持有的商品。"
-                proceeds = max(0, price * amount)
+                proceeds = max(0, int(price * amount * 0.95))
                 if not _is_inf(wallet) and int(wallet) + proceeds > MAX_BALANCE:
                     con.rollback()
                     return False, "出售後現金會超出系統上限，交易取消。"
@@ -392,7 +392,7 @@ class WorldEconomyCog(commands.Cog):
         app_commands.Choice(name="醫療用品", value="medicine"),
     ])
     @app_commands.rename(action=app_commands.locale_str("動作", zh_TW="動作"), item=app_commands.locale_str("商品", zh_TW="商品"), amount=app_commands.locale_str("數量", zh_TW="數量"))
-    async def market(self, interaction: discord.Interaction, action: app_commands.Choice[str], item: app_commands.Choice[str] | None = None, amount: app_commands.Range[int, 1, 100000] = 1):
+    async def market(self, interaction: discord.Interaction, action: app_commands.Choice[str], item: app_commands.Choice[str], amount: app_commands.Range[int, 1, 100000] = 1):
         if not await self._guild(interaction):
             return
         if action.value != "info" and item is None:
@@ -403,14 +403,11 @@ class WorldEconomyCog(commands.Cog):
                 con.execute("BEGIN IMMEDIATE")
                 rows = self.store.market_rows(con, interaction.guild_id)
                 con.commit()
-            selected = [item.value] if item else list(GOODS)
-            embed = discord.Embed(title="伺服器商品市場", description="價格會隨庫存與需求變動；這是伺服器內部模擬市場。", color=0x3498DB)
-            for key in selected:
-                if key in rows:
-                    data = rows[key]
-                    label, base, desc = GOODS[key]
-                    trend = "高於基準" if data["price"] > base else "低於基準" if data["price"] < base else "接近基準"
-                    embed.add_field(name=label, value=f"現價：**{data['price']:,}**\n庫存：{data['stock']:,}\n需求指數：{data['demand']:.2f}\n{trend} · {desc}", inline=True)
+            key = item.value
+            data = rows[key]
+            label, base, desc = GOODS[key]
+            trend = "高於基準" if data["price"] > base else "低於基準" if data["price"] < base else "接近基準"
+            embed = discord.Embed(title=f"商品市場｜{label}", description=f"現價：**{data['price']:,}**\n庫存：{data['stock']:,}\n需求指數：{data['demand']:.2f}\n{trend} · {desc}\n買入價差約 5%，賣出折價約 5%。", color=0x3498DB)
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await self._run(interaction, self.store.trade(interaction.guild_id, interaction.user.id, item.value, action.value, amount))
@@ -459,6 +456,21 @@ class WorldEconomyCog(commands.Cog):
         embed.add_field(name="未償貸款", value=f"{loans[0]:,} 筆 / {loans[1]:,} 金幣", inline=False)
         embed.set_footer(text="價格指數只反映本伺服器的模擬商品市場，並非真實金融數據")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name=app_commands.locale_str("inventory", zh_TW="資產清單"), description="查看自己持有的市場商品")
+    async def inventory(self, interaction: discord.Interaction):
+        if not await self._guild(interaction):
+            return
+        with closing(self.store.connect()) as con:
+            rows = con.execute(
+                "SELECT item,quantity FROM world_inventory WHERE guild_id=? AND user_id=? AND quantity>0 ORDER BY item",
+                (interaction.guild_id, interaction.user.id),
+            ).fetchall()
+        if not rows:
+            await interaction.response.send_message("你的商品庫存是空的。", ephemeral=True)
+            return
+        lines = [f"**{GOODS[row['item']][0]}**：{int(row['quantity']):,} 件" for row in rows if row["item"] in GOODS]
+        await interaction.response.send_message(embed=discord.Embed(title="我的商品庫存", description="\\n".join(lines), color=0x1ABC9C), ephemeral=True)
 
     @app_commands.command(name=app_commands.locale_str("transactions", zh_TW="交易紀錄"), description="查看自己的近期市場、企業與貸款紀錄")
     @app_commands.rename(limit=app_commands.locale_str("筆數", zh_TW="筆數"))
