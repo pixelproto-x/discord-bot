@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from startup_services import find_freemind_ai_project
+from startup_services import find_freemind_ai_project, freemind_ai_launch_command
 
 
 def make_project(root: Path) -> Path:
@@ -14,6 +14,15 @@ def make_project(root: Path) -> Path:
     app.mkdir(exist_ok=True)
     (app / "main.py").write_text("app = None\n", encoding="utf-8")
     return root.resolve()
+
+
+class FreeMindAILaunchCommandTests(unittest.TestCase):
+    def test_launch_command_keeps_spaced_path_as_a_separate_argument(self):
+        project = Path(r"C:\Users\Test User\OneDrive\Desktop\FreeMindAI-main (3)\FreeMindAI-main")
+        command = freemind_ai_launch_command(project)
+        self.assertEqual(command[:4], ["cmd.exe", "/d", "/k", "call"])
+        self.assertEqual(command[4], str(project / "run.bat"))
+        self.assertNotIn('"', command[4])
 
 
 class FindFreeMindAIProjectTests(unittest.TestCase):
