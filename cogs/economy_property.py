@@ -136,7 +136,7 @@ class PropertyStore:
                 con.rollback()
                 return False, f"升級需要 {cost:,} 現金，目前有 {_money(wallet)}。"
             if not _is_inf(wallet):
-                self.world.set_wallet(con, user_id, str(int(wallet) - cost))
+                self.world.set_wallet(con, guild_id, user_id, str(int(wallet) - cost))
             con.execute("UPDATE world_properties SET level=level+1 WHERE guild_id=? AND owner_id=? AND id=?", (guild_id, user_id, property_id))
             self.world.ledger(con, guild_id, user_id, "property_upgrade", -cost, f"房產 #{property_id} 升級至 {level+1} 級")
             con.commit()
