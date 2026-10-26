@@ -139,7 +139,7 @@ class StockStore:
                 new_shares = held + shares
                 new_average = ((held * avg_cost) + cost) // new_shares
                 if not _is_inf(wallet):
-                    world.set_wallet(con, user_id, str(int(wallet) - cost))
+                    world.set_wallet(con, guild_id, user_id, str(int(wallet) - cost))
                 con.execute(
                     "INSERT INTO stock_holdings(guild_id,user_id,symbol,shares,average_cost) VALUES(?,?,?,?,?) "
                     "ON CONFLICT(guild_id,user_id,symbol) DO UPDATE SET shares=excluded.shares,average_cost=excluded.average_cost",
@@ -154,7 +154,7 @@ class StockStore:
                     con.rollback()
                     return False, "賣出後現金會超出系統上限，交易取消。"
                 if not _is_inf(wallet):
-                    world.set_wallet(con, user_id, str(int(wallet) + total))
+                    world.set_wallet(con, guild_id, user_id, str(int(wallet) + total))
                 remaining = held - shares
                 if remaining:
                     con.execute(
