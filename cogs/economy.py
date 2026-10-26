@@ -239,7 +239,13 @@ class EconomyStore:
                     fine = 0
                 else:
                     current = int(robber["wallet"])
-                    fine = max(1, int(Decimal(abs(current)) * Decimal(str(fine_fraction))))
+                    # A failed robbery must never calculate a fine from a negative
+                    # balance's absolute value; the fine is limited to available cash.
+                    available_cash = max(0, current)
+                    fine = min(
+                        available_cash,
+                        max(1, int(Decimal(available_cash) * Decimal(str(fine_fraction))))
+                    ) if available_cash > 0 else 0
                 con.execute("UPDATE users SET wallet=? WHERE user_id=?",
                             (subtract_balance(robber["wallet"], fine), robber_id))
                 result = ("failed", fine)
