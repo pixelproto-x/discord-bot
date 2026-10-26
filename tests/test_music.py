@@ -287,6 +287,27 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(session.current)
         self.assertFalse(player.playing)
 
+    async def test_paused_player_restores_current_track_without_session(self):
+        from types import SimpleNamespace
+
+        current = SimpleNamespace(title="Paused track")
+        channel = SimpleNamespace()
+        player = SimpleNamespace(
+            channel=channel,
+            current=current,
+            playing=False,
+            paused=True,
+            set_volume=AsyncMock(),
+        )
+        guild = SimpleNamespace(id=325, voice_client=player)
+        cog = music.MusicCog(SimpleNamespace())
+
+        with patch.object(music.wavelink, "Player", type(player)):
+            session = await cog.ensure_player(guild, channel, text_channel_id=658)
+
+        self.assertIs(session.current, current)
+        self.assertTrue(player.paused)
+
     async def test_existing_playing_player_restores_current_track_without_session(self):
         from types import SimpleNamespace
 
