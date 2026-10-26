@@ -689,6 +689,9 @@ class SearchCog(commands.Cog):
             async with message.channel.typing():
                 answer = await self._generate_gemini_chat(prompt)
             answer = (answer or "").strip()
+            from cogs.ai_persona import is_english_dominant
+            if is_english_dominant(answer):
+                answer = "我剛剛語言切錯了 這句不算 我會用繁體中文回覆"
             if not answer:
                 await message.channel.send(
                     "我剛剛卡了一下，等我一下再聊。",
@@ -1097,14 +1100,19 @@ class SearchCog(commands.Cog):
                 message.author.id == 1140900506198351924
                 or message.author.id == message.guild.owner_id
             )
-            # Safety net: never publish English insults or English analysis text to protected users.
+            english_output = is_english_dominant(answer)
             violation_detected = protected_author and (
                 is_disrespectful_to_protected_target(answer)
                 or is_english_insult(answer)
             )
-            accidental_english = is_english_dominant(answer)
-            if protected_author and accidental_english and not violation_detected:
-                answer = "剛剛是我不對 抱歉 我會用繁體中文好好回你"
+            # Never allow English-heavy generated text into any Discord chat response.
+            # For protected users, a language violation is handled as a brief apology.
+            if english_output:
+                answer = (
+                    "剛剛是我不對 抱歉 我會用繁體中文好好回你"
+                    if protected_author
+                    else "我剛剛語言切錯了 這句不算 我會用繁體中文回覆"
+                )
             if violation_detected:
                 violations = int(storage.get_setting(message.guild.id, "fish_persona_violation_count", 0) or 0) + 1
                 storage.set_setting(message.guild.id, "fish_persona_violation_count", violations)
