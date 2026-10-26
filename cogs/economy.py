@@ -11,6 +11,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.public_response import PublicizeView
+
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
 MAX_DIGITS = 2000
 MAX_BALANCE = int("9" * MAX_DIGITS)
@@ -418,10 +420,11 @@ class EconomyCog(commands.Cog):
 
     async def _reply(self, target, content, *, embed=None, public=True):
         if isinstance(target, discord.Interaction):
+            view = None if public else PublicizeView(target.user.id, content, embed)
             if target.response.is_done():
-                await target.followup.send(content, embed=embed, ephemeral=not public)
+                await target.followup.send(content, embed=embed, ephemeral=not public, view=view)
             else:
-                await target.response.send_message(content, embed=embed, ephemeral=not public)
+                await target.response.send_message(content, embed=embed, ephemeral=not public, view=view)
         else:
             await target.reply(content, embed=embed, mention_author=False)
 
@@ -638,25 +641,29 @@ class EconomyCog(commands.Cog):
         await self._reply(target, message, public=public)
 
     @app_commands.command(name=app_commands.locale_str("shop", zh_TW="商店"), description="查看固定商品與價格")
-    async def shop_slash(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def shop_slash(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild(interaction):
             return
         embed = discord.Embed(title="固定商品商店", description="使用 /購買 選擇商品與數量。", color=0x3498DB)
         for _, (name, price, description) in ITEMS.items():
             embed.add_field(name=f"{name}｜{price:,} 金幣", value=description, inline=False)
-        await self._reply(interaction, "", embed=embed, public=False)
+        await self._reply(interaction, "", embed=embed, public=public)
 
     @app_commands.command(name=app_commands.locale_str("backpack", zh_TW="背包"), description="查看自己持有的固定商店商品")
-    async def backpack_slash(self, interaction: discord.Interaction):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def backpack_slash(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild(interaction):
             return
         rows = self.store.inventory(interaction.guild.id, interaction.user.id)
         if not rows:
-            await self._reply(interaction, "你的背包目前是空的，可以先到 /商店 查看商品。", public=False)
+            await self._reply(interaction, "你的背包目前是空的，可以先到 /商店 查看商品。", public=public)
             return
         lines = [f"**{ITEMS[key][0]}** × {quantity}" for key, quantity in rows]
         embed = discord.Embed(title="我的背包", description="\n".join(lines), color=0x1ABC9C)
-        await self._reply(interaction, "", embed=embed, public=False)
+        await self._reply(interaction, "", embed=embed, public=public)
 
     @app_commands.command(name=app_commands.locale_str("buy-item", zh_TW="購買"), description="購買固定商店商品")
     @app_commands.choices(item=[
@@ -665,13 +672,15 @@ class EconomyCog(commands.Cog):
         app_commands.Choice(name="高級魚餌", value="premium_bait"),
         app_commands.Choice(name="打工加成券", value="work_ticket"),
     ])
-    @app_commands.describe(item="要購買的固定商品", quantity="購買數量，最多 99 件")
+    @app_commands.describe(item="要購買的固定商品", quantity="購買數量，最多 99 件", public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"), quantity=app_commands.locale_str("數量", zh_TW="數量"))
     async def buy_item_slash(
         self,
         interaction: discord.Interaction,
         item: app_commands.Choice[str],
         quantity: app_commands.Range[int, 1, 99] = 1,
+        public: bool = False,
     ):
         if not await self._guild(interaction):
             return
@@ -680,7 +689,7 @@ class EconomyCog(commands.Cog):
             interaction,
             "",
             embed=discord.Embed(description=result, color=0x2ECC71 if ok else 0xE74C3C),
-            public=False,
+            public=public,
         )
 
     @app_commands.command(name=app_commands.locale_str("use-item", zh_TW="使用道具"), description="使用背包中的道具")
@@ -691,14 +700,16 @@ class EconomyCog(commands.Cog):
         app_commands.Choice(name="打工加成券", value="work_ticket"),
     ])
     @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"))
-    async def use_item_slash(self, interaction: discord.Interaction, item: app_commands.Choice[str]):
+    @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
+    @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
+    async def use_item_slash(self, interaction: discord.Interaction, item: app_commands.Choice[str], public: bool = False):
         if not await self._guild(interaction):
             return
         ok, result = self.store.use_item(interaction.guild.id, interaction.user.id, item.value)
         await self._reply(
             interaction, "",
             embed=discord.Embed(description=result, color=0x2ECC71 if ok else 0xE74C3C),
-            public=False,
+            public=public,
         )
 
     @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
