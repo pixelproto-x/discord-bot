@@ -911,9 +911,16 @@ class MusicCog(commands.Cog):
             if session.current is None:
                 return
 
-            failed_track = getattr(payload, "original", None) or getattr(payload, "track", None)
-            if failed_track is not None and not self._tracks_match(session.current, failed_track):
-                return
+            # Prefer exact identity for Wavelink's original Playable. URI equality is
+            # ambiguous when the same song intentionally appears more than once in a queue.
+            original_track = getattr(payload, "original", None)
+            if original_track is not None:
+                if original_track is not session.current:
+                    return
+            else:
+                reported_track = getattr(payload, "track", None)
+                if reported_track is not None and not self._tracks_match(session.current, reported_track):
+                    return
             failed_track = session.current
             exception = getattr(payload, "exception", None)
             reason = getattr(exception, "message", None) or getattr(exception, "cause", None) or str(exception or "unknown error")
@@ -931,12 +938,16 @@ class MusicCog(commands.Cog):
             if not session or session.player is not player or session.handoff:
                 return
 
-            reported_track = getattr(payload, "original", None) or getattr(payload, "track", None)
-            # A delayed end event must not clear a newer or already-recovered track.
-            if session.current is None:
-                return
-            if reported_track is not None and not self._tracks_match(session.current, reported_track):
-                return
+            # The original Playable identifies this exact queue occurrence. Matching
+            # only by URI can let a delayed event end a later repeat of the same song.
+            original_track = getattr(payload, "original", None)
+            if original_track is not None:
+                if original_track is not session.current:
+                    return
+            else:
+                reported_track = getattr(payload, "track", None)
+                if reported_track is not None and not self._tracks_match(session.current, reported_track):
+                    return
 
             ended_track = session.current
             reason = str(getattr(payload, "reason", "")).upper()
