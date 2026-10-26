@@ -31,6 +31,15 @@ FISH = [
     (0.03, "傳奇寶箱", [("傳奇寶箱", 800, 2000)]),
 ]
 
+ITEMS = {
+    "anti_rob": ("防搶卡", 800, "後續階段開放使用的防搶道具"),
+    "lucky_charm": ("幸運符", 500, "後續階段開放使用的幸運道具"),
+    "premium_bait": ("高級魚餌", 250, "後續階段開放使用的釣魚道具"),
+    "work_ticket": ("打工加成券", 700, "後續階段開放使用的打工道具"),
+}
+
+
+
 
 def now_utc():
     return datetime.now(UTC)
@@ -102,6 +111,15 @@ class EconomyStore:
                     wallet TEXT NOT NULL DEFAULT '1000',
                     bank TEXT NOT NULL DEFAULT '0',
                     last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
+                )
+            """)
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS economy_inventory (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    item_key TEXT NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+                    PRIMARY KEY (guild_id, user_id, item_key)
                 )
             """)
             columns = {row["name"]: row for row in con.execute("PRAGMA table_info(users)")}
@@ -214,6 +232,37 @@ class EconomyStore:
             con.execute("UPDATE users SET wallet=? WHERE user_id=?", (updated, user_id))
             con.commit()
             return True
+
+    def shop_buy(self, guild_id, user_id, item_key, quantity):
+        if item_key not in ITEMS or type(quantity) is not int or not 1 <= quantity <= 99:
+            return False, "商品或數量不正確，每次最多購買 99 件。"
+        name, price, _ = ITEMS[item_key]
+        total = price * quantity
+        with closing(self.connect()) as con:
+            con.execute("BEGIN IMMEDIATE")
+            self.ensure(con, guild_id, user_id)
+            wallet = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()["wallet"]
+            if not is_infinite(wallet) and int(wallet) < total:
+                con.rollback()
+                return False, f"金幣不足，需要 {total:,}，目前現金 {format_coins(wallet)}。"
+            if not is_infinite(wallet):
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet) - total), user_id))
+            con.execute(
+                "INSERT INTO economy_inventory(guild_id,user_id,item_key,quantity) VALUES(?,?,?,?) "
+                "ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",
+                (guild_id, user_id, item_key, quantity),
+            )
+            con.commit()
+            return True, f"購買成功：**{name} × {quantity}**，共花費 **{total:,}** 金幣。"
+
+    def inventory(self, guild_id, user_id):
+        with closing(self.connect()) as con:
+            rows = con.execute(
+                "SELECT item_key,quantity FROM economy_inventory "
+                "WHERE guild_id=? AND user_id=? AND quantity>0 ORDER BY item_key",
+                (guild_id, user_id),
+            ).fetchall()
+        return [(row["item_key"], int(row["quantity"])) for row in rows if row["item_key"] in ITEMS]
 
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
         with closing(self.connect()) as con:
@@ -492,6 +541,52 @@ class EconomyCog(commands.Cog):
         else:
             message = f"搶劫失敗！你被罰款 **{format_coins(value)}** 金幣（以錢包現金為限）。"
         await self._reply(target, message, public=public)
+
+    @app_commands.command(name=app_commands.locale_str("shop", zh_TW="商店"), description="查看固定商品與價格")
+    async def shop_slash(self, interaction: discord.Interaction):
+        if not await self._guild(interaction):
+            return
+        embed = discord.Embed(title="固定商品商店", description="使用 /購買 選擇商品與數量。", color=0x3498DB)
+        for _, (name, price, description) in ITEMS.items():
+            embed.add_field(name=f"{name}｜{price:,} 金幣", value=description, inline=False)
+        await self._reply(interaction, "", embed=embed, public=False)
+
+    @app_commands.command(name=app_commands.locale_str("backpack", zh_TW="背包"), description="查看自己持有的固定商店商品")
+    async def backpack_slash(self, interaction: discord.Interaction):
+        if not await self._guild(interaction):
+            return
+        rows = self.store.inventory(interaction.guild.id, interaction.user.id)
+        if not rows:
+            await self._reply(interaction, "你的背包目前是空的，可以先到 /商店 查看商品。", public=False)
+            return
+        lines = [f"**{ITEMS[key][0]}** × {quantity}" for key, quantity in rows]
+        embed = discord.Embed(title="我的背包", description="\\n".join(lines), color=0x1ABC9C)
+        await self._reply(interaction, "", embed=embed, public=False)
+
+    @app_commands.command(name=app_commands.locale_str("buy-item", zh_TW="購買"), description="購買固定商店商品")
+    @app_commands.choices(item=[
+        app_commands.Choice(name="防搶卡", value="anti_rob"),
+        app_commands.Choice(name="幸運符", value="lucky_charm"),
+        app_commands.Choice(name="高級魚餌", value="premium_bait"),
+        app_commands.Choice(name="打工加成券", value="work_ticket"),
+    ])
+    @app_commands.describe(item="要購買的固定商品", quantity="購買數量，最多 99 件")
+    @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"), quantity=app_commands.locale_str("數量", zh_TW="數量"))
+    async def buy_item_slash(
+        self,
+        interaction: discord.Interaction,
+        item: app_commands.Choice[str],
+        quantity: app_commands.Range[int, 1, 99] = 1,
+    ):
+        if not await self._guild(interaction):
+            return
+        ok, result = self.store.shop_buy(interaction.guild.id, interaction.user.id, item.value, quantity)
+        await self._reply(
+            interaction,
+            "",
+            embed=discord.Embed(description=result, color=0x2ECC71 if ok else 0xE74C3C),
+            public=False,
+        )
 
     @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
     @app_commands.describe(member="要搶劫的成員")
