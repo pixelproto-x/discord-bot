@@ -41,6 +41,7 @@ class EconomyClassStoreTests(unittest.TestCase):
         self.assertIn("已經是法師", message)
 
     def test_class_change_has_cost_and_seven_day_cooldown(self):
+        self.set_wallet(1, 50_000)
         self.store.choose_class(10, 1, "warrior", now=1000)
         ok, message = self.store.choose_class(10, 1, "merchant", now=1001)
         self.assertFalse(ok)
@@ -51,7 +52,7 @@ class EconomyClassStoreTests(unittest.TestCase):
         )
         self.assertTrue(ok)
         self.assertIn("轉職費用", message)
-        self.assertEqual(self.wallet(1), "0")
+        self.assertEqual(self.wallet(1), "40000")
 
     def test_adventure_awards_class_bonus_and_levels_up(self):
         self.store.choose_class(10, 1, "mage", now=1000)
@@ -65,7 +66,7 @@ class EconomyClassStoreTests(unittest.TestCase):
         self.assertEqual(profile["xp"], 30)
         self.assertEqual(profile["adventures"], 1)
         self.assertEqual(profile["wins"], 1)
-        self.assertEqual(self.wallet(1), "1850")
+        self.assertEqual(self.wallet(1), "1600")
 
     def test_adventure_requires_class_and_enforces_cooldown(self):
         ok, message = self.store.adventure(10, 1, now=1000, roll=0.1, reward=100, xp_gain=25)
