@@ -222,6 +222,8 @@ class EconomyStore:
             return True, amount, "、".join(effect_used) if effect_used else None
 
     def move(self, guild_id, user_id, amount, deposit):
+        if not valid_amount(amount):
+            return False
         source, destination = ("wallet", "bank") if deposit else ("bank", "wallet")
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
@@ -229,22 +231,30 @@ class EconomyStore:
             row = con.execute(f"SELECT {source}, {destination} FROM users WHERE user_id=?", (user_id,)).fetchone()
             source_value = row[source]
             destination_value = row[destination]
+            if not is_infinite(source_value) and int(source_value) < amount:
+                con.rollback()
+                return False
             if not is_infinite(destination_value) and int(destination_value) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE user_id=?",
+            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE user_id=?", 
                         (subtract_balance(source_value, amount),
                          add_balance(destination_value, amount), user_id))
             con.commit()
             return True
 
     def transfer(self, guild_id, sender, receiver, amount):
+        if not valid_amount(amount) or sender == receiver:
+            return False
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
             a = con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"]
             b = con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"]
+            if not is_infinite(a) and int(a) < amount:
+                con.rollback()
+                return False
             if not is_infinite(b) and int(b) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
@@ -254,11 +264,16 @@ class EconomyStore:
             return True
 
     def dice(self, guild_id, user_id, amount, payout):
+        if not valid_amount(amount) or type(payout) is not int or payout < 0 or payout > MAX_BALANCE:
+            return False
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
             wallet = row["wallet"]
+            if not is_infinite(wallet) and int(wallet) < amount:
+                con.rollback()
+                return False
             if not is_infinite(wallet) and int(wallet) - amount + payout > MAX_BALANCE:
                 con.rollback()
                 return False
@@ -393,7 +408,8 @@ class EconomyStore:
                     fine = 0
                 else:
                     current = int(robber["wallet"])
-                    fine = max(1, int(Decimal(abs(current)) * Decimal(str(fine_fraction))))
+                    # Never fine more than the cash actually held.
+                    fine = min(current, max(1, int(Decimal(current) * Decimal(str(fine_fraction)))) if current > 0 else 0)
                 con.execute("UPDATE users SET wallet=? WHERE user_id=?",
                             (subtract_balance(robber["wallet"], fine), robber_id))
                 result = ("failed", fine)
