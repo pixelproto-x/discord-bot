@@ -123,7 +123,7 @@ class PlayerMarketStore:
             if buyer_value is not None:
                 self.world.set_wallet(con, buyer_id, str(buyer_value - total))
             if seller_value is not None:
-                self.world.set_wallet(con, int(listing["seller_id"]), str(seller_value + total))
+                self.world.set_wallet(con, guild_id, int(listing["seller_id"]), str(seller_value + total))
             con.execute(
                 "UPDATE player_market_listings SET quantity=quantity-? WHERE id=?",
                 (quantity, listing_id),
