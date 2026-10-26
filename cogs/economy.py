@@ -56,6 +56,11 @@ def valid_amount(value):
     return type(value) is int and 0 < value <= MAX_BALANCE
 
 
+def format_coins(value):
+    """Format database TEXT balances as human-readable integers."""
+    return f"{int(value):,}"
+
+
 def cooldown_text(seconds):
     hours, rest = divmod(max(0, seconds), 3600)
     minutes, secs = divmod(rest, 60)
@@ -197,17 +202,19 @@ class EconomyStore:
             if last and now < last + timedelta(seconds=COOLDOWNS["rob"]):
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
+            robber_wallet = int(robber["wallet"])
+            target_wallet = int(target["wallet"])
             if success:
-                stolen = int(Decimal(target["wallet"]) * Decimal(str(fraction)))
-                if robber["wallet"] + stolen > MAX_BALANCE:
+                stolen = int(Decimal(target_wallet) * Decimal(str(fraction)))
+                if robber_wallet + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target["wallet"] - stolen), target_id))
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] + stolen), robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target_wallet - stolen), target_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber_wallet + stolen), robber_id))
                 result = ("success", stolen)
             else:
-                fine = min(robber["wallet"], max(1, int(Decimal(robber["wallet"]) * Decimal(str(fine_fraction))))) if robber["wallet"] else 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] - fine), robber_id))
+                fine = min(robber_wallet, max(1, int(Decimal(robber_wallet) * Decimal(str(fine_fraction))))) if robber_wallet else 0
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber_wallet - fine), robber_id))
                 result = ("failed", fine)
             if success:
                 con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
@@ -246,9 +253,11 @@ class EconomyCog(commands.Cog):
         row = self.store.get(target.guild.id, user.id)
         embed = discord.Embed(title=f"💰 {user.display_name} 的錢包", color=0xF1C40F)
         embed.set_thumbnail(url=user.display_avatar.url)
-        embed.add_field(name="現金", value=f"{row['wallet']:,} 金幣")
-        embed.add_field(name="銀行存款", value=f"{row['bank']:,} 金幣")
-        embed.add_field(name="總資產", value=f"{row['wallet'] + row['bank']:,} 金幣", inline=False)
+        wallet = int(row["wallet"])
+        bank = int(row["bank"])
+        embed.add_field(name="現金", value=f"{format_coins(wallet)} 金幣")
+        embed.add_field(name="銀行存款", value=f"{format_coins(bank)} 金幣")
+        embed.add_field(name="總資產", value=f"{format_coins(wallet + bank)} 金幣", inline=False)
         await self._reply(target, "", embed=embed, public=public)
 
     @app_commands.command(name=app_commands.locale_str("wallet", zh_TW="錢包"), description="查看成員的現金與銀行存款")
