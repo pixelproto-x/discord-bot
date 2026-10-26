@@ -266,6 +266,27 @@ class MusicLocalAudioHandoffTests(unittest.IsolatedAsyncioTestCase):
         music_channel.connect.assert_awaited_once_with(cls=type(restored_player), self_deaf=False)
         self.assertNotIn(guild.id, cog.local_audio_handoffs)
 
+    async def test_idle_player_does_not_restore_a_stale_current_track(self):
+        from types import SimpleNamespace
+
+        stale_track = SimpleNamespace(title="Previously stopped")
+        channel = SimpleNamespace()
+        player = SimpleNamespace(
+            channel=channel,
+            current=stale_track,
+            playing=False,
+            paused=False,
+            set_volume=AsyncMock(),
+        )
+        guild = SimpleNamespace(id=324, voice_client=player)
+        cog = music.MusicCog(SimpleNamespace())
+
+        with patch.object(music.wavelink, "Player", type(player)):
+            session = await cog.ensure_player(guild, channel, text_channel_id=657)
+
+        self.assertIsNone(session.current)
+        self.assertFalse(player.playing)
+
     async def test_existing_playing_player_restores_current_track_without_session(self):
         from types import SimpleNamespace
 
