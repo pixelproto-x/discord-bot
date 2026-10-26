@@ -1159,24 +1159,8 @@ def _start_companion_services():
     project_dir = Path(__file__).resolve().parent
     create_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-    stale_launch_pids = stop_stale_freemind_ai_launch_windows()
-    if stale_launch_pids:
-        print(f"[清理] 已關閉舊版 FreeMindAI 啟動錯誤視窗：{len(stale_launch_pids)} 個。")
-
-    ai_dir = find_freemind_ai_project(project_dir)
-    ai_runner = ai_dir / "run.bat" if ai_dir else None
-    if _is_local_port_open(8080):
-        print("[OK] FreeMindAI 連線埠 8080 已開啟，略過重複啟動。")
-    elif freemind_ai_launcher_running():
-        print("[OK] 偵測到 FreeMindAI 已在啟動中，略過重複視窗。")
-    elif ai_runner is not None:
-        try:
-            launch_freemind_ai(ai_runner)
-            print(f"[啟動] 已透過 Windows 檔案啟動器啟動 FreeMindAI：{ai_dir}")
-        except (OSError, NotImplementedError) as exc:
-            print(f"[提示] FreeMindAI 自動啟動失敗：{type(exc).__name__}。")
-    else:
-        print("[提示] 找不到 FreeMindAI 專案；已搜尋 Downloads、OneDrive\\Desktop、Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
+    # FreeMindAI is no longer an AI provider for this bot. Ollama and the
+    # configured cloud providers are managed by the AI provider fallback layer.
 
     preferred_editor = project_dir / "economy_editor_names.py"
     legacy_editor = project_dir / "economy_editor.py"
