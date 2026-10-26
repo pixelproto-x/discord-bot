@@ -190,7 +190,7 @@ class EconomyClassStore:
                 levels_gained += 1
             level_bonus = sum(250 * new_level for new_level in range(level - levels_gained + 1, level + 1))
             if level_bonus and not is_infinite(wallet):
-                current_wallet = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()["wallet"]
+                current_wallet = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()["wallet"]
                 available = int(current_wallet)
                 level_bonus = min(level_bonus, max(0, MAX_BALANCE - available))
                 con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(available + level_bonus), guild_id, user_id))
