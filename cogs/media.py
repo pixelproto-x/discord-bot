@@ -1540,7 +1540,7 @@ class SearchCog(commands.Cog):
 
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
                 ephemeral=True,
             )
             return
@@ -1583,7 +1583,7 @@ class SearchCog(commands.Cog):
 
         if not self._has_ai_provider_configured():
             await interaction.response.send_message(
-                "FreeMind AI 尚未設定，Gemini 和 Groq 也都沒有可用的 API Key。請先啟動 FreeMind AI，或在 Bot 的 .env 設定 GEMINI_API_KEY / GROQ_API_KEY。",
+                "目前沒有已設定的雲端 AI API Key；請設定任一供應商，或確認本機 Ollama 已安裝並啟動。",
                 ephemeral=True,
             )
             return
