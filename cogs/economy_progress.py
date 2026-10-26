@@ -153,6 +153,7 @@ class EconomyProgressStore:
 
 
 class EconomyProgressCog(commands.Cog):
+    progress_group = app_commands.Group(name=app_commands.locale_str("economy-progress", zh_TW="經濟進度"), description="經濟排行榜與成就")
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.store = EconomyProgressStore()
@@ -167,7 +168,7 @@ class EconomyProgressCog(commands.Cog):
         )
         return False
 
-    @app_commands.command(name=app_commands.locale_str("leaderboard", zh_TW="排行榜"), description="查看伺服器經濟排行榜")
+    @progress_group.command(name=app_commands.locale_str("leaderboard", zh_TW="排行榜"), description="查看伺服器經濟排行榜")
     @app_commands.choices(category=[
         app_commands.Choice(name="總資產", value="wealth"),
         app_commands.Choice(name="現金", value="wallet"),
@@ -202,7 +203,7 @@ class EconomyProgressCog(commands.Cog):
         embed.set_footer(text="僅計算本伺服器資料；總資產 = 現金 + 銀行存款")
         await interaction.response.send_message(embed=embed, ephemeral=not public, view=None if public else PublicizeView(interaction.user.id, None, embed))
 
-    @app_commands.command(name=app_commands.locale_str("achievements", zh_TW="成就"), description="查看已解鎖成就與目前進度")
+    @progress_group.command(name=app_commands.locale_str("achievements", zh_TW="成就"), description="查看已解鎖成就與目前進度")
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def achievements(self, interaction: discord.Interaction, public: bool = False):
