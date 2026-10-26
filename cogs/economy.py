@@ -56,9 +56,23 @@ def valid_amount(value):
     return type(value) is int and 0 < value <= MAX_BALANCE
 
 
+def is_infinite(value):
+    return str(value).strip().lower() == "inf"
+
+
 def format_coins(value):
-    """Format database TEXT balances as human-readable integers."""
+    """Format finite and unlimited database balances for display."""
+    if is_infinite(value):
+        return "∞（無限）"
     return f"{int(value):,}"
+
+
+def add_balance(value, amount):
+    return "inf" if is_infinite(value) else str(int(value) + amount)
+
+
+def subtract_balance(value, amount):
+    return "inf" if is_infinite(value) else str(int(value) - amount)
 
 
 def cooldown_text(seconds):
@@ -137,12 +151,12 @@ class EconomyStore:
             if last and now < last + timedelta(seconds=COOLDOWNS[kind]):
                 con.rollback()
                 return False, max(1, int((last + timedelta(seconds=COOLDOWNS[kind]) - now).total_seconds()))
-            wallet = int(row["wallet"])
-            if wallet + amount > MAX_BALANCE:
+            wallet = row["wallet"]
+            if not is_infinite(wallet) and int(wallet) + amount > MAX_BALANCE:
                 con.rollback()
                 return False, -1
             con.execute(f"UPDATE users SET wallet=?, {column}=? WHERE user_id=?",
-                        (str(wallet + amount), now.isoformat(), user_id))
+                        (add_balance(wallet, amount), now.isoformat(), user_id))
             con.commit()
             return True, amount
 
@@ -152,13 +166,14 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute(f"SELECT {source}, {destination} FROM users WHERE user_id=?", (user_id,)).fetchone()
-            source_value = int(row[source])
-            destination_value = int(row[destination])
-            if amount > source_value or destination_value + amount > MAX_BALANCE:
+            source_value = row[source]
+            destination_value = row[destination]
+            if not is_infinite(destination_value) and int(destination_value) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
             con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE user_id=?",
-                        (str(source_value - amount), str(destination_value + amount), user_id))
+                        (subtract_balance(source_value, amount),
+                         add_balance(destination_value, amount), user_id))
             con.commit()
             return True
 
@@ -167,13 +182,13 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
-            a = int(con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"])
-            b = int(con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"])
-            if a < amount or b + amount > MAX_BALANCE:
+            a = con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"]
+            b = con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"]
+            if not is_infinite(b) and int(b) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(a - amount), sender))
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(b + amount), receiver))
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (subtract_balance(a, amount), sender))
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (add_balance(b, amount), receiver))
             con.commit()
             return True
 
@@ -182,11 +197,15 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
             row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
-            wallet = int(row["wallet"])
-            if wallet < amount or wallet - amount + payout > MAX_BALANCE:
+            wallet = row["wallet"]
+            if not is_infinite(wallet) and int(wallet) - amount + payout > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(wallet - amount + payout), user_id))
+            if is_infinite(wallet):
+                updated = "inf"
+            else:
+                updated = str(int(wallet) - amount + payout)
+            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (updated, user_id))
             con.commit()
             return True
 
@@ -203,16 +222,26 @@ class EconomyStore:
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
             if success:
-                stolen = int(Decimal(target["wallet"]) * Decimal(str(fraction)))
-                if robber["wallet"] + stolen > MAX_BALANCE:
+                if is_infinite(target["wallet"]):
+                    con.rollback()
+                    return "unstealable", 0
+                stolen = max(0, int(Decimal(target["wallet"]) * Decimal(str(fraction))))
+                if not is_infinite(robber["wallet"]) and int(robber["wallet"]) + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(target["wallet"] - stolen), target_id))
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] + stolen), robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
+                            (str(int(target["wallet"]) - stolen), target_id))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
+                            (add_balance(robber["wallet"], stolen), robber_id))
                 result = ("success", stolen)
             else:
-                fine = min(robber["wallet"], max(1, int(Decimal(robber["wallet"]) * Decimal(str(fine_fraction))))) if robber["wallet"] else 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(robber["wallet"] - fine), robber_id))
+                if is_infinite(robber["wallet"]):
+                    fine = 0
+                else:
+                    current = int(robber["wallet"])
+                    fine = max(1, int(Decimal(abs(current)) * Decimal(str(fine_fraction))))
+                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
+                            (subtract_balance(robber["wallet"], fine), robber_id))
                 result = ("failed", fine)
             if success:
                 con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
@@ -251,11 +280,12 @@ class EconomyCog(commands.Cog):
         row = self.store.get(target.guild.id, user.id)
         embed = discord.Embed(title=f"💰 {user.display_name} 的錢包", color=0xF1C40F)
         embed.set_thumbnail(url=user.display_avatar.url)
-        wallet = int(row["wallet"])
-        bank = int(row["bank"])
+        wallet = row["wallet"]
+        bank = row["bank"]
+        total = "inf" if is_infinite(wallet) or is_infinite(bank) else str(int(wallet) + int(bank))
         embed.add_field(name="現金", value=f"{format_coins(wallet)} 金幣")
         embed.add_field(name="銀行存款", value=f"{format_coins(bank)} 金幣")
-        embed.add_field(name="總資產", value=f"{format_coins(wallet + bank)} 金幣", inline=False)
+        embed.add_field(name="總資產", value=f"{format_coins(total)} 金幣", inline=False)
         await self._reply(target, "", embed=embed, public=public)
 
     @app_commands.command(name=app_commands.locale_str("wallet", zh_TW="錢包"), description="查看成員的現金與銀行存款")
@@ -333,9 +363,13 @@ class EconomyCog(commands.Cog):
         user = target.user if isinstance(target, discord.Interaction) else target.author
         row = self.store.get(target.guild.id, user.id)
         available = row["wallet"] if deposit else row["bank"]
-        amount = int(available) if raw.strip().lower() in {"all", "全部"} else parse_amount(raw)
+        if raw.strip().lower() in {"all", "全部"}:
+            amount = int(available) if not is_infinite(available) else None
+        else:
+            amount = parse_amount(raw)
         if amount is None:
-            amount = 0
+            await self._reply(target, "請輸入大於 0 的正整數；無限餘額請指定實際轉移金額。", public=False)
+            return
         if not valid_amount(amount):
             await self._reply(target, "請輸入大於 0 的正整數或 all；餘額不足或餘額為 0 時不能操作。", public=False)
             return
@@ -435,6 +469,8 @@ class EconomyCog(commands.Cog):
             message = f"你剛搶過人，再等 **{cooldown_text(value)}**。"
         elif outcome == "cap":
             message = "你的錢包接近系統上限，這次無法完成。"
+        elif outcome == "unstealable":
+            message = f"{member.mention} 的錢包是無限金額，無法搶走。"
         elif outcome == "success":
             message = f"搶劫成功！你從 {member.mention} 那裡搶到 **{value:,}** 金幣。"
         else:
