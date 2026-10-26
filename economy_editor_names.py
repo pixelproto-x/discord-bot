@@ -104,7 +104,16 @@ def _add_display_names(rows: list[dict]) -> list[dict]:
                     _name_cache[key] = (time.monotonic(), name)
 
     return [
-        {**row, "display_name": names.get((int(row.get("guild_id") or 0), int(row["user_id"])), "無法取得名稱")}
+        {
+            **row,
+            # Discord snowflake IDs must be sent to JavaScript as strings to avoid
+            # IEEE-754 Number precision loss for 17–20 digit identifiers.
+            "user_id": str(row["user_id"]),
+            "display_name": names.get(
+                (int(row.get("guild_id") or 0), int(row["user_id"])),
+                "無法取得名稱",
+            ),
+        }
         for row in rows
     ]
 
