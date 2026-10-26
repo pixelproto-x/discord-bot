@@ -108,11 +108,12 @@ class EconomyStore:
         with closing(self.connect()) as con:
             con.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY,
-                    guild_id INTEGER,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
                     wallet TEXT NOT NULL DEFAULT '1000',
                     bank TEXT NOT NULL DEFAULT '0',
-                    last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
+                    last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT,
+                    PRIMARY KEY (guild_id, user_id)
                 )
             """)
             con.execute("""
@@ -135,26 +136,31 @@ class EconomyStore:
                 )
             """)
             columns = {row["name"]: row for row in con.execute("PRAGMA table_info(users)")}
-            # Existing INTEGER-affinity tables can still store decimal strings, but
-            # rebuild to TEXT affinity so all 2000 digits remain exact.
-            if columns.get("wallet") and "INT" in str(columns["wallet"]["type"]).upper():
+            user_pk = columns.get("user_id")
+            guild_pk = columns.get("guild_id")
+            # Migrate legacy globally-keyed accounts to per-server accounts. Keep
+            # each existing balance with its recorded guild; other guilds get defaults.
+            if user_pk and int(user_pk["pk"]) == 1 and (not guild_pk or int(guild_pk["pk"]) != 1):
                 con.execute("BEGIN IMMEDIATE")
                 con.execute("""
-                    CREATE TABLE users_bigint (
-                        user_id INTEGER PRIMARY KEY,
-                        guild_id INTEGER,
+                    CREATE TABLE users_scoped (
+                        guild_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
                         wallet TEXT NOT NULL DEFAULT '1000',
                         bank TEXT NOT NULL DEFAULT '0',
-                        last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
+                        last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT,
+                        PRIMARY KEY (guild_id, user_id)
                     )
                 """)
                 con.execute("""
-                    INSERT INTO users_bigint
-                    SELECT user_id, guild_id, CAST(wallet AS TEXT), CAST(bank AS TEXT),
-                           last_daily, last_work, last_fish, last_rob FROM users
+                    INSERT INTO users_scoped
+                    (guild_id,user_id,wallet,bank,last_daily,last_work,last_fish,last_rob)
+                    SELECT COALESCE(guild_id,0),user_id,CAST(wallet AS TEXT),CAST(bank AS TEXT),
+                           last_daily,last_work,last_fish,last_rob
+                    FROM users
                 """)
                 con.execute("DROP TABLE users")
-                con.execute("ALTER TABLE users_bigint RENAME TO users")
+                con.execute("ALTER TABLE users_scoped RENAME TO users")
                 con.commit()
 
     def connect(self):
@@ -165,14 +171,13 @@ class EconomyStore:
         return con
 
     def ensure(self, con, guild_id, user_id):
-        con.execute("INSERT OR IGNORE INTO users(user_id, guild_id) VALUES(?, ?)", (user_id, guild_id))
-        con.execute("UPDATE users SET guild_id=? WHERE user_id=?", (guild_id, user_id))
+        con.execute("INSERT OR IGNORE INTO users(guild_id, user_id) VALUES(?, ?)", (guild_id, user_id))
 
     def get(self, guild_id, user_id):
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
-            row = dict(con.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone())
+            row = dict(con.execute("SELECT * FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone())
             con.commit()
             return row
 
@@ -183,7 +188,7 @@ class EconomyStore:
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
-            row = con.execute(f"SELECT {column}, wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            row = con.execute(f"SELECT {column}, wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             last = parse_time(row[column])
             if last and now < last + timedelta(seconds=COOLDOWNS[kind]):
                 con.rollback()
@@ -216,8 +221,8 @@ class EconomyStore:
             if not is_infinite(wallet) and int(wallet) + amount > MAX_BALANCE:
                 con.rollback()
                 return False, -1, None
-            con.execute(f"UPDATE users SET wallet=?, {column}=? WHERE user_id=?",
-                        (add_balance(wallet, amount), now.isoformat(), user_id))
+            con.execute(f"UPDATE users SET wallet=?, {column}=? WHERE guild_id=? AND user_id=?",
+                        (add_balance(wallet, amount), now.isoformat(), guild_id, user_id))
             con.commit()
             return True, amount, "、".join(effect_used) if effect_used else None
 
@@ -228,7 +233,7 @@ class EconomyStore:
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
-            row = con.execute(f"SELECT {source}, {destination} FROM users WHERE user_id=?", (user_id,)).fetchone()
+            row = con.execute(f"SELECT {source}, {destination} FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             source_value = row[source]
             destination_value = row[destination]
             if not is_infinite(source_value) and int(source_value) < amount:
@@ -237,9 +242,9 @@ class EconomyStore:
             if not is_infinite(destination_value) and int(destination_value) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE user_id=?", 
+            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE guild_id=? AND user_id=?",
                         (subtract_balance(source_value, amount),
-                         add_balance(destination_value, amount), user_id))
+                         add_balance(destination_value, amount), guild_id, user_id))
             con.commit()
             return True
 
@@ -250,16 +255,16 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
-            a = con.execute("SELECT wallet FROM users WHERE user_id=?", (sender,)).fetchone()["wallet"]
-            b = con.execute("SELECT wallet FROM users WHERE user_id=?", (receiver,)).fetchone()["wallet"]
+            a = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, sender)).fetchone()["wallet"]
+            b = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, receiver)).fetchone()["wallet"]
             if not is_infinite(a) and int(a) < amount:
                 con.rollback()
                 return False
             if not is_infinite(b) and int(b) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (subtract_balance(a, amount), sender))
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (add_balance(b, amount), receiver))
+            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (subtract_balance(a, amount), guild_id, sender))
+            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (add_balance(b, amount), guild_id, receiver))
             con.commit()
             return True
 
@@ -269,7 +274,7 @@ class EconomyStore:
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
-            row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            row = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             wallet = row["wallet"]
             if not is_infinite(wallet) and int(wallet) < amount:
                 con.rollback()
@@ -281,7 +286,7 @@ class EconomyStore:
                 updated = "inf"
             else:
                 updated = str(int(wallet) - amount + payout)
-            con.execute("UPDATE users SET wallet=? WHERE user_id=?", (updated, user_id))
+            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (updated, guild_id, user_id))
             con.commit()
             return True
 
@@ -298,7 +303,7 @@ class EconomyStore:
                 con.rollback()
                 return False, f"金幣不足，需要 {total:,}，目前現金 {format_coins(wallet)}。"
             if not is_infinite(wallet):
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet) - total), user_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(int(wallet) - total), guild_id, user_id))
             con.execute(
                 "INSERT INTO economy_inventory(guild_id,user_id,item_key,quantity) VALUES(?,?,?,?) "
                 "ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",
@@ -370,8 +375,8 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, robber_id)
             self.ensure(con, guild_id, target_id)
-            robber = con.execute("SELECT wallet,last_rob FROM users WHERE user_id=?", (robber_id,)).fetchone()
-            target = con.execute("SELECT wallet FROM users WHERE user_id=?", (target_id,)).fetchone()
+            robber = con.execute("SELECT wallet,last_rob FROM users WHERE guild_id=? AND user_id=?", (guild_id, robber_id)).fetchone()
+            target = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, target_id)).fetchone()
             now = now_utc()
             last = parse_time(robber["last_rob"])
             if last and now < last + timedelta(seconds=COOLDOWNS["rob"]):
@@ -398,10 +403,10 @@ class EconomyStore:
                 if not is_infinite(robber["wallet"]) and int(robber["wallet"]) + stolen > MAX_BALANCE:
                     con.rollback()
                     return "cap", 0
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
-                            (str(int(target["wallet"]) - stolen), target_id))
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
-                            (add_balance(robber["wallet"], stolen), robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                            (str(int(target["wallet"]) - stolen), guild_id, target_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                            (add_balance(robber["wallet"], stolen), guild_id, robber_id))
                 result = ("success", stolen)
             else:
                 if is_infinite(robber["wallet"]):
@@ -410,11 +415,11 @@ class EconomyStore:
                     current = int(robber["wallet"])
                     # Never fine more than the cash actually held.
                     fine = min(current, max(1, int(Decimal(current) * Decimal(str(fine_fraction)))) if current > 0 else 0)
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?",
-                            (subtract_balance(robber["wallet"], fine), robber_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                            (subtract_balance(robber["wallet"], fine), guild_id, robber_id))
                 result = ("failed", fine)
             if success:
-                con.execute("UPDATE users SET last_rob=? WHERE user_id=?", (now.isoformat(), robber_id))
+                con.execute("UPDATE users SET last_rob=? WHERE guild_id=? AND user_id=?", (now.isoformat(), guild_id, robber_id))
             con.commit()
             return result
 
