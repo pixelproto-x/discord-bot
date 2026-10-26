@@ -157,9 +157,6 @@ class SearchCog(commands.Cog):
         self.chat_history = {}
         self.chat_cooldown_seconds = 4
         self.chat_history_limit = 20
-        self.freemind_base_url = os.getenv("FREEMIND_AI_BASE_URL", "http://127.0.0.1:8080").strip().rstrip("/")
-        self.freemind_password = os.getenv("FREEMIND_AI_PASSWORD", "").strip()
-        self.freemind_timeout = max(5, min(90, int(os.getenv("FREEMIND_AI_TIMEOUT", "45"))))
         self.gemini_key = (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip())
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
         self.gemini_cooldown_until = 0.0
@@ -408,69 +405,14 @@ class SearchCog(commands.Cog):
             return ""
 
     async def _generate_freemind_text(self, prompt: str, system_instruction: str = "") -> str:
-        """Use the local FreeMind AI server first; return an empty string to allow existing fallbacks."""
-        base_url = str(getattr(self, "freemind_base_url", "") or "").strip().rstrip("/")
-        if not base_url:
-            return ""
-
-        message = ((system_instruction.strip() + "\n\n") if system_instruction.strip() else "") + prompt.strip()
-        if not message:
-            return ""
-
-        headers = {"Content-Type": "application/json"}
-        password = str(getattr(self, "freemind_password", "") or "").strip()
-        if password:
-            headers["Authorization"] = f"Bearer {password}"
-
-        timeout = aiohttp.ClientTimeout(total=max(5, min(90, int(getattr(self, "freemind_timeout", 45)))))
-        conversation_id = None
-        try:
-            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                async with session.post(
-                    f"{base_url}/api/conversations",
-                    json={"title": "Discord Bot"},
-                ) as response:
-                    if response.status != 200:
-                        print(f"[FreeMind AI] conversation create failed: HTTP {response.status}")
-                        return ""
-                    payload = await response.json()
-                    conversation_id = str((payload.get("conversation") or {}).get("id") or "")
-                    if not conversation_id:
-                        print("[FreeMind AI] conversation create returned no ID")
-                        return ""
-
-                try:
-                    async with session.post(
-                        f"{base_url}/api/chat",
-                        json={"conversation_id": conversation_id, "message": message[:12000]},
-                    ) as response:
-                        if response.status != 200:
-                            print(f"[FreeMind AI] chat failed: HTTP {response.status}")
-                            return ""
-                        payload = await response.json()
-                        answer = str(payload.get("content") or "").strip()
-                        if answer:
-                            provider = str(payload.get("provider") or "unknown")
-                            model = str(payload.get("model") or "unknown")
-                            print(f"[FreeMind AI] response received provider={provider} model={model}")
-                            return answer
-                        print("[FreeMind AI] chat returned an empty answer")
-                        return ""
-                finally:
-                    
-                    
-                    try:
-                        async with session.delete(
-                            f"{base_url}/api/conversations/{conversation_id}"
-                        ) as delete_response:
-                            if delete_response.status not in (200, 204, 404):
-                                print(f"[FreeMind AI] temporary conversation cleanup: HTTP {delete_response.status}")
-                    except (aiohttp.ClientError, asyncio.TimeoutError):
-                        print("[FreeMind AI] temporary conversation cleanup failed")
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError) as exc:
-            print(f"[FreeMind AI] unavailable ({type(exc).__name__}); using existing provider fallback")
-            return ""
-        return ""
+        """Backward-compatible test helper; uses the configured provider chain, not FreeMind AI."""
+        return await self._generate_groq_text(
+            prompt,
+            system_instruction,
+            label="AI provider connection test",
+            max_tokens=64,
+            temperature=0.0,
+        )
 
     async def _generate_gemini_chat(self, prompt: str, visual_parts=None) -> str:
         """Generate a casual Gemini reply, then fail over through the configured AI providers."""
@@ -1706,7 +1648,7 @@ class SearchCog(commands.Cog):
             )
             if not answer:
                 await interaction.followup.send(
-                    "AI 目前沒有成功回覆。請確認 FreeMind AI 正在執行，且 /api/providers 顯示至少一個可用模型；若有備援 API，也請確認其設定有效。"
+                    "AI 目前沒有成功回覆。請確認至少有一個雲端 API Key 設定正確，或本機 Ollama 正在執行且模型已下載。"
                 )
                 return
             await self._send_ai_output(
@@ -1721,14 +1663,8 @@ class SearchCog(commands.Cog):
                 "AI 回覆失敗。請稍後再試；若持續發生，請檢查 Bot 終端機中的 AI 錯誤紀錄。"
             )
 
-    @ai.command(name=app_commands.locale_str("freemind-test", zh_TW="測試智慧服務"), description=app_commands.locale_str("實際測試 Discord Bot 是否連得上 FreeMind AI", zh_TW="實際測試 Discord Bot 是否連得上 FreeMind AI"))
+    @ai.command(name=app_commands.locale_str("freemind-test", zh_TW="測試智慧服務"), description=app_commands.locale_str("測試目前設定的 AI 供應商備援鏈", zh_TW="測試目前設定的 AI 供應商備援鏈"))
     async def ai_freemind_test(self, interaction: discord.Interaction):
-        if not self.freemind_base_url:
-            await interaction.response.send_message(
-                "FreeMind AI 尚未設定。請在 Bot 專案根目錄的 .env 設定 FREEMIND_AI_BASE_URL。",
-                ephemeral=True,
-            )
-            return
         if not await self._check_ai_limit(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1738,12 +1674,12 @@ class SearchCog(commands.Cog):
         )
         if answer:
             await interaction.followup.send(
-                f"✅ FreeMind AI 連線與生成測試成功。\n服務：`{self.freemind_base_url}`\n測試回覆：{answer[:150]}",
+                f"AI 供應商備援測試成功\\n測試回覆：{answer[:150]}",
                 ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                f"❌ FreeMind AI 沒有成功回覆。\n服務：`{self.freemind_base_url}`\n請確認 FreeMind AI 正在執行、至少有一個可用的 AI Provider，並確認 APP_PASSWORD 與 FREEMIND_AI_PASSWORD 相符（若有設定）。",
+                "沒有任何已設定的 AI 供應商成功回覆。請檢查 .env 的 API Key、模型名稱，或確認 Ollama 正在本機執行。",
                 ephemeral=True,
             )
 
