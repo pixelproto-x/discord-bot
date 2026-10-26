@@ -87,10 +87,9 @@ class EconomyClassStore:
 
     def _ensure_user(self, con, guild_id: int, user_id: int):
         con.execute(
-            "INSERT OR IGNORE INTO users(user_id,guild_id,wallet,bank) VALUES(?,?, '1000','0')",
-            (user_id, guild_id),
+            "INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')",
+            (guild_id, user_id),
         )
-        con.execute("UPDATE users SET guild_id=? WHERE user_id=?", (guild_id, user_id))
         con.execute(
             "INSERT OR IGNORE INTO economy_rpg_profiles(guild_id,user_id) VALUES(?,?)",
             (guild_id, user_id),
@@ -130,13 +129,13 @@ class EconomyClassStore:
                     minutes = rest // 60
                     con.rollback()
                     return False, f"轉職冷卻中，還要 {hours} 小時 {minutes} 分鐘。"
-                user = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+                user = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
                 wallet = str(user["wallet"])
                 if not is_infinite(wallet) and int(wallet) < CLASS_CHANGE_COST:
                     con.rollback()
                     return False, f"轉職需要 {CLASS_CHANGE_COST:,} 金幣，你目前有 {format_coins(wallet)}。"
                 if not is_infinite(wallet):
-                    con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet) - CLASS_CHANGE_COST), user_id))
+                    con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(int(wallet) - CLASS_CHANGE_COST), guild_id, user_id))
             con.execute(
                 "UPDATE economy_rpg_profiles SET class_key=?,class_changed_at=? WHERE guild_id=? AND user_id=?",
                 (class_key, now, guild_id, user_id),
@@ -181,7 +180,7 @@ class EconomyClassStore:
             if not is_infinite(wallet) and int(wallet) + coins > MAX_BALANCE:
                 coins = max(0, MAX_BALANCE - int(wallet))
             if coins and not is_infinite(wallet):
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(int(wallet) + coins), user_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(int(wallet) + coins), guild_id, user_id))
             level = int(profile["level"])
             xp = int(profile["xp"]) + earned_xp
             levels_gained = 0
@@ -194,7 +193,7 @@ class EconomyClassStore:
                 current_wallet = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()["wallet"]
                 available = int(current_wallet)
                 level_bonus = min(level_bonus, max(0, MAX_BALANCE - available))
-                con.execute("UPDATE users SET wallet=? WHERE user_id=?", (str(available + level_bonus), user_id))
+                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (str(available + level_bonus), guild_id, user_id))
             con.execute(
                 "UPDATE economy_rpg_profiles SET level=?,xp=?,last_adventure_at=?,adventures=adventures+1,wins=wins+? WHERE guild_id=? AND user_id=?",
                 (level, xp, now, int(success), guild_id, user_id),
