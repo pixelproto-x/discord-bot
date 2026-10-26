@@ -616,7 +616,10 @@ class MusicCog(commands.Cog):
             else:
                 player = await channel.connect(cls=wavelink.Player, self_deaf=False)
             if session is None:
-                session = MusicSession(player=player)
+                # A player can outlive a cog/session rebuild. Adopt its active
+                # track so new requests append to the queue instead of becoming
+                # stranded behind a player that is already playing.
+                session = MusicSession(player=player, current=getattr(player, "current", None))
                 self.sessions[guild.id] = session
             elif session.player is not player:
                 # A voice disconnect can leave a session holding its old player.
@@ -635,6 +638,10 @@ class MusicCog(commands.Cog):
                     if not already_queued:
                         session.queue.insert(0, interrupted_track)
                     session.current = None
+            if session.current is None and getattr(player, "playing", False):
+                active_track = getattr(player, "current", None)
+                if active_track is not None:
+                    session.current = active_track
             session.text_channel_id = text_channel_id
             try:
                 await player.set_volume(session.volume)
