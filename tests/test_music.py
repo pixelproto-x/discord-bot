@@ -834,6 +834,30 @@ class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MusicTrackEventIdentityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_end_event_without_current_track_does_not_consume_queue(self):
+        from types import SimpleNamespace
+
+        queued = SimpleNamespace(title="Queued song", uri="https://youtube.com/watch?v=queued")
+        player = SimpleNamespace(guild=SimpleNamespace(id=654320), play=AsyncMock())
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(player=player, queue=[queued], current=None)
+        cog.sessions[654320] = session
+
+        await cog.on_wavelink_track_end(
+            SimpleNamespace(
+                player=player,
+                original=None,
+                track=None,
+                reason="FINISHED",
+            )
+        )
+
+        self.assertIsNone(session.current)
+        self.assertEqual(session.queue, [queued])
+        player.play.assert_not_awaited()
+
+
+
     async def test_delayed_exception_for_duplicate_uri_does_not_replace_current_occurrence(self):
         from types import SimpleNamespace
 
