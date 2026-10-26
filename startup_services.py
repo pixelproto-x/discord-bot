@@ -37,15 +37,15 @@ def launch_freemind_ai(run_bat: Path) -> None:
     os.startfile(str(launcher), "open", cwd=str(launcher.parent))
 
 
-def freemind_ai_launcher_running() -> bool:
-    """Detect a FreeMindAI batch launcher already starting, across duplicate checkouts."""
+def _windows_process_snapshot() -> list[tuple[int, int, str, str]]:
+    """Return PID, parent PID, process name, and command line for Windows processes."""
     if os.name != "nt":
-        return False
+        return []
 
     query = (
         "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.Name -in @('cmd.exe','python.exe','pythonw.exe') -and $_.CommandLine } | "
-        "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.Name + [char]9 + $_.CommandLine) }"
+        "Where-Object { $_.CommandLine } | "
+        "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.ParentProcessId.ToString() + [char]9 + $_.Name + [char]9 + $_.CommandLine) }"
     )
     try:
         result = subprocess.run(
@@ -54,23 +54,70 @@ def freemind_ai_launcher_running() -> bool:
             timeout=5, check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return False
+        return []
 
+    processes = []
     for line in result.stdout.splitlines():
-        fields = line.split("\t", 2)
-        if len(fields) != 3 or not fields[0].strip().isdigit():
+        fields = line.split("\t", 3)
+        if len(fields) != 4 or not fields[0].strip().isdigit() or not fields[1].strip().isdigit():
             continue
-        process_name = fields[1].strip().casefold()
-        command_line = fields[2].casefold()
-        if "freemindai" not in command_line:
+        processes.append((
+            int(fields[0].strip()),
+            int(fields[1].strip()),
+            fields[2].strip().casefold(),
+            fields[3].casefold(),
+        ))
+    return processes
+
+
+def stop_stale_freemind_ai_launch_windows() -> list[int]:
+    """Close only orphaned /k CMD windows that still point to the broken batch launch."""
+    processes = _windows_process_snapshot()
+    child_parent_ids = {parent_id for _, parent_id, _, _ in processes}
+    stopped = []
+
+    for pid, _, name, command_line in processes:
+        if name != "cmd.exe" or "freemindai" not in command_line:
+            continue
+        if "/k" not in command_line or not any(
+            script in command_line for script in ("run.bat", "update.bat")
+        ):
+            continue
+        # A valid updater/app process has a child. A failed /k invocation is
+        # left idle at the prompt and has no child process; only that orphan is closed.
+        if pid in child_parent_ids:
+            continue
+
+        try:
+            result = subprocess.run(
+                ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            stopped.append(pid)
+
+    return stopped
+
+
+def freemind_ai_launcher_running() -> bool:
+    """Detect a FreeMindAI batch launcher already starting, across duplicate checkouts."""
+    processes = _windows_process_snapshot()
+    child_parent_ids = {parent_id for _, parent_id, _, _ in processes}
+
+    for pid, _, process_name, command_line in processes:
+        if pid == os.getpid() or "freemindai" not in command_line:
             continue
         if process_name == "cmd.exe":
-            # Ignore an old, idle /k window left behind by the broken launcher.
-            if "/k" in command_line:
+            if "run.bat" not in command_line and "update.bat" not in command_line:
                 continue
-            if "run.bat" in command_line or "update.bat" in command_line:
-                return True
-        elif "main.py" in command_line:
+            # Don't count an old, idle /k error prompt as a running launcher.
+            if "/k" in command_line and pid not in child_parent_ids:
+                continue
+            return True
+        if process_name in {"python.exe", "pythonw.exe"} and "main.py" in command_line:
             return True
 
     return False
