@@ -186,6 +186,15 @@ class GuildEconomyStore:
             if active:
                 con.rollback()
                 return False, f"目前已有進行中的公會活動（#{active['id']}），請先結束或等待活動到期。"
+            pending = con.execute(
+                "SELECT e.id, (SELECT COUNT(*) FROM guild_economy_event_members m WHERE m.event_id=e.id AND m.contribution>0) AS participants, "
+                "(SELECT COUNT(*) FROM guild_economy_event_claims c WHERE c.event_id=e.id) AS claims "
+                "FROM guild_economy_events e WHERE e.guild_id=? AND e.status='completed' ORDER BY e.id DESC LIMIT 1",
+                (guild_id,),
+            ).fetchone()
+            if pending and int(pending["claims"]) < int(pending["participants"]):
+                con.rollback()
+                return False, f"上一場活動（#{pending['id']}）仍有成員未領獎，請先完成獎勵結算。"
             balance = int(con.execute(
                 "SELECT balance FROM guild_treasuries WHERE guild_id=?", (guild_id,)
             ).fetchone()["balance"])
@@ -221,9 +230,9 @@ class GuildEconomyStore:
                 con.rollback()
                 return False, "目前沒有進行中的公會活動。"
             if now >= event["ends_at"]:
-                con.execute("UPDATE guild_economy_events SET status='expired' WHERE id=?", (event["id"],))
+                self._refund_expired_event(con, event, now)
                 con.commit()
-                return False, "活動已到期，不能再增加進度。"
+                return False, "活動已到期，未發放的獎勵已退回公會金庫，不能再增加進度。"
             self._ensure_treasury(con, guild_id)
             user = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
             if not user:
@@ -252,6 +261,21 @@ class GuildEconomyStore:
             con.commit()
             return True, f"已投入 **{_money(amount)}** 金幣。活動進度：**{progress:,}/{int(event['goal']):,}**。"
 
+    def _refund_expired_event(self, con, event, now):
+        if event["status"] != "active":
+            return
+        self._ensure_treasury(con, int(event["guild_id"]))
+        balance = int(con.execute(
+            "SELECT balance FROM guild_treasuries WHERE guild_id=?", (event["guild_id"],)
+        ).fetchone()["balance"])
+        refund = int(event["reward_pool"])
+        balance += refund
+        con.execute("UPDATE guild_treasuries SET balance=?,updated_at=? WHERE guild_id=?",
+                    (str(balance), now, event["guild_id"]))
+        con.execute("UPDATE guild_economy_events SET status='expired' WHERE id=?", (event["id"],))
+        self._ledger(con, event["guild_id"], event["creator_id"], "event_expired_refund", refund, balance,
+                     f"活動 #{event['id']} 到期退回獎勵")
+
     def event_info(self, guild_id):
         now = _now()
         with closing(self.connect()) as con:
@@ -260,7 +284,7 @@ class GuildEconomyStore:
                 "SELECT * FROM guild_economy_events WHERE guild_id=? ORDER BY id DESC LIMIT 1", (guild_id,)
             ).fetchone()
             if event and event["status"] == "active" and now >= event["ends_at"]:
-                con.execute("UPDATE guild_economy_events SET status='expired' WHERE id=?", (event["id"],))
+                self._refund_expired_event(con, event, now)
                 event = dict(event)
                 event["status"] = "expired"
             if event:
