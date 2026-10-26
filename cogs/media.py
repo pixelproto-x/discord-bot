@@ -1101,8 +1101,10 @@ class SearchCog(commands.Cog):
             violation_detected = protected_author and (
                 is_disrespectful_to_protected_target(answer)
                 or is_english_insult(answer)
-                or is_english_dominant(answer)
             )
+            accidental_english = is_english_dominant(answer)
+            if protected_author and accidental_english and not violation_detected:
+                answer = "剛剛是我不對 抱歉 我會用繁體中文好好回你"
             if violation_detected:
                 violations = int(storage.get_setting(message.guild.id, "fish_persona_violation_count", 0) or 0) + 1
                 storage.set_setting(message.guild.id, "fish_persona_violation_count", violations)
@@ -1134,7 +1136,7 @@ class SearchCog(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException):
                         pass
 
-            if not protected_author and is_english_dominant(answer):
+            if not protected_author and accidental_english:
                 answer = "我剛剛語言切錯了 這句不算 我用繁體中文重新接"
             if not violation_detected and recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
