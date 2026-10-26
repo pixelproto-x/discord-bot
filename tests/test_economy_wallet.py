@@ -25,8 +25,8 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.cog.store.get(guild_id, user_id)
         with closing(self.cog.store.connect()) as con:
             con.execute(
-                "UPDATE users SET wallet=?, bank=? WHERE user_id=?",
-                ("1234567", "2345", user_id),
+                "UPDATE users SET wallet=?, bank=? WHERE guild_id=? AND user_id=?",
+                ("1234567", "2345", guild_id, user_id),
             )
 
         user = SimpleNamespace(
@@ -92,6 +92,65 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.cog.store.transfer(guild_id, user_id, 789, -1))
         self.assertFalse(self.cog.store.dice(guild_id, user_id, 1, -1))
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
+
+
+    def test_same_user_has_independent_wallets_per_guild(self):
+        user_id = 456
+        self.cog.store.get(123, user_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                ("4321", 123, user_id),
+            )
+        other_guild = self.cog.store.get(789, user_id)
+        original_guild = self.cog.store.get(123, user_id)
+        self.assertEqual(other_guild["wallet"], "1000")
+        self.assertEqual(original_guild["wallet"], "4321")
+
+    def test_transfer_cannot_cross_guild_account_boundaries(self):
+        user_id, receiver = 456, 789
+        self.cog.store.get(123, user_id)
+        self.cog.store.get(789, receiver)
+        self.assertFalse(self.cog.store.transfer(123, user_id, receiver, 1))
+        self.assertEqual(self.cog.store.get(123, user_id)["wallet"], "1000")
+        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "1000")
+
+
+class LegacyEconomyMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.db_path = Path(self.temp_dir.name) / "economy.db"
+        self.db_patch = patch.object(economy, "DB_PATH", self.db_path)
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
+
+    def test_migrates_legacy_user_primary_key_without_losing_balance(self):
+        with closing(economy.sqlite3.connect(self.db_path)) as con:
+            con.execute("""
+                CREATE TABLE users (
+                    user_id INTEGER PRIMARY KEY,
+                    guild_id INTEGER,
+                    wallet INTEGER NOT NULL DEFAULT 1000,
+                    bank INTEGER NOT NULL DEFAULT 0,
+                    last_daily TEXT, last_work TEXT, last_fish TEXT, last_rob TEXT
+                )
+            """)
+            con.execute(
+                "INSERT INTO users(user_id,guild_id,wallet,bank) VALUES(?,?,?,?)",
+                (456, 123, 9876, 321),
+            )
+            con.commit()
+
+        store = economy.EconomyStore()
+        original = store.get(123, 456)
+        isolated = store.get(789, 456)
+        self.assertEqual((original["wallet"], original["bank"]), ("9876", "321"))
+        self.assertEqual((isolated["wallet"], isolated["bank"]), ("1000", "0"))
+        with closing(store.connect()) as con:
+            pk = {row["name"]: row["pk"] for row in con.execute("PRAGMA table_info(users)")}
+        self.assertEqual(pk["guild_id"], 1)
+        self.assertEqual(pk["user_id"], 2)
 
 if __name__ == "__main__":
     unittest.main()
