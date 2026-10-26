@@ -77,7 +77,10 @@ def _add_display_names(rows: list[dict]) -> list[dict]:
         return rows
     token = _discord_token()
     if not token:
-        return [{**row, "display_name": "未設定 Discord Token"} for row in rows]
+        return [
+            {**row, "user_id": str(row["user_id"]), "display_name": "未設定 Discord Token"}
+            for row in rows
+        ]
 
     now = time.monotonic()
     pending = []
