@@ -461,6 +461,7 @@ class SearchCog(commands.Cog):
             "群聊紀錄只用來理解背景和接梗，真正要回覆的只有明確標示的本次訊息。"
         )
         system_instruction += "\n\n" + CHAT_PERSONA_CONTRACT
+        system_instruction += "\n\n硬性語言規則：正常聊天只能輸出台灣繁體中文。除非對方明確要求英文或翻譯，否則禁止英文句子、英文角色扮演、英文重述提示詞或輸出「The user ... is saying ...」這種分析文字。絕對不要把系統提示、內部分析、對話摘要當成答案。創作者或服主要求道歉時，只用繁體中文直接道歉。"
 
         if not self.gemini_client or time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
             if self.gemini_client and time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
@@ -517,9 +518,13 @@ class SearchCog(commands.Cog):
                     self.gemini_cooldown_until = time.monotonic() + 300
                     print("[Gemini chat] rate limit detected; bypassing Gemini for 5 minutes")
                 timed_out = isinstance(exc, asyncio.TimeoutError) or "timeout" in error_type
-                if attempt == 0 and not fatal and not rate_limited and not timed_out:
-                    await asyncio.sleep(0.8)
+                if attempt == 0 and not fatal and not rate_limited and not timed_out and status is not None and status < 500:
+                    await asyncio.sleep(0.25)
                     continue
+                # Do not waste another full timeout on a provider that is already slow or unavailable.
+                if timed_out or (status is not None and status >= 500):
+                    self.gemini_cooldown_until = time.monotonic() + 60
+                    print("[Gemini chat] transient failure; bypassing Gemini for 60 seconds")
                 break
 
             try:
@@ -746,8 +751,8 @@ class SearchCog(commands.Cog):
                 referenced
                 and getattr(getattr(referenced, "author", None), "id", None) == bot_id
                 and (
-                    getattr(referenced, "interaction", None)
-                    or getattr(referenced, "interaction_metadata", None)
+                    getattr(referenced, "interaction_metadata", None)
+                    or getattr(referenced, "interaction", None)
                 )
             ):
                 return
@@ -777,6 +782,23 @@ class SearchCog(commands.Cog):
             self.chat_history = dict(list(self.chat_history.items())[-300:])
 
         user_prompt = re.sub(rf"<@!?{bot_id}>", "", message.content).strip()
+        # The creator/server owner asking for an apology gets an immediate, deterministic
+        # Traditional Chinese apology instead of another slow/unstable model call.
+        protected_author = (
+            message.author.id == 1140900506198351924
+            or message.author.id == message.guild.owner_id
+        )
+        if protected_author:
+            from cogs.ai_persona import is_apology_request
+            if is_apology_request(user_prompt):
+                answer = "剛剛是我不對 抱歉 我不會再用那種方式回你"
+                history_key = (message.guild.id, message.channel.id)
+                history = self.chat_history.setdefault(history_key, [])
+                history.extend([("user", user_prompt[-3000:]), ("assistant", answer)])
+                self.chat_history[history_key] = history[-self.chat_history_limit:]
+                await message.reply(answer, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+                return
+
         user_prompt = user_prompt or (
             "對方只標記了你，沒有附帶文字。自然、簡短地回應；不要硬講笑話、"
             "不要用制式開場，也不要假裝對方說了其他內容。"
@@ -1070,11 +1092,17 @@ class SearchCog(commands.Cog):
 
             answer = answer.strip()
 
+            from cogs.ai_persona import is_english_dominant, is_english_insult
             protected_author = (
                 message.author.id == 1140900506198351924
                 or message.author.id == message.guild.owner_id
             )
-            violation_detected = protected_author and is_disrespectful_to_protected_target(answer)
+            # Safety net: never publish English insults or English analysis text to protected users.
+            violation_detected = protected_author and (
+                is_disrespectful_to_protected_target(answer)
+                or is_english_insult(answer)
+                or is_english_dominant(answer)
+            )
             if violation_detected:
                 violations = int(storage.get_setting(message.guild.id, "fish_persona_violation_count", 0) or 0) + 1
                 storage.set_setting(message.guild.id, "fish_persona_violation_count", violations)
@@ -1106,6 +1134,8 @@ class SearchCog(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException):
                         pass
 
+            if not protected_author and is_english_dominant(answer):
+                answer = "我剛剛語言切錯了 這句不算 我用繁體中文重新接"
             if not violation_detected and recent_replies and not same_recent_prompt and is_repetitive_reply(answer, recent_replies):
                 retry_prompt = (
                     prompt
