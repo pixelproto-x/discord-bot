@@ -344,9 +344,9 @@ class WorldEconomy:
                     balance = int(row["balance"])
                     if now > row["due_at"]:
                         balance += max(1, balance // 100)
-                    paid = min(balance, due_amount)
-                    due_amount -= paid
-                    balance -= paid
+                    paid_from_loan = min(balance, due_amount)
+                    due_amount -= paid_from_loan
+                    balance -= paid_from_loan
                     if balance == 0:
                         con.execute("UPDATE world_loans SET balance=0,status='paid' WHERE id=?", (row["id"],))
                     else:
