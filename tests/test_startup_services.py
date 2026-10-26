@@ -9,7 +9,7 @@ from startup_services import find_freemind_ai_project, freemind_ai_launcher_runn
 
 def make_project(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "run.bat").write_text("@echo off\necho test\n", encoding="utf-8")
+    (root / "run.bat").write_text("@echo off\r\necho test\r\n", encoding="utf-8")
     app = root / "freemind"
     app.mkdir(exist_ok=True)
     (app / "main.py").write_text("app = None\n", encoding="utf-8")
@@ -21,7 +21,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="FreeMind AI (3) ") as temp:
             project = Path(temp)
             launcher = project / "run.bat"
-            launcher.write_text("@echo off\\r\\necho test\\r\\n", encoding="utf-8")
+            launcher.write_text("@echo off\r\necho test\r\n", encoding="utf-8")
             with patch("startup_services.os.name", "nt"), patch(
                 "startup_services.os.startfile", create=True
             ) as startfile:
@@ -32,7 +32,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
 
     def test_detects_active_freemindai_batch_launch(self):
         result = type("Result", (), {
-            "stdout": "123\\tcmd.exe\\tC:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat",
+            "stdout": "123\tcmd.exe\tC:/Users/Test/FreeMindAI-main (3)/FreeMindAI-main/run.bat",
             "returncode": 0,
         })()
         with patch("startup_services.os.name", "nt"), patch(
@@ -42,7 +42,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
 
     def test_ignores_old_idle_cmd_k_window(self):
         result = type("Result", (), {
-            "stdout": "123\\tcmd.exe\\tcmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat",
+            "stdout": "123\tcmd.exe\tcmd.exe /d /k call C:/Users/Test/FreeMindAI-main/run.bat",
             "returncode": 0,
         })()
         with patch("startup_services.os.name", "nt"), patch(
@@ -101,7 +101,7 @@ class FindFreeMindAIProjectTests(unittest.TestCase):
             home = Path(temp)
             incomplete = home / "Downloads" / "FreeMindAI-main (2)"
             incomplete.mkdir(parents=True)
-            (incomplete / "run.bat").write_text("@echo off\n", encoding="utf-8")
+            (incomplete / "run.bat").write_text("@echo off\r\n", encoding="utf-8")
             with patch.dict(os.environ, {"FREEMIND_AI_PROJECT_DIR": ""}):
                 found = find_freemind_ai_project(home / "discord-bot", home_dir=home)
             self.assertIsNone(found)
