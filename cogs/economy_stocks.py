@@ -199,8 +199,7 @@ class StockStore:
             ).fetchall()
 
 
-class StockCog(commands.Cog):
-    stocks_group = app_commands.Group(name=app_commands.locale_str("stocks", zh_TW="股票"), description="模擬股票交易")
+class StockCog(commands.GroupCog, group_name=app_commands.locale_str("stocks", zh_TW="股票"), group_description="模擬股票交易"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.store = StockStore()
@@ -221,7 +220,7 @@ class StockCog(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
 
-    @stocks_group.command(name=app_commands.locale_str("stock-market", zh_TW="股票市場"), description="查看伺服器模擬股票報價")
+    @app_commands.command(name=app_commands.locale_str("stock-market", zh_TW="股票市場"), description="查看伺服器模擬股票報價")
     @app_commands.rename(public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(public="是否將報價公開發到頻道")
     async def stock_market(self, interaction: discord.Interaction, public: bool = False):
@@ -239,7 +238,7 @@ class StockCog(commands.Cog):
             lines.append("**" + symbol + "｜" + label + "**　NT$ " + format(price, ",") + "　（" + sign + format(change, ".2f") + "%）")
         await self._reply(interaction, "模擬股票市場\n\n" + "\n".join(lines) + "\n\n每 5 分鐘更新一次模擬價格；漲跌為隨機模擬，並非真實市場行情。", public)
 
-    @stocks_group.command(name=app_commands.locale_str("stock-buy", zh_TW="股票買進"), description="使用伺服器現金買進模擬股票")
+    @app_commands.command(name=app_commands.locale_str("stock-buy", zh_TW="股票買進"), description="使用伺服器現金買進模擬股票")
     @app_commands.choices(symbol=[app_commands.Choice(name=key + "｜" + value[0], value=key) for key, value in STARTING_PRICES.items()])
     @app_commands.rename(symbol=app_commands.locale_str("symbol", zh_TW="股票代號"), shares=app_commands.locale_str("shares", zh_TW="股數"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(shares="買進股數", public="是否將交易結果公開發到頻道")
@@ -249,7 +248,7 @@ class StockCog(commands.Cog):
         _, message = self.store.trade(interaction.guild_id, interaction.user.id, symbol.value, "buy", shares)
         await self._reply(interaction, message, public)
 
-    @stocks_group.command(name=app_commands.locale_str("stock-sell", zh_TW="股票賣出"), description="賣出自己持有的模擬股票")
+    @app_commands.command(name=app_commands.locale_str("stock-sell", zh_TW="股票賣出"), description="賣出自己持有的模擬股票")
     @app_commands.choices(symbol=[app_commands.Choice(name=key + "｜" + value[0], value=key) for key, value in STARTING_PRICES.items()])
     @app_commands.rename(symbol=app_commands.locale_str("symbol", zh_TW="股票代號"), shares=app_commands.locale_str("shares", zh_TW="股數"), public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(shares="賣出股數", public="是否將交易結果公開發到頻道")
@@ -259,7 +258,7 @@ class StockCog(commands.Cog):
         _, message = self.store.trade(interaction.guild_id, interaction.user.id, symbol.value, "sell", shares)
         await self._reply(interaction, message, public)
 
-    @stocks_group.command(name=app_commands.locale_str("stock-portfolio", zh_TW="股票持倉"), description="查看持股、市值與未實現損益")
+    @app_commands.command(name=app_commands.locale_str("stock-portfolio", zh_TW="股票持倉"), description="查看持股、市值與未實現損益")
     @app_commands.rename(public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(public="是否將持倉結果公開發到頻道")
     async def stock_portfolio(self, interaction: discord.Interaction, public: bool = False):
@@ -288,7 +287,7 @@ class StockCog(commands.Cog):
             text = "我的股票持倉\n\n" + "\n\n".join(lines) + "\n\n總市值：NT$ " + format(total_value, ",") + "\n總成本：NT$ " + format(total_cost, ",") + "\n總未實現損益： " + sign + format(total_profit, ",")
         await self._reply(interaction, text, public)
 
-    @stocks_group.command(name=app_commands.locale_str("stock-history", zh_TW="股票紀錄"), description="查看最近股票買賣紀錄")
+    @app_commands.command(name=app_commands.locale_str("stock-history", zh_TW="股票紀錄"), description="查看最近股票買賣紀錄")
     @app_commands.rename(public=app_commands.locale_str("public", zh_TW="公開"))
     @app_commands.describe(public="是否將紀錄公開發到頻道")
     async def stock_history(self, interaction: discord.Interaction, public: bool = False):
