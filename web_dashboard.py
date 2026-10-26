@@ -51,9 +51,16 @@ self.addEventListener("message", event => {
 DASHBOARD_RETIRED_PAGE = """<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>控制台已更新</title>
-<meta http-equiv="refresh" content="0;url=about:blank">
-</head><body>此控制台分頁已被新版接管，可以關閉此分頁。</body></html>"""
+<title>控制台分頁已更新</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080f1c;color:#e8f7ff;font:16px system-ui,"Microsoft JhengHei",sans-serif}
+main{max-width:520px;margin:24px;padding:28px;border:1px solid #29445b;border-radius:16px;background:#101d2d}
+p{color:#a9bfd0;line-height:1.7}button{padding:10px 16px;border:1px solid #48e5ff;border-radius:8px;background:#0d3348;color:#e8f7ff;cursor:pointer}
+</style></head><body><main>
+<h1>控制台分頁已更新</h1>
+<p>這是舊的一條魚 Control 分頁。新版控制台已經開啟，這個分頁不會再自動跳轉成空白頁。</p>
+<button type="button" onclick="window.close()">關閉此分頁</button>
+</main></body></html>"""
 
 
 
@@ -191,7 +198,7 @@ window.addEventListener("storage",event=>{
  if(event.key!==CONTROL_TAB_KEY||!event.newValue||event.newValue===CONTROL_TAB_ID)return;
  try{window.close()}catch{}
  setTimeout(()=>{
-  try{if(!window.closed)window.location.replace("about:blank")}catch{}
+  try{if(!window.closed)window.location.replace("/__dashboard_replaced")}catch{}
  },0);
 });
 function releaseControlTab(){
