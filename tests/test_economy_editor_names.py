@@ -30,7 +30,8 @@ class DiscordDisplayNameTests(unittest.TestCase):
     def test_editor_displays_name_and_keeps_id_only_as_internal_save_key(self):
         self.assertIn('["display_name","玩家名稱"]', editor.PAGE)
         self.assertNotIn('["user_id","Discord 使用者 ID"]', editor.PAGE)
-        self.assertIn("const payload={user_id:user.user_id}", editor.PAGE)
+        self.assertIn("const payload={guild_id:user.guild_id,user_id:user.user_id}", editor.PAGE)
+        self.assertIn('WHERE guild_id=? AND user_id=?', editor.PAGE)
 
     def test_missing_token_returns_explicit_name_fallback_without_network(self):
         with patch.object(editor, "_discord_token", return_value=""):
