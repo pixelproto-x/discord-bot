@@ -1,0 +1,44 @@
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import economy_editor_names as editor
+
+
+class DiscordDisplayNameTests(unittest.TestCase):
+    def test_prefers_server_nickname(self):
+        with patch.object(
+            editor, "_discord_get",
+            return_value={"nick": "伺服器暱稱", "user": {"global_name": "全域名稱", "username": "username"}},
+        ):
+            self.assertEqual(editor._fetch_name(123, 456, "token"), "伺服器暱稱")
+
+    def test_falls_back_to_global_name_when_member_lookup_fails(self):
+        def fake_get(path, token):
+            if path.startswith("/guilds/"):
+                raise editor.urllib.error.HTTPError(path, 404, "Not Found", None, None)
+            return {"id": "123", "global_name": "全域名稱", "username": "username"}
+
+        with patch.object(editor, "_discord_get", side_effect=fake_get):
+            self.assertEqual(editor._fetch_name(123, 456, "token"), "全域名稱")
+
+    def test_falls_back_to_username_when_global_name_missing(self):
+        with patch.object(editor, "_discord_get", return_value={"id": "123", "username": "username"}):
+            self.assertEqual(editor._fetch_name(123, 0, "token"), "username")
+
+    def test_editor_displays_name_and_keeps_id_only_as_internal_save_key(self):
+        self.assertIn('["display_name","玩家名稱"]', editor.PAGE)
+        self.assertNotIn('["user_id","Discord 使用者 ID"]', editor.PAGE)
+        self.assertIn("const payload={user_id:user.user_id}", editor.PAGE)
+
+    def test_missing_token_returns_explicit_name_fallback_without_network(self):
+        with patch.object(editor, "_discord_token", return_value=""):
+            self.assertEqual(
+                editor._add_display_names([{"user_id": 123, "guild_id": 456}])[0]["display_name"],
+                "未設定 Discord Token",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
