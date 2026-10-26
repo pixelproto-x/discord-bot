@@ -833,6 +833,44 @@ class MusicQueueConsistencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.queue, [second])
 
 
+class MusicTrackEventIdentityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delayed_end_for_duplicate_uri_does_not_advance_current_occurrence(self):
+        from types import SimpleNamespace
+
+        first_occurrence = SimpleNamespace(
+            title="Same song", uri="https://youtube.com/watch?v=duplicate"
+        )
+        second_occurrence = SimpleNamespace(
+            title="Same song", uri="https://youtube.com/watch?v=duplicate"
+        )
+        queued = SimpleNamespace(title="Next song", uri="https://youtube.com/watch?v=next")
+        player = SimpleNamespace(
+            guild=SimpleNamespace(id=654321),
+            play=AsyncMock(),
+        )
+        cog = music.MusicCog(SimpleNamespace())
+        session = music.MusicSession(
+            player=player,
+            queue=[queued],
+            current=second_occurrence,
+        )
+        cog.sessions[654321] = session
+
+        # This late event belongs to the first occurrence, not the current one.
+        await cog.on_wavelink_track_end(
+            SimpleNamespace(
+                player=player,
+                original=first_occurrence,
+                track=first_occurrence,
+                reason="FINISHED",
+            )
+        )
+
+        self.assertIs(session.current, second_occurrence)
+        self.assertEqual(session.queue, [queued])
+        player.play.assert_not_awaited()
+
+
 class MusicLoopRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_single_track_repeat_advances_to_waiting_queue(self):
         from types import SimpleNamespace
