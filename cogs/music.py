@@ -752,7 +752,10 @@ class MusicCog(commands.Cog):
                 pass
             session.queue.append(track)
         started = False
-        if session.current is None and not session.player.playing:
+        if session.current is None:
+            # ensure_player adopts Player.current when Lavalink reports an active
+            # track. If no track can be identified, do not leave new queue entries
+            # stranded just because the player playing flag is stale.
             await self.play_next(guild.id)
             started = True
         return len(selected), started
