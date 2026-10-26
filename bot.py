@@ -1151,7 +1151,7 @@ def _stop_local_listener(port: int) -> bool:
         return False
 
 def _start_companion_services():
-    """Start the user's sibling FreeMindAI service and economy editor on Windows."""
+    """Start the local economy editor companion service on Windows."""
     if os.name != "nt":
         return
 
