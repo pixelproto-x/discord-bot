@@ -122,6 +122,16 @@ class EconomyStore:
                     PRIMARY KEY (guild_id, user_id, item_key)
                 )
             """)
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS economy_effects (
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    effect_key TEXT NOT NULL,
+                    charges INTEGER NOT NULL DEFAULT 0 CHECK(charges >= 0),
+                    expires_at TEXT,
+                    PRIMARY KEY (guild_id, user_id, effect_key)
+                )
+            """)
             columns = {row["name"]: row for row in con.execute("PRAGMA table_info(users)")}
             # Existing INTEGER-affinity tables can still store decimal strings, but
             # rebuild to TEXT affinity so all 2000 digits remain exact.
@@ -167,6 +177,7 @@ class EconomyStore:
     def claim(self, guild_id, user_id, kind, amount):
         column = {"daily": "last_daily", "work": "last_work", "fish": "last_fish"}[kind]
         now = now_utc()
+        effect_used = []
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
@@ -174,15 +185,39 @@ class EconomyStore:
             last = parse_time(row[column])
             if last and now < last + timedelta(seconds=COOLDOWNS[kind]):
                 con.rollback()
-                return False, max(1, int((last + timedelta(seconds=COOLDOWNS[kind]) - now).total_seconds()))
+                return False, max(1, int((last + timedelta(seconds=COOLDOWNS[kind]) - now).total_seconds())), None
+            effect_key = {"work": "work_ticket", "fish": "premium_bait"}.get(kind)
+            if effect_key:
+                effect = con.execute(
+                    "SELECT charges FROM economy_effects WHERE guild_id=? AND user_id=? AND effect_key=?",
+                    (guild_id, user_id, effect_key),
+                ).fetchone()
+                if effect and int(effect["charges"]) > 0:
+                    amount *= 2
+                    effect_used.append(ITEMS[effect_key][0])
+                    con.execute(
+                        "UPDATE economy_effects SET charges=charges-1 WHERE guild_id=? AND user_id=? AND effect_key=?",
+                        (guild_id, user_id, effect_key),
+                    )
+            lucky = con.execute(
+                "SELECT charges FROM economy_effects WHERE guild_id=? AND user_id=? AND effect_key='lucky_charm'",
+                (guild_id, user_id),
+            ).fetchone()
+            if kind in {"work", "fish"} and lucky and int(lucky["charges"]) > 0:
+                amount = int(amount * 1.5)
+                effect_used.append("幸運符")
+                con.execute(
+                    "UPDATE economy_effects SET charges=charges-1 WHERE guild_id=? AND user_id=? AND effect_key='lucky_charm'",
+                    (guild_id, user_id),
+                )
             wallet = row["wallet"]
             if not is_infinite(wallet) and int(wallet) + amount > MAX_BALANCE:
                 con.rollback()
-                return False, -1
+                return False, -1, None
             con.execute(f"UPDATE users SET wallet=?, {column}=? WHERE user_id=?",
                         (add_balance(wallet, amount), now.isoformat(), user_id))
             con.commit()
-            return True, amount
+            return True, amount, "、".join(effect_used) if effect_used else None
 
     def move(self, guild_id, user_id, amount, deposit):
         source, destination = ("wallet", "bank") if deposit else ("bank", "wallet")
@@ -264,6 +299,55 @@ class EconomyStore:
             ).fetchall()
         return [(row["item_key"], int(row["quantity"])) for row in rows if row["item_key"] in ITEMS]
 
+    def use_item(self, guild_id, user_id, item_key):
+        if item_key not in ITEMS:
+            return False, "找不到這個商品。"
+        name = ITEMS[item_key][0]
+        now = now_utc()
+        with closing(self.connect()) as con:
+            con.execute("BEGIN IMMEDIATE")
+            self.ensure(con, guild_id, user_id)
+            row = con.execute(
+                "SELECT quantity FROM economy_inventory WHERE guild_id=? AND user_id=? AND item_key=?",
+                (guild_id, user_id, item_key),
+            ).fetchone()
+            if not row or int(row["quantity"]) < 1:
+                con.rollback()
+                return False, f"你的背包沒有「{name}」。"
+            if item_key == "anti_rob":
+                expiry = now + timedelta(hours=1)
+                existing = con.execute(
+                    "SELECT expires_at FROM economy_effects WHERE guild_id=? AND user_id=? AND effect_key='anti_rob'",
+                    (guild_id, user_id),
+                ).fetchone()
+                current_expiry = parse_time(existing["expires_at"]) if existing else None
+                if current_expiry and current_expiry > now:
+                    con.rollback()
+                    return False, f"防搶保護尚未結束，剩餘 {cooldown_text(int((current_expiry-now).total_seconds()))}，不會消耗道具。"
+                con.execute(
+                    "INSERT INTO economy_effects(guild_id,user_id,effect_key,charges,expires_at) VALUES(?,?, 'anti_rob',0,?) "
+                    "ON CONFLICT(guild_id,user_id,effect_key) DO UPDATE SET expires_at=excluded.expires_at",
+                    (guild_id, user_id, expiry.isoformat()),
+                )
+                detail = "已啟動 1 小時防搶保護。"
+            else:
+                con.execute(
+                    "INSERT INTO economy_effects(guild_id,user_id,effect_key,charges,expires_at) VALUES(?,?,?,1,NULL) "
+                    "ON CONFLICT(guild_id,user_id,effect_key) DO UPDATE SET charges=charges+1",
+                    (guild_id, user_id, item_key),
+                )
+                detail = {
+                    "lucky_charm": "下一次打工或釣魚收益增加 50%。",
+                    "premium_bait": "下一次釣魚收益加倍。",
+                    "work_ticket": "下一次打工收益加倍。",
+                }[item_key]
+            con.execute(
+                "UPDATE economy_inventory SET quantity=quantity-1 WHERE guild_id=? AND user_id=? AND item_key=?",
+                (guild_id, user_id, item_key),
+            )
+            con.commit()
+            return True, f"已使用 **{name}**。{detail}"
+
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
@@ -276,6 +360,14 @@ class EconomyStore:
             if last and now < last + timedelta(seconds=COOLDOWNS["rob"]):
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
+            protection = con.execute(
+                "SELECT expires_at FROM economy_effects WHERE guild_id=? AND user_id=? AND effect_key='anti_rob'",
+                (guild_id, target_id),
+            ).fetchone()
+            protected_until = parse_time(protection["expires_at"]) if protection else None
+            if protected_until and protected_until > now:
+                con.rollback()
+                return "protected", max(1, int((protected_until - now).total_seconds()))
             if success:
                 if is_infinite(target["wallet"]):
                     con.rollback()
@@ -380,12 +472,13 @@ class EconomyCog(commands.Cog):
                     break
             name, low, high = chosen
             amount, line, title = random.randint(low, high), f"你釣到了 **{name}**", "釣魚結果"
-        ok, detail = self.store.claim(target.guild.id, user.id, kind, amount)
+        ok, detail, effect_used = self.store.claim(target.guild.id, user.id, kind, amount)
         if not ok:
             message = "錢包已達系統上限，無法增加金幣。" if detail == -1 else f"冷卻中，還要等 **{cooldown_text(detail)}**。"
             await self._reply(target, message, public=public)
             return
-        await self._reply(target, f"**{title}**\n{line}，獲得 **{amount:,}** 金幣。", public=public)
+        effect_text = f"\\n道具效果：{effect_used}" if effect_used else ""
+        await self._reply(target, f"**{title}**\\n{line}，獲得 **{detail:,}** 金幣。{effect_text}", public=public)
 
     @app_commands.command(name=app_commands.locale_str("daily", zh_TW="簽到"), description="每日簽到領取 500 至 1500 金幣")
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
@@ -529,6 +622,8 @@ class EconomyCog(commands.Cog):
             message = f"你剛搶過人，再等 **{cooldown_text(value)}**。"
         elif outcome == "cap":
             message = "你的錢包接近系統上限，這次無法完成。"
+        elif outcome == "protected":
+            message = f"{member.mention} 使用了防搶卡，還有 **{cooldown_text(value)}** 保護時間，這次搶劫無效。"
         elif outcome == "unstealable":
             message = f"{member.mention} 的錢包是無限金額，無法搶走。"
         elif outcome == "empty":
@@ -584,6 +679,24 @@ class EconomyCog(commands.Cog):
         await self._reply(
             interaction,
             "",
+            embed=discord.Embed(description=result, color=0x2ECC71 if ok else 0xE74C3C),
+            public=False,
+        )
+
+    @app_commands.command(name=app_commands.locale_str("use-item", zh_TW="使用道具"), description="使用背包中的道具")
+    @app_commands.choices(item=[
+        app_commands.Choice(name="防搶卡", value="anti_rob"),
+        app_commands.Choice(name="幸運符", value="lucky_charm"),
+        app_commands.Choice(name="高級魚餌", value="premium_bait"),
+        app_commands.Choice(name="打工加成券", value="work_ticket"),
+    ])
+    @app_commands.rename(item=app_commands.locale_str("商品", zh_TW="商品"))
+    async def use_item_slash(self, interaction: discord.Interaction, item: app_commands.Choice[str]):
+        if not await self._guild(interaction):
+            return
+        ok, result = self.store.use_item(interaction.guild.id, interaction.user.id, item.value)
+        await self._reply(
+            interaction, "",
             embed=discord.Embed(description=result, color=0x2ECC71 if ok else 0xE74C3C),
             public=False,
         )
