@@ -135,9 +135,45 @@ def _strip_emojis(text: str) -> str:
     """Preserve emojis so casual AI replies can use them naturally."""
     return text
 
+def _clean_model_output(text: str) -> str:
+    """Remove analysis-labelled preambles and refuse to publish analysis-only output."""
+    answer = (text or "").strip()
+    if not answer:
+        return ""
+
+    answer = re.sub(r"<think(?:ing)?\b[^>]*>.*?(?:</think(?:ing)?\s*>|$)", "", answer, flags=re.I | re.S)
+    answer = re.sub(r"\[(?:internal )?(?:reasoning|analysis|思考過程|內部分析)\].*?(?:\[/(?:internal )?(?:reasoning|analysis|思考過程|內部分析)\]|$)", "", answer, flags=re.I | re.S)
+
+    starts_as_analysis = re.match(
+        r"^\s*(?:思考過程|內部分析|分析過程|推理過程|let me think|let's think|analysis|reasoning|scratchpad)\s*[:：\-]?\s*",
+        answer,
+        flags=re.I,
+    )
+    if starts_as_analysis:
+        final_match = re.search(
+            r"(?:最終答案|最後答案|正式回答|回覆|答案|final answer|final response)\s*[:：]\s*",
+            answer[starts_as_analysis.end():],
+            flags=re.I,
+        )
+        if not final_match:
+            return ""
+        answer = answer[starts_as_analysis.end() + final_match.end():].strip()
+
+    if re.match(
+        r"^\s*(?:the user\b|the creator\b|the server owner\b|i should (?:respond|answer)|i need to (?:respond|answer)|we need to answer|as an ai\b)",
+        answer,
+        flags=re.I,
+    ):
+        return ""
+
+    if re.search(r"(?:^|\n)\s*(?:思考過程|內部分析|分析過程|推理過程|scratchpad)\s*[:：]", answer, flags=re.I):
+        return ""
+    return answer.strip()
+
+
 def _sanitize_chat_reply(text: str) -> str:
-    """Apply the same output normalization and minimum validity checks to every chat provider."""
-    answer = normalize_chat_reply(_strip_emojis(text or ""))
+    """Normalize output and block analysis-labelled text before sending."""
+    answer = normalize_chat_reply(_clean_model_output(_strip_emojis(text or "")))
     return answer if is_valid_chat_reply(answer) else ""
 
 
@@ -372,7 +408,7 @@ class SearchCog(commands.Cog):
         return finish_reason, input_tokens, output_tokens, thinking_tokens
 
     async def _send_ai_output(self, interaction, answer: str, filename: str, empty_message: str):
-        answer = (answer or "").strip()
+        answer = _clean_model_output(answer or "").strip()
         if not answer:
             await interaction.followup.send(empty_message)
             return
@@ -610,7 +646,12 @@ class SearchCog(commands.Cog):
                     print("[Gemini API] output reached the token limit; switching to Groq fallback")
                     break
                 if answer:
-                    return _strip_emojis(answer)
+                    cleaned = _clean_model_output(_strip_emojis(answer))
+                    if cleaned:
+                        return cleaned
+                    last_failure = "analysis_output_blocked"
+                    print("[Gemini API] filtered analysis-labelled output; switching to fallback")
+                    break
                 last_failure = "empty_response"
             except Exception as exc:
                 last_failure = "gemini_error"
@@ -688,7 +729,7 @@ class SearchCog(commands.Cog):
         try:
             async with message.channel.typing():
                 answer = await self._generate_gemini_chat(prompt)
-            answer = (answer or "").strip()
+            answer = _sanitize_chat_reply(answer or "")
             from cogs.ai_persona import is_english_dominant
             if is_english_dominant(answer):
                 answer = "我剛剛語言切錯了 這句不算 我會用繁體中文回覆"
