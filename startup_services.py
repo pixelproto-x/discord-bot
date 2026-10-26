@@ -77,6 +77,8 @@ def stop_stale_freemind_ai_launch_windows() -> list[int]:
     stopped = []
 
     for pid, _, name, command_line in processes:
+        name = name.casefold()
+        command_line = command_line.casefold()
         if name != "cmd.exe" or "freemindai" not in command_line:
             continue
         if "/k" not in command_line or not any(
@@ -108,6 +110,8 @@ def freemind_ai_launcher_running() -> bool:
     child_parent_ids = {parent_id for _, parent_id, _, _ in processes}
 
     for pid, _, process_name, command_line in processes:
+        process_name = process_name.casefold()
+        command_line = command_line.casefold()
         if pid == os.getpid() or "freemindai" not in command_line:
             continue
         if process_name == "cmd.exe":
