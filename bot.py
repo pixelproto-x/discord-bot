@@ -1157,7 +1157,7 @@ def _start_companion_services():
     elif ai_runner is not None:
         try:
             subprocess.Popen(
-                freemind_ai_launch_command(ai_dir),
+                freemind_ai_launch_command(),
                 cwd=str(ai_dir),
                 creationflags=create_console,
             )
