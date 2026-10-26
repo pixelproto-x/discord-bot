@@ -27,7 +27,7 @@ _LOG_HANDLER = logging.handlers.RotatingFileHandler(
 _LOG_HANDLER.setFormatter(logging.Formatter("%(message)s"))
 _LOG_LOCK = threading.Lock()
 _CONSOLE_IMPORTANT = (
-    "[OK]", "[錯誤]", "ERROR", "CRITICAL", "WARNING", "Traceback",
+    "[OK]", "[錯誤]", "[Dashboard] Local control token", "ERROR", "CRITICAL", "WARNING", "Traceback",
     "Exception", "exception", " failed", "Failed", "failed", "Error",
     "error", "429", "403", "401", "500", "denied", "disconnect",
     "reconnect", "Relay failed", "Reminder delivery failed",
