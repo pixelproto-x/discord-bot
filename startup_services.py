@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 
@@ -22,14 +23,57 @@ def _valid_freemind_ai_project(path: Path) -> Path | None:
     return None
 
 
-def freemind_ai_launch_command() -> list[str]:
-    """Launch run.bat by name; the caller must set cwd to the FreeMindAI project root.
+def launch_freemind_ai(run_bat: Path) -> None:
+    """Open the Windows batch file through ShellExecute, avoiding nested CMD quoting."""
+    if os.name != "nt":
+        raise OSError("FreeMindAI batch launch is only supported on Windows.")
 
-    Passing a quoted absolute .bat path through cmd.exe arguments can turn the
-    quotes into literal backslash-quote characters on Windows. Using a relative
-    command avoids that quoting boundary and still handles spaces in the folder.
-    """
-    return ["cmd.exe", "/d", "/k", "run.bat"]
+    launcher = run_bat.expanduser().resolve()
+    if not launcher.is_file() or launcher.suffix.casefold() != ".bat":
+        raise FileNotFoundError(f"FreeMindAI launcher not found: {launcher}")
+
+    # os.startfile delegates path parsing to Windows ShellExecute. This safely
+    # handles spaces and parentheses without assembling a cmd.exe command line.
+    os.startfile(str(launcher), "open", cwd=str(launcher.parent))
+
+
+def freemind_ai_launcher_running() -> bool:
+    """Detect a FreeMindAI batch launcher already starting, across duplicate checkouts."""
+    if os.name != "nt":
+        return False
+
+    query = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object { $_.Name -in @('cmd.exe','python.exe','pythonw.exe') -and $_.CommandLine } | "
+        "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.Name + [char]9 + $_.CommandLine) }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+    for line in result.stdout.splitlines():
+        fields = line.split("\\t", 2)
+        if len(fields) != 3 or not fields[0].strip().isdigit():
+            continue
+        process_name = fields[1].strip().casefold()
+        command_line = fields[2].casefold()
+        if "freemindai" not in command_line:
+            continue
+        if process_name == "cmd.exe":
+            # Ignore an old, idle /k window left behind by the broken launcher.
+            if "/k" in command_line:
+                continue
+            if "run.bat" in command_line or "update.bat" in command_line:
+                return True
+        elif "main.py" in command_line:
+            return True
+
+    return False
 
 
 def find_freemind_ai_project(
@@ -51,11 +95,14 @@ def find_freemind_ai_project(
     if configured:
         candidates.append(Path(configured).expanduser())
 
+    # The previous update log showed the current ZIP checkout under Downloads,
+    # while an older duplicate remained on OneDrive/Desktop. Search Downloads
+    # first so an unconfigured installation doesn't silently launch the stale copy.
     search_roots = (
-        bot_project_dir.expanduser().parent,
         home / "Downloads",
-        home / "Desktop",
         home / "OneDrive" / "Desktop",
+        home / "Desktop",
+        bot_project_dir.expanduser().parent,
         home / "Documents",
     )
 
