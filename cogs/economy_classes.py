@@ -175,7 +175,7 @@ class EconomyClassStore:
                 coins = max(1, int(reward * 0.2))
                 earned_xp = max(5, int(xp_gain * 0.5 * character_class["xp_bonus"]))
                 result_text = "遭遇小挫折，但仍學到經驗"
-            user = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
+            user = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             wallet = str(user["wallet"])
             if not is_infinite(wallet) and int(wallet) + coins > MAX_BALANCE:
                 coins = max(0, MAX_BALANCE - int(wallet))
