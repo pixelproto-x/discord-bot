@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import threading
+import webbrowser
 import time
 import urllib.error
 import urllib.request
@@ -307,7 +308,11 @@ def main():
     url = f"http://{HOST}:{PORT}/"
     print(f"經濟資料庫編輯器已啟動：{url}")
     print("關閉此視窗即可停止編輯器。建議修改前先停止 Discord Bot。")
-    print("已停用自動開新分頁；保留原本的編輯器分頁即可，服務重啟後會自動重新載入。")
+    print("正在開啟經濟編輯器頁面；若瀏覽器已開啟，請使用現有分頁。")
+    try:
+        webbrowser.open(url, new=0)
+    except Exception as exc:
+        print(f"無法自動開啟瀏覽器：{type(exc).__name__}；請手動開啟 {url}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
