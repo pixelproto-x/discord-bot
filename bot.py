@@ -1101,7 +1101,11 @@ def _stop_local_listener(port: int) -> bool:
     if os.name != "nt":
         return False
 
-    editor_path = str(Path(__file__).resolve().parent / "economy_editor.py")
+    project_dir = Path(__file__).resolve().parent
+    editor_paths = (
+        str(project_dir / "economy_editor_names.py"),
+        str(project_dir / "economy_editor.py"),
+    )
     pids: set[int] = set()
     stopped = False
     try:
@@ -1120,7 +1124,10 @@ def _stop_local_listener(port: int) -> bool:
             if len(fields) != 2 or not fields[0].strip().isdigit():
                 continue
             pid = int(fields[0].strip())
-            if pid != os.getpid() and command_line_targets_script(fields[1], editor_path):
+            if pid != os.getpid() and any(
+                command_line_targets_script(fields[1], editor_path)
+                for editor_path in editor_paths
+            ):
                 pids.add(pid)
 
         for pid in sorted(pids):
@@ -1167,7 +1174,9 @@ def _start_companion_services():
     else:
         print("[提示] 找不到 FreeMindAI 專案；已搜尋 Bot 資料夾旁、Downloads、Desktop、OneDrive\\Desktop 和 Documents。可在 .env 設定 FREEMIND_AI_PROJECT_DIR。")
 
-    economy_editor = project_dir / "economy_editor.py"
+    preferred_editor = project_dir / "economy_editor_names.py"
+    legacy_editor = project_dir / "economy_editor.py"
+    economy_editor = preferred_editor if preferred_editor.is_file() else legacy_editor
     if economy_editor.is_file():
         if _stop_local_listener(8766):
             print("[重啟] 已關閉舊的經濟資料庫編輯器。")
