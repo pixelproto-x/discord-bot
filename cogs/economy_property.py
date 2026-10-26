@@ -70,7 +70,7 @@ class PropertyStore:
                 con.rollback()
                 return False, f"購買 {label} 需要 {_money(cost)} 現金，目前有 {_money(wallet)}。"
             if not _is_inf(wallet):
-                self.world.set_wallet(con, user_id, str(int(wallet) - cost))
+                self.world.set_wallet(con, guild_id, user_id, str(int(wallet) - cost))
             cur = con.execute(
                 "INSERT INTO world_properties(guild_id,owner_id,property_type,level,last_collect,created_at) VALUES(?,?,?,1,?,?)",
                 (guild_id, user_id, property_type, now, now),
@@ -109,7 +109,7 @@ class PropertyStore:
                 con.rollback()
                 return False, "入帳後現金會超出系統上限，租金未領取。"
             if not _is_inf(wallet):
-                self.world.set_wallet(con, user_id, str(int(wallet) + total))
+                self.world.set_wallet(con, guild_id, user_id, str(int(wallet) + total))
             lines = []
             for row, periods, income, label in collected:
                 con.execute("UPDATE world_properties SET last_collect=last_collect+? WHERE id=? AND guild_id=? AND owner_id=?", (periods * 86400, row["id"], guild_id, user_id))
@@ -156,7 +156,7 @@ class PropertyStore:
                 con.rollback()
                 return False, "出售後現金會超出系統上限。"
             if not _is_inf(wallet):
-                self.world.set_wallet(con, user_id, str(int(wallet) + refund))
+                self.world.set_wallet(con, guild_id, user_id, str(int(wallet) + refund))
             con.execute("DELETE FROM world_properties WHERE id=? AND guild_id=? AND owner_id=?", (property_id, guild_id, user_id))
             self.world.ledger(con, guild_id, user_id, "property_sell", refund, f"出售房產：{label} #{property_id}")
             con.commit()
