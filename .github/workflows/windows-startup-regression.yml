@@ -1,0 +1,26 @@
+name: Windows Startup Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-batch-launch:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test startup discovery and duplicate detection
+        run: python -m unittest discover -s tests -p "test_startup_services.py" -v
+      - name: Execute a real batch file from a path containing spaces and parentheses
+        run: python -m unittest discover -s tests -p "test_windows_startup_integration.py" -v
