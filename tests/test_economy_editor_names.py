@@ -31,7 +31,12 @@ class DiscordDisplayNameTests(unittest.TestCase):
         self.assertIn('["display_name","玩家名稱"]', editor.PAGE)
         self.assertNotIn('["user_id","Discord 使用者 ID"]', editor.PAGE)
         self.assertIn("const payload={guild_id:user.guild_id,user_id:user.user_id}", editor.PAGE)
-        self.assertIn('WHERE guild_id=? AND user_id=?', editor.PAGE)
+        self.assertIn('const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id)', editor.PAGE)
+
+    def test_display_name_response_keeps_guild_id_as_exact_string(self):
+        with patch.object(editor, "_discord_token", return_value=""):
+            row = editor._add_display_names([{"user_id": 123, "guild_id": 987654321012345678}])[0]
+        self.assertEqual(row["guild_id"], "987654321012345678")
 
     def test_missing_token_returns_explicit_name_fallback_without_network(self):
         with patch.object(editor, "_discord_token", return_value=""):
