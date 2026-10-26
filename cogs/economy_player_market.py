@@ -193,7 +193,7 @@ class PlayerMarketCog(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
 
-    @app_commands.command(name="玩家市場", description="查看玩家自行定價上架的商品")
+    @app_commands.command(name=app_commands.locale_str("player-market", zh_TW="玩家市場"), description="查看玩家自行定價上架的商品")
     @app_commands.describe(public="是否將這次查詢公開發到頻道")
     async def player_market(self, interaction: discord.Interaction, public: bool = False):
         if not await self._guild_only(interaction):
@@ -210,7 +210,7 @@ class PlayerMarketCog(commands.Cog):
             )
         await self._reply(interaction, "玩家交易市場｜最新 10 筆\n\n" + "\n\n".join(lines), public)
 
-    @app_commands.command(name="玩家上架", description="用自己持有的商品和自訂單價建立販售清單")
+    @app_commands.command(name=app_commands.locale_str("player-list", zh_TW="玩家上架"), description="用自己持有的商品和自訂單價建立販售清單")
     @app_commands.choices(item=[
         app_commands.Choice(name="可口可樂 600ml", value="coca_cola_600"),
         app_commands.Choice(name="統一肉燥麵 5 入組", value="uni_noodles_5"),
@@ -241,7 +241,7 @@ class PlayerMarketCog(commands.Cog):
         ok, message = self.store.create_listing(interaction.guild_id, interaction.user.id, item.value, quantity, unit_price)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name="玩家購買", description="購買其他玩家上架的商品")
+    @app_commands.command(name=app_commands.locale_str("player-buy", zh_TW="玩家購買"), description="購買其他玩家上架的商品")
     @app_commands.rename(listing_id=app_commands.locale_str("listing-id", zh_TW="商品編號"), quantity=app_commands.locale_str("數量", zh_TW="數量"), public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(listing_id="在玩家市場看到的商品編號", quantity="購買數量", public="是否將購買結果公開發到頻道")
     async def player_buy(self, interaction: discord.Interaction, listing_id: app_commands.Range[int, 1, 2_147_483_647], quantity: app_commands.Range[int, 1, MAX_QUANTITY] = 1, public: bool = False):
@@ -250,7 +250,7 @@ class PlayerMarketCog(commands.Cog):
         ok, message = self.store.buy_listing(interaction.guild_id, interaction.user.id, listing_id, quantity)
         await self._reply(interaction, message, public)
 
-    @app_commands.command(name="玩家下架", description="下架自己販售中的商品並取回未售出的數量")
+    @app_commands.command(name=app_commands.locale_str("player-unlist", zh_TW="玩家下架"), description="下架自己販售中的商品並取回未售出的數量")
     @app_commands.rename(listing_id=app_commands.locale_str("listing-id", zh_TW="商品編號"), public=app_commands.locale_str("公開", zh_TW="公開"))
     @app_commands.describe(listing_id="在玩家市場看到的商品編號", public="是否將下架結果公開發到頻道")
     async def player_unlist(self, interaction: discord.Interaction, listing_id: app_commands.Range[int, 1, 2_147_483_647], public: bool = False):
