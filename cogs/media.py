@@ -65,7 +65,7 @@ def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENT
 
 def _parse_bounded_xml(data: bytes):
     import xml.etree.ElementTree as ET
-    upper = data[:4096].upper()
+    upper = data.upper()
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise ValueError("XML declarations with DTD/entities are not accepted")
     return ET.fromstring(data)
