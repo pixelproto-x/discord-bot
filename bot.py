@@ -1236,7 +1236,7 @@ def _start_freemind_ai_if_needed():
 
     project_dir = find_freemind_ai_project(Path(__file__).resolve().parent)
     if project_dir is None:
-        print("[提示] 找不到 FreeMindAI 專案，請確認 Downloads\FreeMindAI-main (3)\FreeMindAI-main 是否存在。")
+        print(r"[提示] 找不到 FreeMindAI 專案，請確認 Downloads\FreeMindAI-main (3)\FreeMindAI-main 是否存在。")
         return
 
     launcher = project_dir / "run.bat"
