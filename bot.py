@@ -1228,7 +1228,19 @@ def _start_freemind_ai_if_needed():
     stop_stale_freemind_ai_launch_windows()
 
     if _is_local_port_open(8080):
-        print("[OK] FreeMindAI 已在執行（8080），不重複開啟。")
+        # A listening port alone does not prove that FreeMindAI is healthy.
+        # Confirm its documented health endpoint before reporting success.
+        try:
+            from urllib.request import urlopen
+            with urlopen("http://127.0.0.1:8080/api/health", timeout=2) as response:
+                import json
+                payload = json.loads(response.read().decode("utf-8"))
+            if response.status == 200 and payload.get("status") == "ok" and payload.get("app") == "FreeMind AI":
+                print("[OK] FreeMindAI 健康檢查通過（/api/health），沿用現有服務，不重複開啟。")
+            else:
+                print("[錯誤] 8080 已被占用，但回應不是有效的 FreeMindAI 健康狀態；為避免重複啟動，未另開程序。")
+        except Exception as exc:
+            print(f"[錯誤] 8080 已被占用，但 FreeMindAI 健康檢查失敗：{type(exc).__name__}: {exc}；為避免重複啟動，未另開程序。")
         return
     if freemind_ai_launcher_running():
         print("[啟動] FreeMindAI 正在啟動中，不重複開啟。")
