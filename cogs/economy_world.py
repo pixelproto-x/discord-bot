@@ -345,6 +345,10 @@ class WorldEconomy:
                 con.commit()
                 return True, f"貸款已核准 **{amount:,}**，應還 **{balance:,}**，到期 <t:{due}:F>。逾期會增加費用。"
             if action == "repay":
+                # Zero means repay all; negative values must never be treated as that sentinel.
+                if type(amount) is not int or amount < 0:
+                    con.rollback()
+                    return False, "償還金額不可為負數；輸入 0 才代表全額償還。"
                 rows = con.execute(
                     "SELECT * FROM world_loans WHERE guild_id=? AND user_id=? AND status='active' ORDER BY due_at,id",
                     (guild_id, user_id),
