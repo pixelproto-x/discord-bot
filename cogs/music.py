@@ -4,6 +4,8 @@ import os
 import random
 import re
 import time
+
+import aiohttp
 from collections import defaultdict
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -129,6 +131,38 @@ def track_title(track) -> str:
     title = discord.utils.escape_mentions(title)
     title = re.sub(r"<@([!&]?\d+)>", lambda match: "<@\u200b" + match.group(1) + ">", title)
     return " ".join(title.split())
+
+
+async def spotify_fallback_query(value: str) -> str | None:
+    """Resolve a Spotify single-track URL to searchable public metadata without LavaSrc."""
+    if not is_spotify_url(value) or is_collection_url(value):
+        return None
+
+    timeout = aiohttp.ClientTimeout(total=8)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                "https://open.spotify.com/oembed",
+                params={"url": value},
+                headers={"Accept": "application/json", "User-Agent": "DiscordMusicBot/1.0"},
+            ) as response:
+                if response.status != 200:
+                    return None
+                payload = await response.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        return None
+
+    title = " ".join(str(payload.get("title") or "").split())
+    artist = " ".join(str(payload.get("author_name") or "").split())
+    if not title:
+        return None
+
+    # Some oEmbed responses already append the artist to the title.
+    if artist and title.casefold().endswith(f" · {artist}".casefold()):
+        title = title[: -(len(artist) + 3)].strip()
+    if artist and artist.casefold() not in title.casefold():
+        title = f"{artist} {title}"
+    return title[:MAX_QUERY_LENGTH] or None
 
 
 def is_spotify_url(value: str) -> bool:
@@ -744,29 +778,44 @@ class MusicCog(commands.Cog):
                 for config in LAVALINK_NODES
                 if config.get("spotify", False) is True
             }
-            if not spotify_node_ids:
+            spotify_nodes = tuple(node for node in nodes if node.identifier in spotify_node_ids)
+
+            # Prefer native LavaSrc URL resolution when a capable node is available.
+            if spotify_nodes:
+                tracks = await self._search_nodes(value, spotify_nodes)
+                if tracks:
+                    return tracks
+
+            # A Spotify URL can still be played without LavaSrc for single tracks:
+            # resolve its public oEmbed metadata, then search normal audio providers.
+            # Spotify collections need the plugin because oEmbed does not return their
+            # individual track list.
+            if is_collection_url(value):
                 raise RuntimeError(
-                    "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點。"
-                    "請在 .env 將該節點的 LAVALINK_n_SPOTIFY_ENABLED 設為 true；"
-                    "公開備援節點不保證支援 Spotify。"
+                    "這是 Spotify 專輯／播放清單連結，需要已啟用 LavaSrc 的 Lavalink 節點。"
+                    "單曲連結則可以在沒有 LavaSrc 時嘗試自動搜尋替代音源。"
                 )
-            nodes = tuple(node for node in nodes if node.identifier in spotify_node_ids)
-            if not nodes:
+
+            search_query = await spotify_fallback_query(value)
+            if not search_query:
                 raise RuntimeError(
-                    "已設定 Spotify/LavaSrc 節點，但目前沒有任何一個已連線；請檢查該節點狀態。"
+                    "目前無法讀取這首 Spotify 歌曲的名稱與歌手。請確認連結可公開讀取，"
+                    "或設定支援 LavaSrc 的 Lavalink 節點。"
                 )
+
+            for prefix in ("ytsearch:", "ytmsearch:", "scsearch:"):
+                tracks = await self._search_nodes(f"{prefix}{search_query}", nodes)
+                if tracks:
+                    print(f"[Music] Spotify 替代音源搜尋成功：source={prefix.rstrip(':')}")
+                    return tracks
+            raise RuntimeError(
+                f"已取得 Spotify 歌曲資訊，但 YouTube、YouTube Music 和 SoundCloud 都找不到可播放版本：{search_query}"
+            )
 
         is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
         if is_url:
-            # Resolve links directly. Spotify URLs are routed only to nodes explicitly
-            # configured as LavaSrc-capable; never reinterpret a URL as a keyword.
-            tracks = await self._search_nodes(value, nodes)
-            if is_spotify and not tracks:
-                raise RuntimeError(
-                    "Spotify 連結無法解析。請確認該 Lavalink 節點已安裝 LavaSrc，"
-                    "並在節點端啟用 plugins.lavasrc.sources.spotify。"
-                )
-            return tracks
+            # Non-Spotify links are resolved directly and never reinterpreted as keywords.
+            return await self._search_nodes(value, nodes)
 
         # Try YouTube first, then YouTube Music, before the SoundCloud fallback.
         # Public nodes can be slow under load, so each source gets a bounded timeout.
