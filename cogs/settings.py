@@ -649,6 +649,47 @@ class MemberEventsCog(commands.Cog):
         dt = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
         return f"{discord.utils.format_dt(dt, style='F')}（{discord.utils.format_dt(dt, style='R')}）"
 
+    async def _resolve_message_log_channel(self, guild, primary_channel_id, *, excluded_channel_id=None):
+        """Use the configured message-log channel, falling back to the management log channel."""
+        fallback_id = storage.get_setting(guild.id, "log_channel_id")
+        candidates = []
+        for raw_id in (primary_channel_id, fallback_id):
+            try:
+                channel_id = int(raw_id or 0)
+            except (TypeError, ValueError):
+                continue
+            if not channel_id or channel_id == int(excluded_channel_id or 0) or channel_id in candidates:
+                continue
+            candidates.append(channel_id)
+
+        bot_member = guild.me
+        if bot_member is None and self.bot.user is not None:
+            bot_member = guild.get_member(self.bot.user.id)
+
+        for channel_id in candidates:
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                try:
+                    fetched = await self.bot.fetch_channel(channel_id)
+                    channel = fetched if (
+                        isinstance(fetched, discord.TextChannel) and fetched.guild.id == guild.id
+                    ) else None
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, TypeError, ValueError):
+                    channel = None
+            if channel is None:
+                continue
+            if bot_member is not None:
+                permissions = channel.permissions_for(bot_member)
+                if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
+                    continue
+            if channel_id != int(primary_channel_id or 0):
+                print(
+                    f"[Message logs] 主要紀錄頻道不可用，改送管理紀錄頻道 "
+                    f"guild={guild.id}, channel={channel_id}。"
+                )
+            return channel
+        return None
+
     async def _send_delete_log(self, guild_id, payload, snapshot=None, cached_message=None):
         log_channel_id = storage.get_setting(guild_id, "message_log_channel_id")
         if not log_channel_id or int(log_channel_id) == payload.channel_id:
@@ -657,13 +698,9 @@ class MemberEventsCog(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         if guild is None:
             return
-        channel = guild.get_channel(int(log_channel_id))
-        if not isinstance(channel, discord.TextChannel):
-            try:
-                fetched = await self.bot.fetch_channel(int(log_channel_id))
-                channel = fetched if isinstance(fetched, discord.TextChannel) and fetched.guild.id == guild_id else None
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, TypeError, ValueError):
-                channel = None
+        channel = await self._resolve_message_log_channel(
+            guild, log_channel_id, excluded_channel_id=payload.channel_id
+        )
         if channel is None:
             return
 
@@ -888,13 +925,9 @@ class MemberEventsCog(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         if guild is None:
             return
-        channel = guild.get_channel(int(log_channel_id))
-        if not isinstance(channel, discord.TextChannel):
-            try:
-                fetched = await self.bot.fetch_channel(int(log_channel_id))
-                channel = fetched if isinstance(fetched, discord.TextChannel) and fetched.guild.id == guild_id else None
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, TypeError, ValueError):
-                channel = None
+        channel = await self._resolve_message_log_channel(
+            guild, log_channel_id, excluded_channel_id=channel_id
+        )
         if channel is None:
             return
         embed = discord.Embed(title=title, description=(description or "（沒有文字內容）")[:4000], color=color)
