@@ -74,7 +74,7 @@ class RolePanelView(ui.View):
                 for role in roles
             ]
             if options:
-                select = ui.StringSelect(
+                select = ui.Select(
                     placeholder="選你想要的身分組（可多選）",
                     min_values=1,
                     max_values=min(25, len(options)),
@@ -432,7 +432,7 @@ class PollView(ui.View):
         super().__init__(timeout=None)
         self.poll_id = poll_id
         self.multiple = multiple
-        select = ui.StringSelect(
+        select = ui.Select(
             placeholder="選你的答案" if not multiple else "可以選一個以上",
             min_values=1,
             max_values=len(options) if multiple else 1,
