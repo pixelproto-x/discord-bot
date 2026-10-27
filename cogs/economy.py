@@ -418,8 +418,10 @@ class EconomyStore:
                 con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
                             (subtract_balance(robber["wallet"], fine), guild_id, robber_id))
                 result = ("failed", fine)
-            if success:
-                con.execute("UPDATE users SET last_rob=? WHERE guild_id=? AND user_id=?", (now.isoformat(), guild_id, robber_id))
+            # Every resolved robbery attempt starts the 10-minute cooldown,
+            # whether it succeeds or fails. Earlier exits are only for blocked,
+            # invalid, or impossible attempts (cooldown/protection/empty target/cap).
+            con.execute("UPDATE users SET last_rob=? WHERE guild_id=? AND user_id=?", (now.isoformat(), guild_id, robber_id))
             con.commit()
             return result
 
@@ -733,7 +735,7 @@ class EconomyCog(commands.Cog):
             public=public,
         )
 
-    @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功後冷卻 10 分鐘，失敗不冷卻）")
+    @app_commands.command(name=app_commands.locale_str("rob", zh_TW="搶劫"), description="嘗試搶劫另一位成員（成功或失敗後均冷卻 10 分鐘）")
     @app_commands.describe(member="要搶劫的成員")
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示回覆", zh_TW="是否公開顯示回覆"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
