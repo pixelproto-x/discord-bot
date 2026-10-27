@@ -169,7 +169,7 @@ async def spotify_fallback_query(value: str) -> str | None:
 def spotify_playlist_queries_from_embed_html(html: str, *, limit: int = 25) -> list[str]:
     """Extract searchable artist/title strings from Spotify's public embed JSON."""
     match = re.search(
-        r"<script[^>]+id=['\\"]__NEXT_DATA__['\\"][^>]*>(.*?)</script>",
+        r"<script[^>]+id=['\"]__NEXT_DATA__['\"][^>]*>(.*?)</script>",
         html,
         re.IGNORECASE | re.DOTALL,
     )
