@@ -196,7 +196,7 @@ async def spotify_fallback_playlist_queries(value: str, *, limit: int = 25) -> l
                     return []
                 html = html.decode(response.charset or "utf-8", errors="replace")
         match = re.search(
-            r'<script[^>]+id=["\\']__NEXT_DATA__["\\'][^>]*>(.*?)</script>',
+            r"<script[^>]+id=['\"]__NEXT_DATA__['\"][^>]*>(.*?)</script>",
             html,
             re.IGNORECASE | re.DOTALL,
         )
