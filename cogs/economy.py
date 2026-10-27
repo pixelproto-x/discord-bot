@@ -242,9 +242,22 @@ class EconomyStore:
             if not is_infinite(destination_value) and int(destination_value) + amount > MAX_BALANCE:
                 con.rollback()
                 return False
-            con.execute(f"UPDATE users SET {source}=?, {destination}=? WHERE guild_id=? AND user_id=?",
-                        (subtract_balance(source_value, amount),
-                         add_balance(destination_value, amount), guild_id, user_id))
+            # Keep the balance check and write inside one immediate transaction.
+            # Also compare the values read above so a stale/unexpected row cannot
+            # be overwritten, and never commit a negative finite source balance.
+            new_source = subtract_balance(source_value, amount)
+            if not is_infinite(new_source) and int(new_source) < 0:
+                con.rollback()
+                return False
+            cursor = con.execute(
+                f"UPDATE users SET {source}=?, {destination}=? "
+                f"WHERE guild_id=? AND user_id=? AND {source}=? AND {destination}=?",
+                (new_source, add_balance(destination_value, amount),
+                 guild_id, user_id, source_value, destination_value),
+            )
+            if cursor.rowcount != 1:
+                con.rollback()
+                return False
             con.commit()
             return True
 
