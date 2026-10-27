@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import storage
-from cogs.history import History, HistoryPaginator, build_history_embed
+from cogs.history import (History, HistoryPaginator, MAX_HISTORY_ATTACHMENT_BYTES, _archive_attachment, build_history_embed)
 
 
 class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
@@ -59,6 +59,19 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
             "content_type": "text/plain",
             "archived": True,
         }]
+
+
+    async def test_oversized_attachment_is_not_downloaded_or_uploaded(self):
+        attachment = SimpleNamespace(
+            filename="huge.bin",
+            size=MAX_HISTORY_ATTACHMENT_BYTES + 1,
+            url="https://cdn.discordapp.com/attachments/1/2/huge.bin",
+            content_type="application/octet-stream",
+        )
+        with patch("cogs.history.aiohttp.ClientSession") as session:
+            result = await _archive_attachment(attachment)
+        self.assertIsNone(result)
+        session.assert_not_called()
 
     async def test_attachment_archive_finishing_after_delete_updates_deleted_record(self):
         message = self.make_message(with_attachment=True)
