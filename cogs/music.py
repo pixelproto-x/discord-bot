@@ -404,11 +404,23 @@ class MusicCog(commands.Cog):
         except asyncio.CancelledError:
             await self._discard_failed_node(node)
             raise
-        except Exception:
+        except asyncio.TimeoutError:
+            print(
+                f"[Music] 節點連線逾時：node={node.identifier}, "
+                f"timeout={LAVALINK_CONNECT_TIMEOUT_SECONDS}s"
+            )
+            await self._discard_failed_node(node)
+            return False
+        except Exception as exc:
+            print(
+                f"[Music] 節點連線失敗：node={node.identifier}, "
+                f"error={type(exc).__name__}: {str(exc)[:240]}"
+            )
             await self._discard_failed_node(node)
             return False
 
         if not connected:
+            print(f"[Music] 節點未進入 CONNECTED 狀態：node={node.identifier}, status={node.status}")
             await self._discard_failed_node(node)
             return False
         return True
