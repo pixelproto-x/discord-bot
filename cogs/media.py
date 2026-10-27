@@ -43,6 +43,32 @@ MAX_VIDEO_SECONDS = 30
 
 MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
 MAX_EXTRACTED_TEXT_CHARS = 12000
+MAX_ARCHIVE_ENTRIES = 500
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
+MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
+
+
+def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
+    """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
+    try:
+        info = archive.getinfo(name)
+        if info.file_size < 0 or info.file_size > max_bytes:
+            return None
+        with archive.open(info) as stream:
+            data = stream.read(max_bytes + 1)
+            if len(data) > max_bytes or stream.read(1):
+                return None
+            return data
+    except (KeyError, OSError, RuntimeError, ValueError, EOFError):
+        return None
+
+
+def _parse_bounded_xml(data: bytes):
+    import xml.etree.ElementTree as ET
+    upper = data[:4096].upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise ValueError("XML declarations with DTD/entities are not accepted")
+    return ET.fromstring(data)
 
 
 def _extract_attachment_text(filename: str, data: bytes) -> str:
@@ -64,6 +90,9 @@ def _extract_attachment_text(filename: str, data: bytes) -> str:
             import zipfile
             import xml.etree.ElementTree as ET
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                infos = archive.infolist()
+                if len(infos) > MAX_ARCHIVE_ENTRIES or sum(max(0, info.file_size) for info in infos) > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                    return "[文件解壓後內容超出安全上限，已略過擷取]"
                 if name.endswith(".docx"):
                     xml_names = ["word/document.xml"]
                 elif name.endswith(".pptx"):
@@ -74,19 +103,25 @@ def _extract_attachment_text(filename: str, data: bytes) -> str:
                 else:
                     shared = []
                     if "xl/sharedStrings.xml" in archive.namelist():
-                        root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                        shared_data = _read_zip_entry_limited(archive, "xl/sharedStrings.xml")
+                        if shared_data is None:
+                            shared_data = b""
+                        root = _parse_bounded_xml(shared_data) if shared_data else None
                         shared = [
                             "".join(node.itertext())
                             for node in root
                             if node.tag.endswith("}si")
-                        ]
+                        ] if root is not None else []
                     xml_names = sorted(
                         item for item in archive.namelist()
                         if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", item)
                     )
                     rows = []
                     for xml_name in xml_names[:20]:
-                        root = ET.fromstring(archive.read(xml_name))
+                        sheet_data = _read_zip_entry_limited(archive, xml_name)
+                        if sheet_data is None:
+                            continue
+                        root = _parse_bounded_xml(sheet_data)
                         for row in root.iter():
                             if row.tag.endswith("}row"):
                                 values = []
@@ -114,7 +149,10 @@ def _extract_attachment_text(filename: str, data: bytes) -> str:
                 chunks = []
                 for xml_name in xml_names[:40]:
                     try:
-                        root = ET.fromstring(archive.read(xml_name))
+                        xml_data = _read_zip_entry_limited(archive, xml_name)
+                        if xml_data is None:
+                            continue
+                        root = _parse_bounded_xml(xml_data)
                         chunks.append(" ".join(part.strip() for part in root.itertext() if part.strip()))
                     except Exception:
                         continue
