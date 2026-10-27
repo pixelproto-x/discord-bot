@@ -30,6 +30,19 @@ class EconomyMiniGameStoreTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(self.store.economy.get(123, 456)["wallet"], "1000")
 
+    def test_rejects_bet_when_wallet_is_zero_or_negative(self):
+        for balance in ("0", "-10000"):
+            with self.subTest(balance=balance):
+                self.store.economy.get(123, 456)
+                with closing(self.store.economy.connect()) as con:
+                    con.execute(
+                        "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                        (balance, 123, 456),
+                    )
+                ok, _ = self.store.play(123, 456, 1, 4, "test", "test")
+                self.assertFalse(ok)
+                self.assertEqual(self.store.economy.get(123, 456)["wallet"], balance)
+
     def test_valid_settlement_applies_exact_payout(self):
         self.store.economy.get(123, 456)
         ok, _ = self.store.play(123, 456, 100, 200, "test", "test")
