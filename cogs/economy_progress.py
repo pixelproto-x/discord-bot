@@ -37,6 +37,18 @@ def _money(value) -> str:
     return "∞（無限）" if _is_infinite(value) else f"{int(value):,}"
 
 
+async def _member_display_name(guild, user_id: int) -> str:
+    """Resolve a readable guild display name without exposing raw Discord IDs."""
+    member = guild.get_member(user_id)
+    if member is None:
+        try:
+            member = await guild.fetch_member(user_id)
+        except (discord.NotFound, discord.HTTPException):
+            member = None
+    name = getattr(member, "display_name", None)
+    return name.strip() if isinstance(name, str) and name.strip() else "無法取得名稱的成員"
+
+
 def _wealth_key(row):
     wallet = str(row["wallet"] or "0")
     bank = str(row["bank"] or "0")
@@ -187,8 +199,7 @@ class EconomyProgressCog(commands.GroupCog, group_name=app_commands.locale_str("
             return
         lines = []
         for index, row in enumerate(rows, 1):
-            member = interaction.guild.get_member(int(row["user_id"]))
-            label = member.mention if member else f"<@{int(row['user_id'])}>"
+            label = await _member_display_name(interaction.guild, int(row["user_id"]))
             if selected == "wallet":
                 amount = _money(row["wallet"])
             elif selected == "bank":
