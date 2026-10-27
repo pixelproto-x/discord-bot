@@ -289,17 +289,27 @@ class EconomyStore:
             self.ensure(con, guild_id, user_id)
             row = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()
             wallet = row["wallet"]
-            if not is_infinite(wallet) and int(wallet) < amount:
-                con.rollback()
-                return False
-            if not is_infinite(wallet) and int(wallet) - amount + payout > MAX_BALANCE:
-                con.rollback()
-                return False
-            if is_infinite(wallet):
-                updated = "inf"
+            # A finite wallet must contain the full stake. Treat zero and
+            # negative balances as insufficient funds, never as credit.
+            if not is_infinite(wallet):
+                current = int(wallet)
+                if current < 0 or current < amount:
+                    con.rollback()
+                    return False
+                updated_value = current - amount + payout
+                if updated_value < 0 or updated_value > MAX_BALANCE:
+                    con.rollback()
+                    return False
+                updated = str(updated_value)
             else:
-                updated = str(int(wallet) - amount + payout)
-            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (updated, guild_id, user_id))
+                updated = "inf"
+            cursor = con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=? AND wallet=?",
+                (updated, guild_id, user_id, wallet),
+            )
+            if cursor.rowcount != 1:
+                con.rollback()
+                return False
             con.commit()
             return True
 
