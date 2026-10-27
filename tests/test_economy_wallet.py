@@ -85,6 +85,31 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.cog.store.dice(guild_id, user_id, 1001, 2000))
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
 
+    def test_failed_robbery_starts_ten_minute_cooldown(self):
+        guild_id, robber_id, target_id = 123, 456, 789
+        self.cog.store.get(guild_id, robber_id)
+        self.cog.store.get(guild_id, target_id)
+
+        outcome, fine = self.cog.store.rob(
+            guild_id, robber_id, target_id, False, 0.2, 0.1
+        )
+        self.assertEqual(outcome, "failed")
+        self.assertGreaterEqual(fine, 0)
+
+        with closing(self.cog.store.connect()) as con:
+            row = con.execute(
+                "SELECT last_rob FROM users WHERE guild_id=? AND user_id=?",
+                (guild_id, robber_id),
+            ).fetchone()
+        self.assertIsNotNone(row["last_rob"])
+
+        outcome, remaining = self.cog.store.rob(
+            guild_id, robber_id, target_id, False, 0.2, 0.1
+        )
+        self.assertEqual(outcome, "cooldown")
+        self.assertGreater(remaining, 0)
+        self.assertLessEqual(remaining, economy.COOLDOWNS["rob"])
+
     def test_transactions_reject_invalid_amounts(self):
         guild_id, user_id = 123, 456
         self.cog.store.get(guild_id, user_id)
