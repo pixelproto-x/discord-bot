@@ -33,6 +33,12 @@ class DiscordDisplayNameTests(unittest.TestCase):
         self.assertIn("const payload={guild_id:user.guild_id,user_id:user.user_id}", editor.PAGE)
         self.assertIn('const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id)', editor.PAGE)
 
+    def test_editor_automatically_refreshes_without_overwriting_unsaved_edits(self):
+        self.assertIn("},2500);", editor.PAGE)
+        self.assertIn("input.dataset.serverValue=input.value", editor.PAGE)
+        self.assertIn("input.value!==input.dataset.serverValue", editor.PAGE)
+        self.assertIn("if(response.ok)await load();", editor.PAGE)
+
     def test_display_name_response_keeps_guild_id_as_exact_string(self):
         with patch.object(editor, "_discord_token", return_value=""):
             row = editor._add_display_names([{"user_id": 123, "guild_id": 987654321012345678}])[0]
