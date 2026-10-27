@@ -906,8 +906,19 @@ class MemberEventsCog(commands.Cog):
             embed.add_field(name="訊息 ID", value=str(message_id), inline=True)
         try:
             await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"Message log delivery failed in guild {guild_id}, channel {log_channel_id}: {exc!r}")
+        except discord.Forbidden as exc:
+            blocked = getattr(self, "_message_log_access_warnings", None)
+            if blocked is None:
+                blocked = self._message_log_access_warnings = set()
+            key = (int(guild_id), int(log_channel_id))
+            if key not in blocked:
+                blocked.add(key)
+                print(
+                    f"[Message logs] 無法在紀錄頻道送出訊息 guild={guild_id}, channel={log_channel_id}: {exc!r}. "
+                    "請到 /settings show 重新選擇紀錄頻道，並確認 Bot 有檢視頻道、傳送訊息及嵌入連結權限。"
+                )
+        except discord.HTTPException as exc:
+            print(f"Message log HTTP failure in guild {guild_id}, channel {log_channel_id}: {exc!r}")
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
