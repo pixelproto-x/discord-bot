@@ -173,7 +173,7 @@ class HelpView(discord.ui.View):
     def __init__(self, owner_id):
         super().__init__(timeout=180)
         self.owner_id = owner_id
-        select = discord.ui.StringSelect(
+        select = discord.ui.Select(
             placeholder="選一類看詳細功能",
             options=[
                 discord.SelectOption(label=name[2:], emoji=name[0], value=str(i))
