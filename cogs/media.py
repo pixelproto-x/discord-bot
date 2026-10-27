@@ -92,7 +92,7 @@ def _extract_attachment_text(filename: str, data: bytes) -> str:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
                 infos = archive.infolist()
                 if len(infos) > MAX_ARCHIVE_ENTRIES or sum(max(0, info.file_size) for info in infos) > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
-                    return "[文件解壓後內容超出安全上限，已略過擷取]"
+                    return "[檔案解壓後內容超出安全上限，已略過擷取]"
                 if name.endswith(".docx"):
                     xml_names = ["word/document.xml"]
                 elif name.endswith(".pptx"):
