@@ -1197,7 +1197,7 @@ def _stop_local_listener(port: int) -> bool:
                     parent_pid != os.getpid()
                     and parent is not None
                     and editor_script_pattern.search(parent[1])
-                    and re.search(r"(?i)\\bcmd(?:\\.exe)?\\b", parent[1])
+                    and re.search(r"(?i)\bcmd(?:\.exe)?\b", parent[1])
                 ):
                     pids.add(parent_pid)
 
@@ -1220,7 +1220,7 @@ def _stop_local_listener(port: int) -> bool:
                     parent_pid != os.getpid()
                     and parent is not None
                     and editor_script_pattern.search(parent[1])
-                    and re.search(r"(?i)\\bcmd(?:\\.exe)?\\b", parent[1])
+                    and re.search(r"(?i)\bcmd(?:\.exe)?\b", parent[1])
                 ):
                     pids.add(parent_pid)
                 if parent_pid <= 0 or parent_pid == current_pid:
