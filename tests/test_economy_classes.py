@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ class EconomyClassStoreTests(unittest.TestCase):
         self.db_path = Path(self.tempdir.name) / "economy.db"
         self.path_patch = patch.object(economy_classes, "DB_PATH", self.db_path)
         self.path_patch.start()
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             con.execute(
                 "CREATE TABLE users (user_id INTEGER PRIMARY KEY, guild_id INTEGER, "
                 "wallet TEXT NOT NULL DEFAULT '1000', bank TEXT NOT NULL DEFAULT '0')"
@@ -25,11 +26,11 @@ class EconomyClassStoreTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def wallet(self, user_id):
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             return con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()[0]
 
     def set_wallet(self, user_id, amount):
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             con.execute(
                 "INSERT OR IGNORE INTO users(user_id,guild_id,wallet,bank) VALUES(?,10,?,'0')",
                 (user_id, str(amount)),
