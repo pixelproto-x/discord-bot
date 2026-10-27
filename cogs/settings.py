@@ -652,13 +652,22 @@ class MemberEventsCog(commands.Cog):
     async def _resolve_message_log_channel(self, guild, primary_channel_id, *, excluded_channel_id=None):
         """Use the configured message-log channel, falling back to the management log channel."""
         fallback_id = storage.get_setting(guild.id, "log_channel_id")
+        try:
+            primary_id = int(primary_channel_id or 0)
+        except (TypeError, ValueError):
+            primary_id = 0
+        try:
+            excluded_id = int(excluded_channel_id or 0)
+        except (TypeError, ValueError):
+            excluded_id = 0
+
         candidates = []
-        for raw_id in (primary_channel_id, fallback_id):
+        for raw_id in (primary_id, fallback_id):
             try:
                 channel_id = int(raw_id or 0)
             except (TypeError, ValueError):
                 continue
-            if not channel_id or channel_id == int(excluded_channel_id or 0) or channel_id in candidates:
+            if not channel_id or channel_id == excluded_id or channel_id in candidates:
                 continue
             candidates.append(channel_id)
 
@@ -682,7 +691,7 @@ class MemberEventsCog(commands.Cog):
                 permissions = channel.permissions_for(bot_member)
                 if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
                     continue
-            if channel_id != int(primary_channel_id or 0):
+            if channel_id != primary_id:
                 print(
                     f"[Message logs] 主要紀錄頻道不可用，改送管理紀錄頻道 "
                     f"guild={guild.id}, channel={channel_id}。"
