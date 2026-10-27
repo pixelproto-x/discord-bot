@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import random
@@ -163,6 +164,67 @@ async def spotify_fallback_query(value: str) -> str | None:
     if artist and artist.casefold() not in title.casefold():
         title = f"{artist} {title}"
     return title[:MAX_QUERY_LENGTH] or None
+
+
+async def spotify_fallback_playlist_queries(value: str, *, limit: int = 25) -> list[str]:
+    """Read public Spotify embed metadata for a playlist/album when LavaSrc is unavailable.
+
+    Spotify's embed page exposes server-rendered track metadata. This is a best-effort
+    fallback; LavaSrc remains preferred because Spotify can change or rate-limit embeds.
+    """
+    if not is_spotify_url(value) or not is_collection_url(value):
+        return []
+
+    try:
+        parsed = urlsplit(value)
+        match = re.search(r"/(?:intl-[^/]+/)?(playlist|album)/([A-Za-z0-9]+)", parsed.path, re.IGNORECASE)
+        if not match:
+            return []
+        resource_type, resource_id = match.group(1).lower(), match.group(2)
+        timeout = aiohttp.ClientTimeout(total=12, connect=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                f"https://open.spotify.com/embed/{resource_type}/{resource_id}",
+                headers={"Accept": "text/html", "User-Agent": "Mozilla/5.0 DiscordMusicBot/1.0"},
+            ) as response:
+                if response.status != 200:
+                    return []
+                if response.content_length and response.content_length > 5 * 1024 * 1024:
+                    return []
+                html = await response.content.read(5 * 1024 * 1024 + 1)
+                if len(html) > 5 * 1024 * 1024:
+                    return []
+                html = html.decode(response.charset or "utf-8", errors="replace")
+        match = re.search(
+            r'<script[^>]+id=["\\']__NEXT_DATA__["\\'][^>]*>(.*?)</script>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return []
+        payload = json.loads(match.group(1))
+        entity = payload.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+        track_list = entity.get("trackList", [])
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, AttributeError):
+        return []
+
+    queries = []
+    seen = set()
+    for item in track_list:
+        if not isinstance(item, dict) or item.get("isPlayable") is False:
+            continue
+        title = " ".join(str(item.get("title") or item.get("name") or "").split())
+        artist = " ".join(str(item.get("subtitle") or "").split())
+        if not title:
+            continue
+        query = f"{artist} {title}".strip()[:MAX_QUERY_LENGTH]
+        key = query.casefold()
+        if query and key not in seen:
+            seen.add(key)
+            queries.append(query)
+        if len(queries) >= max(1, min(int(limit), 50)):
+            break
+    return queries
 
 
 def is_spotify_url(value: str) -> bool:
@@ -786,15 +848,35 @@ class MusicCog(commands.Cog):
                 if tracks:
                     return tracks
 
-            # A Spotify URL can still be played without LavaSrc for single tracks:
-            # resolve its public oEmbed metadata, then search normal audio providers.
-            # Spotify collections need the plugin because oEmbed does not return their
-            # individual track list.
+            # Without LavaSrc, recover public Spotify metadata and mirror it to normal
+            # audio sources. Playlist fallback is deliberately bounded to 25 tracks so
+            # a large playlist cannot stall a slash command or flood the queue.
             if is_collection_url(value):
-                raise RuntimeError(
-                    "這是 Spotify 專輯／播放清單連結，需要已啟用 LavaSrc 的 Lavalink 節點。"
-                    "單曲連結則可以在沒有 LavaSrc 時嘗試自動搜尋替代音源。"
-                )
+                queries = await spotify_fallback_playlist_queries(value, limit=25)
+                if not queries:
+                    raise RuntimeError(
+                        "無法讀取這份 Spotify 專輯／播放清單的公開曲目資料。請確認清單可公開存取；"
+                        "若要穩定載入整份清單，請使用已啟用 LavaSrc 的 Lavalink 節點。"
+                    )
+
+                semaphore = asyncio.Semaphore(5)
+
+                async def resolve_playlist_track(search_query):
+                    async with semaphore:
+                        for prefix in ("ytsearch:", "ytmsearch:", "scsearch:"):
+                            tracks = await self._search_nodes(f"{prefix}{search_query}", nodes)
+                            if tracks:
+                                return tracks[:1]
+                        return []
+
+                resolved = await asyncio.gather(*(resolve_playlist_track(item) for item in queries))
+                tracks = [track for group in resolved for track in group]
+                if not tracks:
+                    raise RuntimeError(
+                        "已讀取 Spotify 清單曲目，但 YouTube、YouTube Music 和 SoundCloud 都找不到可播放版本。"
+                    )
+                print(f"[Music] Spotify 清單替代音源解析完成：metadata={len(queries)}, playable={len(tracks)}")
+                return tracks
 
             search_query = await spotify_fallback_query(value)
             if not search_query:
