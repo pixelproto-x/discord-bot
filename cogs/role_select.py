@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.social import is_safe_self_assignable_role
+
 
 GAME_ROLE_NAMES = (
     "⛏ ｜麥塊玩家-Minecraft",
@@ -11,6 +13,18 @@ GAME_ROLE_NAMES = (
     "🎵｜世界居民-Pjsekai",
     "🎮｜遊戲成員-Gamer",
 )
+
+
+def is_safe_game_role(role, bot_member) -> bool:
+    """Prevent the public game-role menu from granting privileged or unmanageable roles."""
+    return bool(
+        role
+        and bot_member
+        and bot_member.guild_permissions.manage_roles
+        and not role.managed
+        and is_safe_self_assignable_role(role)
+        and role < bot_member.top_role
+    )
 
 
 class GameRoleSelect(discord.ui.Select):
@@ -53,9 +67,9 @@ class GameRoleSelect(discord.ui.Select):
             role = roles[role_name]
             if role is None:
                 continue
-            if role >= bot_member.top_role or role.is_default() or role.managed:
+            if not is_safe_game_role(role, bot_member):
                 await interaction.response.send_message(
-                    f"機器人無法管理身分組：{role.name}。請調整機器人的身分組階層。",
+                    f"身分組「{role.name}」具有不允許自助領取的權限，或超出機器人可管理的階層，已拒絕變更。",
                     ephemeral=True,
                 )
                 return
