@@ -1280,7 +1280,12 @@ class MusicCog(commands.Cog):
         match = SUPPORTED_URL_RE.search(message.content)
         if not match:
             return
-        await self.play_query_from_message(message, match.group(0).rstrip(".,!?)]}，。！？"))
+        query = match.group(0).rstrip(".,!?)]}，。！？")
+        # Pasting a playlist/album is not an explicit play request. Only
+        # process collections through /music play so ordinary chat stays quiet.
+        if is_collection_url(query):
+            return
+        await self.play_query_from_message(message, query)
 
     @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
     @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址", public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
