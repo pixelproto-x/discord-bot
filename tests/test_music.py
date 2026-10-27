@@ -712,7 +712,7 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [track])
         self.assertEqual(calls, [(url, "spotify-node")])
 
-    async def test_spotify_url_fails_with_actionable_error_without_lavasrc_node(self):
+    async def test_spotify_track_uses_keyword_fallback_without_lavasrc_node(self):
         url = "https://open.spotify.com/track/example"
         configs = (
             {"identifier": "public-node", "uri": "https://public.example", "password": "x", "spotify": False},
@@ -720,14 +720,18 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(music, "LAVALINK_NODES", configs),
             patch.object(wavelink.Pool, "nodes", self.nodes),
-            patch.object(music.wavelink.Playable, "search", new=AsyncMock()) as search,
+            patch.object(music, "spotify_fallback_query", new=AsyncMock(return_value="Artist Track")),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[])) as search,
         ):
-            with self.assertRaisesRegex(RuntimeError, "LavaSrc"):
+            with self.assertRaisesRegex(RuntimeError, "都找不到可播放版本"):
                 await self.cog.resolve_query(url)
 
-        search.assert_not_awaited()
+        self.assertEqual(
+            [call.args[0] for call in search.await_args_list],
+            ["ytsearch:Artist Track", "ytmsearch:Artist Track", "scsearch:Artist Track"],
+        )
 
-    async def test_spotify_url_reports_when_enabled_node_has_no_lavasrc_results(self):
+    async def test_spotify_url_tries_keyword_fallback_when_lavasrc_returns_empty(self):
         from types import SimpleNamespace
 
         url = "https://open.spotify.com/track/example"
@@ -738,10 +742,16 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(music, "LAVALINK_NODES", configs),
             patch.object(wavelink.Pool, "nodes", {"spotify-node": node}),
-            patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[])),
+            patch.object(music, "spotify_fallback_query", new=AsyncMock(return_value="Artist Track")),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[])) as search,
         ):
-            with self.assertRaisesRegex(RuntimeError, "plugins.lavasrc.sources.spotify"):
+            with self.assertRaisesRegex(RuntimeError, "都找不到可播放版本"):
                 await self.cog.resolve_query(url)
+
+        self.assertEqual(
+            [call.args[0] for call in search.await_args_list],
+            [url, "ytsearch:Artist Track", "ytmsearch:Artist Track", "scsearch:Artist Track"],
+        )
 
     async def test_search_fails_clearly_when_no_lavalink_node_is_connected(self):
         self.cog.last_node_setup_attempt = time.monotonic()
