@@ -15,7 +15,10 @@ def _valid_freemind_ai_project(path: Path) -> Path | None:
         if (
             candidate.is_dir()
             and (candidate / "run.bat").is_file()
-            and (candidate / "freemind" / "main.py").is_file()
+            and (
+                (candidate / "main.py").is_file()
+                or (candidate / "freemind" / "main.py").is_file()
+            )
         ):
             return candidate
     except (OSError, RuntimeError):
