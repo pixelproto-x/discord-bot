@@ -549,6 +549,9 @@ async def mirror_member_reaction(reaction: discord.Reaction, user: discord.User 
     """Mirror a member's emoji reaction on the same message once."""
     if user.bot or reaction.message.guild is None:
         return
+    # Never mirror a member's reaction onto this bot's own messages.
+    if bot.user is not None and reaction.message.author.id == bot.user.id:
+        return
     try:
         await reaction.message.add_reaction(reaction.emoji)
         print(
