@@ -766,7 +766,7 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch.object(music, "LAVALINK_NODES", configs),
-            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(wavelink.Pool, "nodes", {"limited": self.nodes["limited"]}),
             patch.object(music, "spotify_fallback_query", new=AsyncMock(return_value="Artist Track")),
             patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[])) as search,
         ):
