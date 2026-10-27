@@ -11,9 +11,8 @@ from startup_services import find_freemind_ai_project, freemind_ai_launcher_runn
 def make_project(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "run.bat").write_text("@echo off\r\necho test\r\n", encoding="utf-8")
-    app = root / "freemind"
-    app.mkdir(exist_ok=True)
-    (app / "main.py").write_text("app = None\n", encoding="utf-8")
+    # Match the actual FreeMindAI repository layout: main.py is at the project root.
+    (root / "main.py").write_text("app = None\n", encoding="utf-8")
     return root.resolve()
 
 
@@ -125,6 +124,13 @@ class FindFreeMindAIProjectTests(unittest.TestCase):
             with patch.dict(os.environ, {"FREEMIND_AI_PROJECT_DIR": ""}):
                 found = find_freemind_ai_project(base / "discord-bot", home_dir=base)
             self.assertEqual(found, expected)
+
+    def test_accepts_actual_freemind_ai_root_main_py_layout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            expected = make_project(home / "Downloads" / "FreeMindAI-main")
+            with patch.dict(os.environ, {"FREEMIND_AI_PROJECT_DIR": str(expected)}):
+                self.assertEqual(find_freemind_ai_project(home / "discord-bot", home_dir=home), expected)
 
     def test_ignores_incomplete_folder_that_only_matches_name(self):
         with tempfile.TemporaryDirectory() as temp:
