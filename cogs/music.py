@@ -18,7 +18,7 @@ MAX_QUEUE_SIZE = 10000
 MAX_QUERY_LENGTH = 200
 def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
     """Load configured nodes first, then the currently listed public fallbacks."""
-    nodes: list[dict[str, str]] = []
+    nodes: list[dict[str, str | bool]] = []
     seen_uris: set[str] = set()
     seen_identifiers: set[str] = set()
 
@@ -31,6 +31,7 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
             print(f"[Music] LAVALINK_{index}_URI 和 LAVALINK_{index}_PASSWORD 必須一起設定。")
             continue
         identifier = os.getenv(f"LAVALINK_{index}_IDENTIFIER", f"lavalink-{index}").strip() or f"lavalink-{index}"
+        spotify_enabled = os.getenv(f"LAVALINK_{index}_SPOTIFY_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
         normalized_uri = uri.rstrip("/").lower()
         if identifier in seen_identifiers:
             print(f"[Music] 重複的 Lavalink 節點識別碼 {identifier}，略過 LAVALINK_{index}。")
@@ -38,7 +39,7 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         if normalized_uri in seen_uris:
             print(f"[Music] 重複的 Lavalink 節點網址 {uri}，略過 LAVALINK_{index}。")
             continue
-        nodes.append({"identifier": identifier, "uri": uri, "password": password})
+        nodes.append({"identifier": identifier, "uri": uri, "password": password, "spotify": spotify_enabled})
         seen_uris.add(normalized_uri)
         seen_identifiers.add(identifier)
 
@@ -56,7 +57,7 @@ def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
         normalized_uri = uri.rstrip("/").lower()
         if normalized_uri in seen_uris or identifier in seen_identifiers:
             continue
-        nodes.append({"identifier": identifier, "uri": uri, "password": password})
+        nodes.append({"identifier": identifier, "uri": uri, "password": password, "spotify": False})
         seen_uris.add(normalized_uri)
         seen_identifiers.add(identifier)
 
@@ -128,6 +129,16 @@ def track_title(track) -> str:
     title = discord.utils.escape_mentions(title)
     title = re.sub(r"<@([!&]?\d+)>", lambda match: "<@\u200b" + match.group(1) + ">", title)
     return " ".join(title.split())
+
+
+def is_spotify_url(value: str) -> bool:
+    """Return whether a URL points to Spotify, whose Lavalink node needs LavaSrc."""
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "spotify.com" or host.endswith(".spotify.com")
 
 
 def is_collection_url(value: str) -> bool:
@@ -726,10 +737,36 @@ class MusicCog(commands.Cog):
         if not nodes:
             raise RuntimeError("目前沒有已連線的 Lavalink 音樂節點，請確認節點設定並稍後再試。")
 
+        is_spotify = is_spotify_url(value)
+        if is_spotify:
+            spotify_node_ids = {
+                config["identifier"]
+                for config in LAVALINK_NODES
+                if config.get("spotify", False) is True
+            }
+            if not spotify_node_ids:
+                raise RuntimeError(
+                    "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點。"
+                    "請在 .env 將該節點的 LAVALINK_n_SPOTIFY_ENABLED 設為 true；"
+                    "公開備援節點不保證支援 Spotify。"
+                )
+            nodes = tuple(node for node in nodes if node.identifier in spotify_node_ids)
+            if not nodes:
+                raise RuntimeError(
+                    "已設定 Spotify/LavaSrc 節點，但目前沒有任何一個已連線；請檢查該節點狀態。"
+                )
+
         is_url = bool(re.match(r"^https?://", value, re.IGNORECASE))
         if is_url:
-            # Resolve links on every connected node, but never reinterpret a URL as a keyword.
-            return await self._search_nodes(value, nodes)
+            # Resolve links directly. Spotify URLs are routed only to nodes explicitly
+            # configured as LavaSrc-capable; never reinterpret a URL as a keyword.
+            tracks = await self._search_nodes(value, nodes)
+            if is_spotify and not tracks:
+                raise RuntimeError(
+                    "Spotify 連結無法解析。請確認該 Lavalink 節點已安裝 LavaSrc，"
+                    "並在節點端啟用 plugins.lavasrc.sources.spotify。"
+                )
+            return tracks
 
         # Try YouTube first, then YouTube Music, before the SoundCloud fallback.
         # Public nodes can be slow under load, so each source gets a bounded timeout.
@@ -1093,7 +1130,11 @@ class MusicCog(commands.Cog):
             await message.reply(str(exc), mention_author=False)
         except Exception as exc:
             print(f"[Music] 自動播放失敗：{type(exc).__name__}: {exc}")
-            await message.reply("這個連結目前無法解析，或 Lavalink 節點暫時不可用。", mention_author=False)
+            if is_spotify_url(query):
+                message_text = "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點；請檢查節點設定與連線狀態。"
+            else:
+                message_text = "這個連結目前無法解析，或 Lavalink 節點暫時不可用。"
+            await message.reply(message_text, mention_author=False)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1161,7 +1202,11 @@ class MusicCog(commands.Cog):
             await interaction.followup.send(str(exc), ephemeral=True)
         except Exception as exc:
             print(f"[Music] /music play 錯誤：{type(exc).__name__}: {exc}")
-            await interaction.followup.send("解析失敗，請確認 Lavalink 節點在線；Spotify 需要節點支援 LavaSrc。", ephemeral=True)
+            if is_spotify_url(query):
+                error_text = "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點；請檢查節點設定與連線狀態。"
+            else:
+                error_text = "解析失敗，請確認 Lavalink 節點在線；若搜尋不到歌曲，系統會依序嘗試 YouTube、YouTube Music 與 SoundCloud。"
+            await interaction.followup.send(error_text, ephemeral=True)
 
     def render_queue(self, session: MusicSession | None) -> str:
         if not session or (not session.current and not session.queue):
