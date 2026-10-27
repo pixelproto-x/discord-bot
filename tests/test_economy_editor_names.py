@@ -46,5 +46,30 @@ class DiscordDisplayNameTests(unittest.TestCase):
             )
 
 
+
+class EconomyEditorRequestSecurityTests(unittest.TestCase):
+    def test_accepts_only_exact_loopback_editor_origin(self):
+        self.assertTrue(editor._is_same_origin_post(
+            "http://127.0.0.1:8766", "127.0.0.1:8766"
+        ))
+
+    def test_rejects_cross_origin_and_missing_origin_requests(self):
+        for origin in (
+            "https://attacker.example",
+            "http://localhost:8766",
+            "null",
+            "",
+        ):
+            with self.subTest(origin=origin):
+                self.assertFalse(editor._is_same_origin_post(origin, "127.0.0.1:8766"))
+
+    def test_rejects_host_mismatch_and_origin_paths(self):
+        self.assertFalse(editor._is_same_origin_post(
+            "http://127.0.0.1:8766", "attacker.example"
+        ))
+        self.assertFalse(editor._is_same_origin_post(
+            "http://127.0.0.1:8766/evil", "127.0.0.1:8766"
+        ))
+
 if __name__ == "__main__":
     unittest.main()
