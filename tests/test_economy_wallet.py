@@ -93,6 +93,28 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.cog.store.dice(guild_id, user_id, 1001, 2000))
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
 
+    def test_dice_rejects_bet_when_wallet_is_zero(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                ("0", guild_id, user_id),
+            )
+        self.assertFalse(self.cog.store.dice(guild_id, user_id, 10000, 0))
+        self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "0")
+
+    def test_dice_rejects_bet_when_wallet_is_negative(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                ("-10000", guild_id, user_id),
+            )
+        self.assertFalse(self.cog.store.dice(guild_id, user_id, 1, 2))
+        self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "-10000")
+
     def test_failed_robbery_starts_ten_minute_cooldown(self):
         guild_id, robber_id, target_id = 123, 456, 789
         self.cog.store.get(guild_id, robber_id)
