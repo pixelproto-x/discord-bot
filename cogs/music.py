@@ -16,7 +16,7 @@ from discord.ext import commands
 
 MAX_QUEUE_SIZE = 10000
 MAX_QUERY_LENGTH = 200
-def _configured_lavalink_nodes() -> tuple[dict[str, str], ...]:
+def _configured_lavalink_nodes() -> tuple[dict[str, str | bool], ...]:
     """Load configured nodes first, then the currently listed public fallbacks."""
     nodes: list[dict[str, str | bool]] = []
     seen_uris: set[str] = set()
