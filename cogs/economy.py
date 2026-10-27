@@ -18,6 +18,8 @@ MAX_DIGITS = 2000
 MAX_BALANCE = int("9" * MAX_DIGITS)
 UTC = timezone.utc
 COOLDOWNS = {"daily": 86400, "work": 60, "fish": 30, "rob": 600}
+# These accounts are permanently immune to robbery in every server.
+PERMANENT_ANTI_ROB_USER_IDS = frozenset({1338493569781989407})
 WORK_LINES = [
     "你去咖啡店打工，忙到差點把自己也端給客人。",
     "你幫鄰居搬家具，最重的那箱竟然裝滿教科書。",
@@ -396,6 +398,9 @@ class EconomyStore:
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
+            if target_id in PERMANENT_ANTI_ROB_USER_IDS:
+                con.rollback()
+                return "protected_permanent", 0
             self.ensure(con, guild_id, robber_id)
             self.ensure(con, guild_id, target_id)
             robber = con.execute("SELECT wallet,last_rob FROM users WHERE guild_id=? AND user_id=?", (guild_id, robber_id)).fetchone()
@@ -672,7 +677,9 @@ class EconomyCog(commands.Cog):
             return
         outcome, value = self.store.rob(target.guild.id, user.id, member.id, random.random() < 0.40,
                                         random.uniform(0.10, 0.30), random.uniform(0.10, 0.20))
-        if outcome == "cooldown":
+        if outcome == "protected_permanent":
+            message = f"{member.mention} 已設定永久防搶，任何人都不能搶劫這個使用者。"
+        elif outcome == "cooldown":
             message = f"你剛搶過人，再等 **{cooldown_text(value)}**。"
         elif outcome == "cap":
             message = "你的錢包接近系統上限，這次無法完成。"
