@@ -166,7 +166,7 @@ async function load(){
   const guildCell=document.createElement("td");guildCell.dataset.label="伺服器 ID";guildCell.textContent=String(user.guild_id??"0");tr.appendChild(guildCell);
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
-   input.name=key;input.value=user[key]??"";input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
+   input.name=key;input.value=user[key]??"";input.dataset.serverValue=input.value;input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
    if(key==="wallet"||key==="bank"){input.type="text";input.inputMode="text";input.placeholder="非負整數或 inf（無限）"}
    else if(key.startsWith("last_")){input.className="time";input.placeholder="留空代表沒有紀錄"}
    td.appendChild(input);tr.appendChild(td);
@@ -181,6 +181,7 @@ async function load(){
     const result=await response.json(),status=document.getElementById("status");
     status.textContent=response.ok?'已儲存「'+(user.display_name||"玩家")+'」的資料。':(result.error||"儲存失敗");
     status.style.color=response.ok?"#8fe0ae":"#ff9b9b";
+    if(response.ok)await load();
    }catch(err){document.getElementById("status").textContent="無法儲存："+err}
    finally{button.disabled=false;button.textContent="儲存"}
   });
@@ -189,6 +190,17 @@ async function load(){
  table.appendChild(tbody);root.replaceChildren(table);
 }
 load().catch(err=>document.getElementById("content").textContent="讀取失敗："+err);
+// Live updates: refresh every 2.5 seconds, but never replace the table while
+// the user is typing or has unsaved edits in any field.
+let liveRefreshRunning=false;
+setInterval(async()=>{
+ if(liveRefreshRunning)return;
+ const inputs=[...document.querySelectorAll("#content input")];
+ if(inputs.some(input=>document.activeElement===input||input.value!==input.dataset.serverValue))return;
+ liveRefreshRunning=true;
+ try{await load()}catch(err){document.getElementById("status").textContent="即時更新暫時失敗："+err}
+ finally{liveRefreshRunning=false}
+},2500);
 let serverWasOffline=false,healthCheckRunning=false;
 setInterval(async()=>{
  if(healthCheckRunning)return;
