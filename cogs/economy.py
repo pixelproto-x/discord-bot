@@ -18,8 +18,10 @@ MAX_DIGITS = 2000
 MAX_BALANCE = int("9" * MAX_DIGITS)
 UTC = timezone.utc
 COOLDOWNS = {"daily": 86400, "work": 60, "fish": 30, "rob": 600}
-# These accounts are permanently immune to robbery in every server.
+# These accounts are permanently immune to robbery except for explicitly allowed robbers.
 PERMANENT_ANTI_ROB_USER_IDS = frozenset({1338493569781989407})
+# The owner may rob the protected account; everyone else remains blocked.
+PERMANENT_ANTI_ROB_ALLOWED_ROBBER_IDS = frozenset({1140900506198351924})
 WORK_LINES = [
     "你去咖啡店打工，忙到差點把自己也端給客人。",
     "你幫鄰居搬家具，最重的那箱竟然裝滿教科書。",
@@ -398,7 +400,8 @@ class EconomyStore:
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
-            if target_id in PERMANENT_ANTI_ROB_USER_IDS:
+            if (target_id in PERMANENT_ANTI_ROB_USER_IDS
+                    and robber_id not in PERMANENT_ANTI_ROB_ALLOWED_ROBBER_IDS):
                 con.rollback()
                 return "protected_permanent", 0
             self.ensure(con, guild_id, robber_id)
