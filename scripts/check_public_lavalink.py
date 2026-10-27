@@ -231,7 +231,9 @@ async def main() -> int:
         "scsearch": any(searches["scsearch"]),
         "direct YouTube URL": any(direct_url),
         "WebSocket handshake": any(websockets),
-        "Wavelink client integration": all(wavelink_checks),
+        # Public nodes are independent community services; one healthy node is enough
+        # because the bot searches connected nodes concurrently and tolerates dead fallbacks.
+        "Wavelink client integration": any(wavelink_checks),
     }
     failed = [name for name, passed in required.items() if not passed]
     if failed:
