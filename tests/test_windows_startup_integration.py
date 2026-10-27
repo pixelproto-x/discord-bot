@@ -15,7 +15,7 @@ class WindowsFreeMindAILaunchIntegrationTests(unittest.TestCase):
             marker = project / "launch-ok.txt"
             launcher = project / "run.bat"
             launcher.write_text(
-                '@echo off\r\necho launch-ok>"%~dp0launch-ok.txt"\r\n',
+                '@echo off\r\necho launch-ok>"%~dp0launch-ok.txt"\r\nexit\r\n',
                 encoding="utf-8",
             )
 
