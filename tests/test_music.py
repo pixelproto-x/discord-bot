@@ -1,4 +1,5 @@
 import asyncio
+import json
 import io
 import time
 import unittest
@@ -42,6 +43,36 @@ class MusicInputValidationTests(unittest.TestCase):
         ):
             with self.subTest(url=url):
                 self.assertIsNotNone(normalize_query(url)[1])
+
+    def test_spotify_embed_parser_extracts_playable_track_queries(self):
+        payload = {
+            "props": {
+                "pageProps": {
+                    "state": {
+                        "data": {
+                            "entity": {
+                                "trackList": [
+                                    {"title": "Song One", "subtitle": "Artist One", "isPlayable": True},
+                                    {"title": "Song Two", "subtitle": "Artist Two", "isPlayable": True},
+                                    {"title": "Blocked Song", "subtitle": "Artist Three", "isPlayable": False},
+                                    {"title": "Song One", "subtitle": "Artist One", "isPlayable": True},
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        html = (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps(payload)
+            + "</script>"
+        )
+
+        self.assertEqual(
+            music.spotify_playlist_queries_from_embed_html(html, limit=10),
+            ["Artist One Song One", "Artist Two Song Two"],
+        )
 
     def test_collection_url_detection_handles_youtube_case_and_spotify_albums(self):
         for url in (
