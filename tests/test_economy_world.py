@@ -47,6 +47,26 @@ class EconomyWorldWalletScopeTests(unittest.TestCase):
         guild_id = self.guild_id if guild_id is None else guild_id
         return int(self.accounts.get(guild_id, user_id)["wallet"])
 
+    def test_loan_rejects_negative_repayment_instead_of_treating_it_as_all(self):
+        before = self.wallet(self.user_id)
+        ok, _ = self.world.loan(self.guild_id, self.user_id, "apply", 1000)
+        self.assertTrue(ok)
+        after_loan = self.wallet(self.user_id)
+        self.assertEqual(after_loan, before + 1000)
+
+        ok, message = self.world.loan(self.guild_id, self.user_id, "repay", -1)
+        self.assertFalse(ok)
+        self.assertIn("不可為負數", message)
+        self.assertEqual(self.wallet(self.user_id), after_loan)
+        with closing(self.world.connect()) as con:
+            row = con.execute(
+                "SELECT status,balance FROM world_loans WHERE guild_id=? AND user_id=? AND status='active'",
+                (self.guild_id, self.user_id),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "active")
+        self.assertEqual(int(row["balance"]), 1080)
+
     def test_world_market_company_and_loan_wallet_paths(self):
         start = self.wallet(self.user_id)
         ok, _ = self.world.trade(self.guild_id, self.user_id, "coca_cola_600", "buy", 1)
