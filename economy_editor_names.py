@@ -167,7 +167,7 @@ async function load(){
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
    input.name=key;input.value=user[key]??"";input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
-   if(key==="wallet"||key==="bank"){input.type="text";input.inputMode="text";input.placeholder="整數、負數或 inf（無限）"}
+   if(key==="wallet"||key==="bank"){input.type="text";input.inputMode="text";input.placeholder="非負整數或 inf（無限）"}
    else if(key.startsWith("last_")){input.className="time";input.placeholder="留空代表沒有紀錄"}
    td.appendChild(input);tr.appendChild(td);
   }
@@ -210,7 +210,7 @@ def _parse_balance(value):
     if not raw or not raw.isascii():
         return None
     digits = raw[1:] if raw.startswith("-") else raw
-    if not digits.isdecimal() or not 1 <= len(digits) <= 2000:
+    if raw.startswith("-") or not digits.isdecimal() or not 1 <= len(digits) <= 2000:
         return None
     return str(int(raw))
 
@@ -275,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
             user_id = int(data["user_id"])
             wallet, bank = _parse_balance(data["wallet"]), _parse_balance(data["bank"])
             if guild_id < 0 or user_id <= 0 or wallet is None or bank is None:
-                self.send_json(400, {"error": "ID 或金額不合法；金額可為整數、負數或 inf（無限），最多 2000 位數。"})
+                self.send_json(400, {"error": "ID 或金額不合法；現金與銀行存款只能是非負整數或 inf（無限），最多 2000 位數。"})
                 return
             times = {}
             for key in ("last_daily", "last_work", "last_fish", "last_rob"):
