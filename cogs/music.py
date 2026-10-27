@@ -1180,7 +1180,7 @@ class MusicCog(commands.Cog):
         except Exception as exc:
             print(f"[Music] 自動播放失敗：{type(exc).__name__}: {exc}")
             if is_spotify_url(query):
-                message_text = "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點；請檢查節點設定與連線狀態。"
+                message_text = "Spotify 單曲已嘗試讀取歌曲資訊並搜尋 YouTube、YouTube Music 和 SoundCloud；仍無法播放時，請確認連結可公開讀取或設定 LavaSrc。專輯／播放清單需要 LavaSrc。"
             else:
                 message_text = "這個連結目前無法解析，或 Lavalink 節點暫時不可用。"
             await message.reply(message_text, mention_author=False)
@@ -1252,7 +1252,7 @@ class MusicCog(commands.Cog):
         except Exception as exc:
             print(f"[Music] /music play 錯誤：{type(exc).__name__}: {exc}")
             if is_spotify_url(query):
-                error_text = "Spotify 連結需要已安裝並啟用 LavaSrc 的 Lavalink 節點；請檢查節點設定與連線狀態。"
+                error_text = "Spotify 單曲已嘗試讀取歌曲資訊並搜尋 YouTube、YouTube Music 和 SoundCloud；仍無法播放時，請確認連結可公開讀取或設定 LavaSrc。專輯／播放清單需要 LavaSrc。"
             else:
                 error_text = "解析失敗，請確認 Lavalink 節點在線；若搜尋不到歌曲，系統會依序嘗試 YouTube、YouTube Music 與 SoundCloud。"
             await interaction.followup.send(error_text, ephemeral=True)
