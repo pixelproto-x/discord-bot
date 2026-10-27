@@ -37,6 +37,21 @@ class PermanentRobberyProtectionTests(unittest.TestCase):
                 ).fetchone()
             )
 
+    def test_designated_owner_can_rob_permanently_protected_user(self):
+        guild_id = 123
+        owner_id = 1140900506198351924
+        protected_id = 1338493569781989407
+        self.store.get(guild_id, owner_id)
+        self.store.get(guild_id, protected_id)
+
+        result = self.store.rob(
+            guild_id, owner_id, protected_id,
+            success=True, fraction=0.30, fine_fraction=0.20,
+        )
+
+        self.assertEqual(result[0], "success")
+        self.assertGreater(result[1], 0)
+
     def test_other_users_keep_existing_robbery_flow(self):
         guild_id = 123
         robber_id = 456
