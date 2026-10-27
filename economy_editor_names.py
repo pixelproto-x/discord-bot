@@ -224,6 +224,25 @@ def connect():
     return con
 
 
+def _is_same_origin_post(origin: str, host: str) -> bool:
+    """Only allow browser writes initiated by this exact loopback editor origin."""
+    expected_host = f"{HOST}:{PORT}"
+    if not isinstance(origin, str) or not isinstance(host, str):
+        return False
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme.lower() == "http"
+        and parsed.netloc.lower() == expected_host
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+        and host.strip().lower() == expected_host
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     def send_json(self, status, value):
         data = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -264,6 +283,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path != "/api/save":
             self.send_error(404)
+            return
+        if not _is_same_origin_post(self.headers.get("Origin", ""), self.headers.get("Host", "")):
+            self.send_json(403, {"error": "已拒絕非本機控制台來源的修改請求。"})
+            return
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            self.send_json(415, {"error": "修改請求必須使用 application/json。"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
