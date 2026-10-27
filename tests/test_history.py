@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import storage
-from cogs.history import (History, HistoryPaginator, MAX_HISTORY_ATTACHMENT_BYTES, _archive_attachment, build_history_embed)
+from cogs.history import (History, HistoryPaginator, MAX_HISTORY_ATTACHMENT_BYTES, MAX_PENDING_ATTACHMENT_ARCHIVES, _archive_attachment, build_history_embed)
 
 
 class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
@@ -72,6 +72,16 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
             result = await _archive_attachment(attachment)
         self.assertIsNone(result)
         session.assert_not_called()
+
+
+    async def test_attachment_archive_queue_is_bounded(self):
+        self.history._attachment_tasks.update(
+            object() for _ in range(MAX_PENDING_ATTACHMENT_ARCHIVES)
+        )
+        with patch("cogs.history.asyncio.create_task") as create_task:
+            self.history._schedule_attachment_archive(self.make_message(with_attachment=True))
+        create_task.assert_not_called()
+        self.assertEqual(len(self.history._attachment_tasks), MAX_PENDING_ATTACHMENT_ARCHIVES)
 
     async def test_attachment_archive_finishing_after_delete_updates_deleted_record(self):
         message = self.make_message(with_attachment=True)
