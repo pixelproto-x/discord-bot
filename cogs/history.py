@@ -22,6 +22,8 @@ HISTORY_ALLOWED_USER_ID = 1140900506198351924
 HISTORY_LIMIT = 1000
 RECENT_LIMIT = 300
 MAX_HISTORY_ATTACHMENT_BYTES = 25 * 1024 * 1024
+MAX_CONCURRENT_ATTACHMENT_ARCHIVES = 3
+MAX_PENDING_ATTACHMENT_ARCHIVES = 50
 EMBED_COLOR = discord.Color(0x2B2D31)
 
 
@@ -489,15 +491,23 @@ class History(commands.Cog):
         self.store = HistoryStore()
         self._delete_locks: dict[int, asyncio.Lock] = {}
         self._attachment_tasks: set[asyncio.Task] = set()
+        self._attachment_archive_semaphore = asyncio.Semaphore(MAX_CONCURRENT_ATTACHMENT_ARCHIVES)
 
     async def _archive_and_update_attachments(self, message: discord.Message) -> None:
         try:
-            archived_attachments = await _snapshot_attachments(message)
+            async with self._attachment_archive_semaphore:
+                archived_attachments = await _snapshot_attachments(message)
             self.store.update_attachments(message.id, archived_attachments)
         except Exception:
             logger.exception("附件封存背景工作失敗：%s", message.id)
 
     def _schedule_attachment_archive(self, message: discord.Message) -> None:
+        if len(self._attachment_tasks) >= MAX_PENDING_ATTACHMENT_ARCHIVES:
+            logger.warning(
+                "Skipping attachment archival because %s jobs are already pending",
+                MAX_PENDING_ATTACHMENT_ARCHIVES,
+            )
+            return
         task = asyncio.create_task(self._archive_and_update_attachments(message))
         self._attachment_tasks.add(task)
         task.add_done_callback(self._attachment_tasks.discard)
