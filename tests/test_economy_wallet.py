@@ -70,6 +70,14 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["wallet"], "1000")
         self.assertEqual(row["bank"], "0")
 
+    def test_withdraw_ten_thousand_from_zero_bank_never_creates_debt(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        self.assertFalse(self.cog.store.move(guild_id, user_id, 10000, False))
+        row = self.cog.store.get(guild_id, user_id)
+        self.assertEqual(row["wallet"], "1000")
+        self.assertEqual(row["bank"], "0")
+
     def test_transfer_rejects_insufficient_funds_and_self_transfer(self):
         guild_id, sender, receiver = 123, 456, 789
         self.cog.store.get(guild_id, sender)
