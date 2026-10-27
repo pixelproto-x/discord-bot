@@ -1136,7 +1136,7 @@ def _is_local_port_open(port: int) -> bool:
 
 
 def _stop_local_listener(port: int) -> bool:
-    """Stop only this project's economy editor, never an unrelated port listener."""
+    """Stop the previous economy editor and its launcher window, without killing unrelated listeners."""
     if os.name != "nt":
         return False
 
@@ -1145,29 +1145,66 @@ def _stop_local_listener(port: int) -> bool:
         str(project_dir / "economy_editor_names.py"),
         str(project_dir / "economy_editor.py"),
     )
+    editor_script_pattern = re.compile(
+        r"(?i)(?<![\w.-])(?:economy_editor_names|economy_editor)\.py(?![\w.-])"
+    )
     pids: set[int] = set()
     stopped = False
     try:
+        # Include the owning PID for the editor port and parent PIDs. Older launchers
+        # may use a relative script path, so absolute-path matching alone misses them.
         process_query = (
-            "Get-CimInstance Win32_Process | "
-            "Where-Object { $_.CommandLine } | "
-            "ForEach-Object { Write-Output ($_.ProcessId.ToString() + [char]9 + $_.CommandLine) }"
+            "$owners = @(Get-NetTCPConnection -State Listen -LocalPort "
+            + str(int(port))
+            + " -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); "
+            "$procs = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine } | "
+            "Select-Object ProcessId,ParentProcessId,CommandLine); "
+            "foreach ($owner in $owners) { Write-Output ('OWNER' + [char]9 + $owner) }; "
+            "foreach ($p in $procs) { Write-Output ($p.ProcessId.ToString() + [char]9 + "
+            "$p.ParentProcessId.ToString() + [char]9 + $p.CommandLine) }"
         )
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", process_query],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=8, check=False,
         )
+        owners: set[int] = set()
+        processes: dict[int, tuple[int, str]] = {}
         for line in result.stdout.splitlines():
-            fields = line.split("\t", 1)
-            if len(fields) != 2 or not fields[0].strip().isdigit():
+            fields = line.split("\t", 2)
+            if len(fields) == 2 and fields[0] == "OWNER" and fields[1].strip().isdigit():
+                owners.add(int(fields[1].strip()))
                 continue
-            pid = int(fields[0].strip())
+            if len(fields) == 3 and fields[0].strip().isdigit() and fields[1].strip().isdigit():
+                pid = int(fields[0].strip())
+                processes[pid] = (int(fields[1].strip()), fields[2])
+
+        # First match explicit project paths, which also catches stale editor
+        # instances that no longer own the port.
+        for pid, (_, command_line) in processes.items():
             if pid != os.getpid() and any(
-                command_line_targets_script(fields[1], editor_path)
+                command_line_targets_script(command_line, editor_path)
                 for editor_path in editor_paths
             ):
                 pids.add(pid)
+
+        # Then inspect the actual port owner. Accept a relative script path only
+        # when that process owns this editor's configured port; walk upward only
+        # through launcher ancestors that also explicitly reference the editor script.
+        for owner_pid in owners:
+            owner = processes.get(owner_pid)
+            if not owner or not editor_script_pattern.search(owner[1]):
+                continue
+            current_pid = owner_pid
+            seen: set[int] = set()
+            while current_pid in processes and current_pid not in seen:
+                seen.add(current_pid)
+                parent_pid, command_line = processes[current_pid]
+                if current_pid != os.getpid() and editor_script_pattern.search(command_line):
+                    pids.add(current_pid)
+                if parent_pid <= 0 or parent_pid == current_pid:
+                    break
+                current_pid = parent_pid
 
         for pid in sorted(pids):
             result = subprocess.run(
