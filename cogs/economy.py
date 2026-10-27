@@ -467,10 +467,15 @@ class EconomyCog(commands.Cog):
     async def _reply(self, target, content, *, embed=None, public=True):
         if isinstance(target, discord.Interaction):
             view = None if public else PublicizeView(target.user.id, content, embed)
+            # discord.py expects the view argument to be omitted when no view is
+            # attached. Passing view=None can call None.is_finished() internally.
+            response_kwargs = {"embed": embed, "ephemeral": not public}
+            if view is not None:
+                response_kwargs["view"] = view
             if target.response.is_done():
-                await target.followup.send(content, embed=embed, ephemeral=not public, view=view)
+                await target.followup.send(content, **response_kwargs)
             else:
-                await target.response.send_message(content, embed=embed, ephemeral=not public, view=view)
+                await target.response.send_message(content, **response_kwargs)
         else:
             await target.reply(content, embed=embed, mention_author=False)
 
