@@ -94,6 +94,34 @@ class MusicInputValidationTests(unittest.TestCase):
                 self.assertFalse(music.is_collection_url(url))
 
 
+class MusicMessageListenerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pasted_playlist_is_ignored_without_reply_or_playback(self):
+        from types import SimpleNamespace
+
+        cog = music.MusicCog(SimpleNamespace())
+        message = SimpleNamespace(
+            author=SimpleNamespace(bot=False),
+            guild=SimpleNamespace(id=123),
+            content="https://open.spotify.com/playlist/abc123",
+        )
+        with patch.object(cog, "play_query_from_message", new=AsyncMock()) as play:
+            await cog.on_message(message)
+        play.assert_not_awaited()
+
+    async def test_pasted_single_track_url_keeps_existing_auto_play_behavior(self):
+        from types import SimpleNamespace
+
+        cog = music.MusicCog(SimpleNamespace())
+        message = SimpleNamespace(
+            author=SimpleNamespace(bot=False),
+            guild=SimpleNamespace(id=123),
+            content="https://open.spotify.com/track/abc123",
+        )
+        with patch.object(cog, "play_query_from_message", new=AsyncMock()) as play:
+            await cog.on_message(message)
+        play.assert_awaited_once_with(message, "https://open.spotify.com/track/abc123")
+
+
 class MusicTrackDisplayTests(unittest.TestCase):
     def test_track_metadata_has_safe_fallbacks(self):
         class Track:
