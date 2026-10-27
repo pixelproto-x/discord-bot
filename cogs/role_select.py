@@ -116,6 +116,7 @@ class RoleSelectCog(commands.Cog):
 
     @app_commands.command(name="roles", description="發布遊戲身分組自選面板")
     @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_roles=True)
     async def roles(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="🎮 遊戲身分組自選",
