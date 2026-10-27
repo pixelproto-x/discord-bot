@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 HISTORY_ALLOWED_USER_ID = 1140900506198351924
 HISTORY_LIMIT = 1000
 RECENT_LIMIT = 300
+MAX_HISTORY_ATTACHMENT_BYTES = 25 * 1024 * 1024
 EMBED_COLOR = discord.Color(0x2B2D31)
 
 
@@ -42,16 +43,34 @@ def _clean_text(value, limit: int = 3500) -> str:
 
 
 async def _archive_attachment(attachment: discord.Attachment) -> str | None:
-    """Copy an attachment to GoFile before the original Discord message disappears."""
+    """Copy a bounded-size attachment to GoFile before the original message disappears."""
     temp_path = None
     try:
+        declared_size = int(getattr(attachment, "size", 0) or 0)
+        if declared_size < 0 or declared_size > MAX_HISTORY_ATTACHMENT_BYTES:
+            logger.warning(
+                "Skipping attachment archival above %s-byte limit: %s (%s bytes)",
+                MAX_HISTORY_ATTACHMENT_BYTES,
+                attachment.filename,
+                declared_size,
+            )
+            return None
         timeout = aiohttp.ClientTimeout(total=120, connect=15, sock_read=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(str(attachment.url)) as response:
                 response.raise_for_status()
                 with tempfile.NamedTemporaryFile(prefix="history-", delete=False) as tmp:
                     temp_path = tmp.name
+                    downloaded = 0
                     async for chunk in response.content.iter_chunked(1024 * 1024):
+                        downloaded += len(chunk)
+                        if downloaded > MAX_HISTORY_ATTACHMENT_BYTES:
+                            logger.warning(
+                                "Stopping attachment archival above %s-byte limit: %s",
+                                MAX_HISTORY_ATTACHMENT_BYTES,
+                                attachment.filename,
+                            )
+                            return None
                         tmp.write(chunk)
 
             with open(temp_path, "rb") as file_handle:
