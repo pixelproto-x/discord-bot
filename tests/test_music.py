@@ -178,6 +178,7 @@ class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created_nodes[1].close.await_count, 0)
         self.assertEqual(created_nodes[1].kwargs["retries"], 3)
         self.assertIn("1/2", output.getvalue())
+        self.assertIn("節點連線逾時", output.getvalue())
 
     async def test_node_that_never_reaches_connected_status_is_rejected(self):
         class FakeNode:
