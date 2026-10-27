@@ -1,6 +1,6 @@
 # Spotify 音樂連結與 LavaSrc
 
-Discord Bot 本身不會替第三方 Lavalink 節點安裝外掛。Spotify 連結必須交給**你有管理權、已安裝 LavaSrc 的 Lavalink v4 節點**解析；目前設定的免費公開節點不保證有這個外掛，因此不應把它們當成 Spotify 節點。
+Discord Bot 本身不會替第三方 Lavalink 節點安裝外掛。Spotify 單曲連結現在會先嘗試交給已設定的 LavaSrc 節點解析；若沒有可用的 LavaSrc 節點，Bot 會讀取 Spotify 公開 oEmbed 的歌曲標題，再依序搜尋 YouTube、YouTube Music 和 SoundCloud。這種替代搜尋不保證每首歌都能找到完全相同的版本。Spotify 專輯／播放清單仍需要 LavaSrc，因為 oEmbed 不會回傳完整曲目清單。
 
 ## 1. 在 Lavalink 伺服器安裝外掛
 
@@ -42,7 +42,7 @@ LAVALINK_1_PASSWORD=你的-lavalink-密碼
 LAVALINK_1_SPOTIFY_ENABLED=true
 ```
 
-`LAVALINK_1_SPOTIFY_ENABLED=true` 只是告訴 Bot「這個節點應該支援 Spotify」，**不會安裝外掛**。只有在節點端確實安裝並啟用 LavaSrc 後才設為 true。其他沒有 LavaSrc 的節點保持 false。一般歌名搜尋仍會依序嘗試 YouTube、YouTube Music 和 SoundCloud。
+`LAVALINK_1_SPOTIFY_ENABLED=true` 只是告訴 Bot「這個節點應該支援 Spotify」，**不會安裝外掛**。只有在節點端確實安裝並啟用 LavaSrc 後才設為 true。其他沒有 LavaSrc 的節點保持 false。一般歌名搜尋仍會依序嘗試 YouTube、YouTube Music 和 SoundCloud。Spotify 單曲在沒有 LavaSrc 時也會使用這個替代搜尋流程；Spotify 專輯／播放清單則仍須設定 LavaSrc。
 
 ## 3. 驗收
 
