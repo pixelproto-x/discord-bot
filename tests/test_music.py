@@ -670,17 +670,33 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
             "scsearch:Artist Song",
         ])
 
-    async def test_spotify_collection_without_lavasrc_returns_clear_error(self):
+    async def test_spotify_collection_without_lavasrc_resolves_public_embed_tracks(self):
         from types import SimpleNamespace
 
         url = "https://open.spotify.com/playlist/example"
         node = SimpleNamespace(identifier="public-node", status=wavelink.NodeStatus.CONNECTED)
+        track_one = SimpleNamespace(title="Song One", source="youtube")
+        track_two = SimpleNamespace(title="Song Two", source="soundcloud")
+
+        async def search(identifier, *, source=None, node=None):
+            if identifier == "ytsearch:Artist One Song One":
+                return [track_one]
+            if identifier == "scsearch:Artist Two Song Two":
+                return [track_two]
+            return []
+
         with (
             patch.object(music, "LAVALINK_NODES", ()),
             patch.object(wavelink.Pool, "nodes", {"public-node": node}),
+            patch.object(
+                music, "spotify_fallback_playlist_queries",
+                new=AsyncMock(return_value=["Artist One Song One", "Artist Two Song Two"]),
+            ),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
         ):
-            with self.assertRaisesRegex(RuntimeError, "專輯／播放清單.*LavaSrc"):
-                await self.cog.resolve_query(url)
+            result = await self.cog.resolve_query(url)
+
+        self.assertEqual(result, [track_one, track_two])
 
     async def test_spotify_url_uses_only_a_node_marked_as_lavasrc_enabled(self):
         from types import SimpleNamespace
