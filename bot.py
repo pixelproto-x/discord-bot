@@ -1180,17 +1180,30 @@ def _stop_local_listener(port: int) -> bool:
                 processes[pid] = (int(fields[1].strip()), fields[2])
 
         # First match explicit project paths, which also catches stale editor
-        # instances that no longer own the port.
-        for pid, (_, command_line) in processes.items():
-            if pid != os.getpid() and any(
+        # instances that no longer own the port. Include a legacy cmd.exe launcher
+        # only when its own command line explicitly launches this editor script;
+        # otherwise leave unrelated terminals and the running bot untouched.
+        for pid, (parent_pid, command_line) in processes.items():
+            if pid == os.getpid():
+                continue
+            explicit_match = any(
                 command_line_targets_script(command_line, editor_path)
                 for editor_path in editor_paths
-            ):
+            )
+            if explicit_match:
                 pids.add(pid)
+                parent = processes.get(parent_pid)
+                if (
+                    parent_pid != os.getpid()
+                    and parent is not None
+                    and editor_script_pattern.search(parent[1])
+                    and re.search(r"(?i)(?:^|[\\\\/])cmd(?:\.exe)?(?:\\s|$)", parent[1])
+                ):
+                    pids.add(parent_pid)
 
         # Then inspect the actual port owner. Accept a relative script path only
-        # when that process owns this editor's configured port; walk upward only
-        # through launcher ancestors that also explicitly reference the editor script.
+        # when that process owns this editor's configured port. If it was started
+        # from a legacy CMD wrapper that names the editor, close that wrapper too.
         for owner_pid in owners:
             owner = processes.get(owner_pid)
             if not owner or not editor_script_pattern.search(owner[1]):
@@ -1202,6 +1215,14 @@ def _stop_local_listener(port: int) -> bool:
                 parent_pid, command_line = processes[current_pid]
                 if current_pid != os.getpid() and editor_script_pattern.search(command_line):
                     pids.add(current_pid)
+                parent = processes.get(parent_pid)
+                if (
+                    parent_pid != os.getpid()
+                    and parent is not None
+                    and editor_script_pattern.search(parent[1])
+                    and re.search(r"(?i)(?:^|[\\\\/])cmd(?:\.exe)?(?:\\s|$)", parent[1])
+                ):
+                    pids.add(parent_pid)
                 if parent_pid <= 0 or parent_pid == current_pid:
                     break
                 current_pid = parent_pid
