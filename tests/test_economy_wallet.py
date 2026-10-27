@@ -78,6 +78,19 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["wallet"], "1000")
         self.assertEqual(row["bank"], "0")
 
+    def test_shop_purchase_rejects_zero_wallet_without_granting_item(self):
+        guild_id, user_id = 123, 456
+        self.cog.store.get(guild_id, user_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
+                ("0", guild_id, user_id),
+            )
+        ok, _ = self.cog.store.shop_buy(guild_id, user_id, "anti_rob", 1)
+        self.assertFalse(ok)
+        self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "0")
+        self.assertEqual(self.cog.store.inventory(guild_id, user_id), [])
+
     def test_transfer_rejects_insufficient_funds_and_self_transfer(self):
         guild_id, sender, receiver = 123, 456, 789
         self.cog.store.get(guild_id, sender)
