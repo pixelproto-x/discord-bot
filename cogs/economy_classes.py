@@ -307,8 +307,16 @@ class EconomyClassesCog(commands.GroupCog, group_name=app_commands.locale_str("r
             return
         lines = []
         for rank, row in enumerate(rows, 1):
-            member = interaction.guild.get_member(int(row["user_id"]))
-            name = member.display_name if member else f"成員 {row['user_id']}"
+            user_id = int(row["user_id"])
+            member = interaction.guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await interaction.guild.fetch_member(user_id)
+                except discord.NotFound:
+                    member = None
+                except discord.HTTPException:
+                    member = None
+            name = member.display_name if member else "無法取得名稱的成員"
             lines.append(f"**{rank}.** {name} — {CLASSES[row['class_key']]['name']} Lv.{row['level']}（{row['xp']} XP）")
         await self._reply(interaction, "**冒險等級排行榜**\n" + "\n".join(lines), public)
 
