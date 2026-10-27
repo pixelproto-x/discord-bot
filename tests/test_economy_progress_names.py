@@ -32,9 +32,7 @@ class EconomyLeaderboardNameTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_member_does_not_expose_raw_user_id(self):
         guild = SimpleNamespace(
             get_member=lambda user_id: None,
-            fetch_member=AsyncMock(side_effect=__import__("discord").NotFound(
-                SimpleNamespace(status=404, reason="Not Found"), {"message": "Unknown Member"}
-            )),
+            fetch_member=AsyncMock(return_value=None),
         )
 
         name = await _member_display_name(guild, 123456789)
