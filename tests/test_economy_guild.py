@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
         self.db_path = Path(self.tempdir.name) / "economy.db"
         self.path_patch = patch.object(economy_guild, "DB_PATH", self.db_path)
         self.path_patch.start()
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             con.execute(
                 "CREATE TABLE users (user_id INTEGER PRIMARY KEY, guild_id INTEGER, "
                 "wallet TEXT NOT NULL DEFAULT '1000', bank TEXT NOT NULL DEFAULT '0')"
@@ -25,14 +26,14 @@ class GuildEconomyStoreTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def seed_user(self, user_id, guild_id=10, wallet="500"):
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             con.execute(
                 "INSERT INTO users(user_id,guild_id,wallet,bank) VALUES(?,?,?,'0')",
                 (user_id, guild_id, wallet),
             )
 
     def set_treasury(self, guild_id, balance):
-        with self.store.connect() as con:
+        with closing(self.store.connect()) as con, con:
             con.execute(
                 "INSERT INTO guild_treasuries(guild_id,balance,updated_at) VALUES(?,?,0) "
                 "ON CONFLICT(guild_id) DO UPDATE SET balance=excluded.balance",
@@ -44,7 +45,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
         return int(row["balance"])
 
     def wallet_balance(self, user_id):
-        with sqlite3.connect(self.db_path) as con:
+        with closing(sqlite3.connect(self.db_path)) as con, con:
             row = con.execute("SELECT wallet FROM users WHERE user_id=?", (user_id,)).fetchone()
         return int(row[0])
 
@@ -66,7 +67,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
         self.assertEqual(self.wallet_balance(1), 400)
         self.assertEqual(self.treasury_balance(10), 100)
 
-        with self.store.connect() as con:
+        with closing(self.store.connect()) as con, con:
             actions = [row["action"] for row in con.execute(
                 "SELECT action FROM guild_treasury_ledger WHERE guild_id=10 ORDER BY id"
             )]
@@ -118,7 +119,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(self.treasury_balance(10), 300)
 
-        with self.store.connect() as con:
+        with closing(self.store.connect()) as con, con:
             con.execute(
                 "UPDATE guild_economy_events SET ends_at=1 WHERE guild_id=10"
             )
@@ -128,7 +129,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
 
         self.store.event_info(10)
         self.assertEqual(self.treasury_balance(10), 500)
-        with self.store.connect() as con:
+        with closing(self.store.connect()) as con, con:
             refunds = con.execute(
                 "SELECT COUNT(*) FROM guild_treasury_ledger "
                 "WHERE guild_id=10 AND action='event_expired_refund'"
@@ -140,7 +141,7 @@ class GuildEconomyStoreTests(unittest.TestCase):
         ok, message = self.store.create_event(10, 99, "資金不足", "不應建立", 100, 100, 24)
         self.assertFalse(ok)
         self.assertIn("金庫不足", message)
-        with self.store.connect() as con:
+        with closing(self.store.connect()) as con, con:
             count = con.execute("SELECT COUNT(*) FROM guild_economy_events").fetchone()[0]
         self.assertEqual(count, 0)
         self.assertEqual(self.treasury_balance(10), 50)
