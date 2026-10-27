@@ -14,6 +14,12 @@ import threading
 
 from safe_logging import redact_sensitive_text
 from process_safety import command_line_targets_script
+from startup_services import (
+    find_freemind_ai_project,
+    freemind_ai_launcher_running,
+    launch_freemind_ai,
+    stop_stale_freemind_ai_launch_windows,
+)
 
 # 將完整輸出保留到 logs/bot.log，終端機只顯示重要事件與錯誤。
 _LOG_DIR = Path(__file__).resolve().parent / "logs"
@@ -1213,6 +1219,34 @@ def _start_companion_services():
                 print(f"[提示] Economy Editor 自動啟動失敗：{type(exc).__name__}。")
 
 
+def _start_freemind_ai_if_needed():
+    """Start the user's local FreeMindAI checkout when launching the Discord bot."""
+    if os.name != "nt":
+        return
+
+    # Clean up only the known orphaned legacy error prompt; never kill a live AI process.
+    stop_stale_freemind_ai_launch_windows()
+
+    if _is_local_port_open(8080):
+        print("[OK] FreeMindAI 已在執行（8080），不重複開啟。")
+        return
+    if freemind_ai_launcher_running():
+        print("[啟動] FreeMindAI 正在啟動中，不重複開啟。")
+        return
+
+    project_dir = find_freemind_ai_project(Path(__file__).resolve().parent)
+    if project_dir is None:
+        print("[提示] 找不到 FreeMindAI 專案，請確認 Downloads\FreeMindAI-main (3)\FreeMindAI-main 是否存在。")
+        return
+
+    launcher = project_dir / "run.bat"
+    try:
+        launch_freemind_ai(launcher)
+        print(f"[啟動] 已開啟 FreeMindAI：{project_dir}")
+    except (OSError, RuntimeError) as exc:
+        print(f"[錯誤] FreeMindAI 自動啟動失敗：{type(exc).__name__}：{exc}")
+
+
 def _start_ollama_if_needed():
     """Start the local Ollama server when installed, without opening another console."""
     if os.getenv("OLLAMA_AUTOSTART", "1").strip().lower() in {"0", "false", "no", "off"}:
@@ -1264,6 +1298,7 @@ def main():
         raise RuntimeError("DISCORD_TOKEN 未設定。")
     _start_companion_services()
     _start_ollama_if_needed()
+    _start_freemind_ai_if_needed()
     bot.run(token)
 
 
