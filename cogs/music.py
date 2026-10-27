@@ -166,15 +166,45 @@ async def spotify_fallback_query(value: str) -> str | None:
     return title[:MAX_QUERY_LENGTH] or None
 
 
-async def spotify_fallback_playlist_queries(value: str, *, limit: int = 25) -> list[str]:
-    """Read public Spotify embed metadata for a playlist/album when LavaSrc is unavailable.
-
-    Spotify's embed page exposes server-rendered track metadata. This is a best-effort
-    fallback; LavaSrc remains preferred because Spotify can change or rate-limit embeds.
-    """
-    if not is_spotify_url(value) or not is_collection_url(value):
+def spotify_playlist_queries_from_embed_html(html: str, *, limit: int = 25) -> list[str]:
+    """Extract searchable artist/title strings from Spotify's public embed JSON."""
+    match = re.search(
+        r"<script[^>]+id=['\\"]__NEXT_DATA__['\\"][^>]*>(.*?)</script>",
+        html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return []
+    try:
+        payload = json.loads(match.group(1))
+        entity = payload.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
+        track_list = entity.get("trackList", [])
+    except (ValueError, TypeError, AttributeError):
         return []
 
+    queries = []
+    seen = set()
+    for item in track_list:
+        if not isinstance(item, dict) or item.get("isPlayable") is False:
+            continue
+        title = " ".join(str(item.get("title") or item.get("name") or "").split())
+        artist = " ".join(str(item.get("subtitle") or "").split())
+        if not title:
+            continue
+        query = f"{artist} {title}".strip()[:MAX_QUERY_LENGTH]
+        key = query.casefold()
+        if query and key not in seen:
+            seen.add(key)
+            queries.append(query)
+        if len(queries) >= max(1, min(int(limit), 50)):
+            break
+    return queries
+
+
+async def spotify_fallback_playlist_queries(value: str, *, limit: int = 25) -> list[str]:
+    """Read public Spotify embed metadata for a playlist/album when LavaSrc is unavailable."""
+    if not is_spotify_url(value) or not is_collection_url(value):
+        return []
     try:
         parsed = urlsplit(value)
         match = re.search(r"/(?:intl-[^/]+/)?(playlist|album)/([A-Za-z0-9]+)", parsed.path, re.IGNORECASE)
@@ -195,36 +225,9 @@ async def spotify_fallback_playlist_queries(value: str, *, limit: int = 25) -> l
                 if len(html) > 5 * 1024 * 1024:
                     return []
                 html = html.decode(response.charset or "utf-8", errors="replace")
-        match = re.search(
-            r"<script[^>]+id=['\"]__NEXT_DATA__['\"][^>]*>(.*?)</script>",
-            html,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if not match:
-            return []
-        payload = json.loads(match.group(1))
-        entity = payload.get("props", {}).get("pageProps", {}).get("state", {}).get("data", {}).get("entity", {})
-        track_list = entity.get("trackList", [])
+        return spotify_playlist_queries_from_embed_html(html, limit=limit)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, AttributeError):
         return []
-
-    queries = []
-    seen = set()
-    for item in track_list:
-        if not isinstance(item, dict) or item.get("isPlayable") is False:
-            continue
-        title = " ".join(str(item.get("title") or item.get("name") or "").split())
-        artist = " ".join(str(item.get("subtitle") or "").split())
-        if not title:
-            continue
-        query = f"{artist} {title}".strip()[:MAX_QUERY_LENGTH]
-        key = query.casefold()
-        if query and key not in seen:
-            seen.add(key)
-            queries.append(query)
-        if len(queries) >= max(1, min(int(limit), 50)):
-            break
-    return queries
 
 
 def is_spotify_url(value: str) -> bool:
@@ -1317,7 +1320,19 @@ class MusicCog(commands.Cog):
             if len(selected_tracks) > count:
                 suffix = f"（佇列上限已到，只加入前 {count} 首）"
             elif is_playlist:
-                suffix = f"（播放清單／專輯共加入 {count} 首）"
+                suffix = f"（播放清單／專輯共加入 {count} 首"
+                if is_spotify_url(query):
+                    connected_ids = {
+                        node.identifier for node in wavelink.Pool.nodes.values()
+                        if getattr(node, "status", None) is wavelink.NodeStatus.CONNECTED
+                    }
+                    has_spotify_node = any(
+                        config.get("spotify", False) and config["identifier"] in connected_ids
+                        for config in LAVALINK_NODES
+                    )
+                    if not has_spotify_node:
+                        suffix += "；未啟用 LavaSrc 時，替代搜尋最多處理前 25 首"
+                suffix += "）"
             else:
                 suffix = ""
             session = self.sessions[interaction.guild.id]
