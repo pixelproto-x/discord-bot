@@ -109,6 +109,7 @@ class MusicNodeConfigTests(unittest.TestCase):
             "LAVALINK_1_URI": "https://custom.example",
             "LAVALINK_1_PASSWORD": "first",
             "LAVALINK_1_IDENTIFIER": "nazha-v4",
+            "LAVALINK_1_SPOTIFY_ENABLED": "true",
             "LAVALINK_2_URI": "https://custom.example/",
             "LAVALINK_2_PASSWORD": "second",
             "LAVALINK_2_IDENTIFIER": "duplicate-uri",
@@ -131,6 +132,8 @@ class MusicNodeConfigTests(unittest.TestCase):
         self.assertEqual(len(identifiers), len(set(identifiers)))
         self.assertEqual(len(uris), len(set(uris)))
         self.assertEqual(nodes[0]["uri"], "https://custom.example")
+        self.assertTrue(nodes[0]["spotify"])
+        self.assertFalse(nodes[1]["spotify"])
 
 
 class MusicNodeStartupTests(unittest.IsolatedAsyncioTestCase):
@@ -616,6 +619,67 @@ class MusicSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [track])
         self.assertTrue(calls)
         self.assertTrue(all(identifier == url and source is None for identifier, _, source in calls))
+
+    async def test_spotify_url_uses_only_a_node_marked_as_lavasrc_enabled(self):
+        from types import SimpleNamespace
+
+        url = "https://open.spotify.com/track/example"
+        spotify_node = SimpleNamespace(identifier="spotify-node", status=wavelink.NodeStatus.CONNECTED)
+        public_node = SimpleNamespace(identifier="public-node", status=wavelink.NodeStatus.CONNECTED)
+        track = SimpleNamespace(title="Spotify mirror track", source="youtube")
+        calls = []
+
+        async def search(identifier, *, source=None, node=None):
+            calls.append((identifier, node.identifier))
+            return [track] if node.identifier == "spotify-node" else []
+
+        configs = (
+            {"identifier": "spotify-node", "uri": "https://spotify.example", "password": "x", "spotify": True},
+            {"identifier": "public-node", "uri": "https://public.example", "password": "x", "spotify": False},
+        )
+        with (
+            patch.object(music, "LAVALINK_NODES", configs),
+            patch.object(wavelink.Pool, "nodes", {
+                "spotify-node": spotify_node,
+                "public-node": public_node,
+            }),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(side_effect=search)),
+        ):
+            result = await self.cog.resolve_query(url)
+
+        self.assertEqual(result, [track])
+        self.assertEqual(calls, [(url, "spotify-node")])
+
+    async def test_spotify_url_fails_with_actionable_error_without_lavasrc_node(self):
+        url = "https://open.spotify.com/track/example"
+        configs = (
+            {"identifier": "public-node", "uri": "https://public.example", "password": "x", "spotify": False},
+        )
+        with (
+            patch.object(music, "LAVALINK_NODES", configs),
+            patch.object(wavelink.Pool, "nodes", self.nodes),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock()) as search,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "LavaSrc"):
+                await self.cog.resolve_query(url)
+
+        search.assert_not_awaited()
+
+    async def test_spotify_url_reports_when_enabled_node_has_no_lavasrc_results(self):
+        from types import SimpleNamespace
+
+        url = "https://open.spotify.com/track/example"
+        node = SimpleNamespace(identifier="spotify-node", status=wavelink.NodeStatus.CONNECTED)
+        configs = (
+            {"identifier": "spotify-node", "uri": "https://spotify.example", "password": "x", "spotify": True},
+        )
+        with (
+            patch.object(music, "LAVALINK_NODES", configs),
+            patch.object(wavelink.Pool, "nodes", {"spotify-node": node}),
+            patch.object(music.wavelink.Playable, "search", new=AsyncMock(return_value=[])),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "plugins.lavasrc.sources.spotify"):
+                await self.cog.resolve_query(url)
 
     async def test_search_fails_clearly_when_no_lavalink_node_is_connected(self):
         self.cog.last_node_setup_attempt = time.monotonic()
