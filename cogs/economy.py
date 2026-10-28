@@ -18,10 +18,11 @@ MAX_DIGITS = 2000
 MAX_BALANCE = int("9" * MAX_DIGITS)
 UTC = timezone.utc
 COOLDOWNS = {"daily": 86400, "work": 60, "fish": 30, "rob": 600}
-# These accounts are permanently immune to robbery except for explicitly allowed robbers.
+# These two users may rob each other repeatedly without the normal cooldown.
+MUTUAL_UNLIMITED_ROB_USER_IDS = frozenset({1140900506198351924, 1338493569781989407})
+# The second account remains protected from everyone outside the explicit mutual pair.
 PERMANENT_ANTI_ROB_USER_IDS = frozenset({1338493569781989407})
-# The owner may rob the protected account; everyone else remains blocked.
-PERMANENT_ANTI_ROB_ALLOWED_ROBBER_IDS = frozenset({1140900506198351924})
+PERMANENT_ANTI_ROB_ALLOWED_ROBBER_IDS = MUTUAL_UNLIMITED_ROB_USER_IDS
 WORK_LINES = [
     "你去咖啡店打工，忙到差點把自己也端給客人。",
     "你幫鄰居搬家具，最重的那箱竟然裝滿教科書。",
@@ -410,7 +411,13 @@ class EconomyStore:
             target = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, target_id)).fetchone()
             now = now_utc()
             last = parse_time(robber["last_rob"])
-            if last and now < last + timedelta(seconds=COOLDOWNS["rob"]):
+            mutual_unlimited_rob = (
+                robber_id in MUTUAL_UNLIMITED_ROB_USER_IDS
+                and target_id in MUTUAL_UNLIMITED_ROB_USER_IDS
+                and robber_id != target_id
+            )
+            if (not mutual_unlimited_rob and last
+                    and now < last + timedelta(seconds=COOLDOWNS["rob"])):
                 con.rollback()
                 return "cooldown", max(1, int((last + timedelta(seconds=COOLDOWNS["rob"]) - now).total_seconds()))
             protection = con.execute(
