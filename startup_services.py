@@ -27,7 +27,7 @@ def _valid_freemind_ai_project(path: Path) -> Path | None:
 
 
 def launch_freemind_ai(run_bat: Path) -> None:
-    """Open the Windows batch file through ShellExecute, avoiding nested CMD quoting."""
+    """Launch FreeMindAI in a detached Windows process and return immediately."""
     if os.name != "nt":
         raise OSError("FreeMindAI batch launch is only supported on Windows.")
 
@@ -35,9 +35,18 @@ def launch_freemind_ai(run_bat: Path) -> None:
     if not launcher.is_file() or launcher.suffix.casefold() != ".bat":
         raise FileNotFoundError(f"FreeMindAI launcher not found: {launcher}")
 
-    # os.startfile delegates path parsing to Windows ShellExecute. This safely
-    # handles spaces and parentheses without assembling a cmd.exe command line.
-    os.startfile(str(launcher), "open", cwd=str(launcher.parent))
+    # ShellExecute via os.startfile can block the bot's startup path on some
+    # Windows setups. Use START to detach the batch process so bot.py can
+    # continue without waiting for the launcher window.
+    subprocess.Popen(
+        ["cmd.exe", "/d", "/c", "start", "", str(launcher)],
+        cwd=str(launcher.parent),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        close_fds=True,
+    )
 
 
 def _windows_process_snapshot() -> list[tuple[int, int, str, str]]:
