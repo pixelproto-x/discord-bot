@@ -52,7 +52,7 @@ def _sanitize_chat_reply(text: str) -> str:
     if len(labels) >= 2:
         answer = answer[:labels[1].start()].rstrip()
         answer = re.sub(r"^\s*[^\s：:\n]{1,12}\s*[：:]\s*", "", answer)
-    answer = re.sub(r"^\s*(?:LogRelay|assistant|bot)\s*[：:]\s*", "", answer, flags=re.IGNORECASE)
+    answer = re.sub(r"^\s*(?:assistant|bot)\s*[：:]\s*", "", answer, flags=re.IGNORECASE)
     answer = "".join(ch for ch in answer if not __import__("unicodedata").category(ch).startswith("P"))
     return answer[:900].strip()
 
