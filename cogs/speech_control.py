@@ -204,7 +204,7 @@ class SpeechControlCog(commands.Cog):
             await interaction.response.send_message("請在 Discord 伺服器裡使用。", ephemeral=True)
             return False
         if interaction.user.id != OWNER_ID:
-            await interaction.response.send_message("這是主人專用的語音控制指令。", ephemeral=True)
+            await interaction.response.send_message("你沒有權限使用這個語音控制指令。", ephemeral=True)
             return False
         return True
 
