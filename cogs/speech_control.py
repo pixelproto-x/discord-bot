@@ -208,7 +208,7 @@ class SpeechControlCog(commands.Cog):
             return False
         return True
 
-    @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓一條魚在你的語音頻道唸出指定文字", zh_TW="讓一條魚在你的語音頻道唸出指定文字（主人專用）"))
+    @app_commands.command(name=app_commands.locale_str("speak", zh_TW="語音朗讀"), description=app_commands.locale_str("讓一條魚在你的語音頻道唸出指定文字", zh_TW="讓一條魚在你的語音頻道唸出指定文字"))
     @app_commands.describe(text="要讓機器人唸出的內容", public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speak(self, interaction: discord.Interaction, text: str, public: bool = True):
@@ -342,7 +342,7 @@ class SpeechControlCog(commands.Cog):
             return "我正在播放音訊；為避免打斷音樂或上一句，請先輸入 /stop。"
         filename = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="logrelay_tts_", suffix=".mp3", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(prefix="yitiaoyu_tts_", suffix=".mp3", delete=False) as tmp:
                 filename = tmp.name
             await edge_tts.Communicate(text, DEFAULT_VOICE).save(filename)
             voice_client = await self.prepare_local_audio(channel)
@@ -528,7 +528,7 @@ class SpeechControlCog(commands.Cog):
         if owns_active_tts:
             await self.finish_local_audio(guild_id)
 
-    @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止一條魚正在唸的語音或麥克風", zh_TW="停止一條魚正在唸的語音（主人專用）"))
+    @app_commands.command(name=app_commands.locale_str("speech-stop", zh_TW="停止朗讀"), description=app_commands.locale_str("停止一條魚正在唸的語音或麥克風", zh_TW="停止一條魚正在唸的語音"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speech_stop(self, interaction: discord.Interaction, public: bool = True):
@@ -547,7 +547,7 @@ class SpeechControlCog(commands.Cog):
             await self._cleanup(guild.id, self.temp_files.get(guild.id))
         await interaction.response.send_message("好，停止了。", ephemeral=not public)
 
-    @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓一條魚離開語音頻道", zh_TW="讓一條魚離開語音頻道（主人專用；會停止目前音訊）"))
+    @app_commands.command(name=app_commands.locale_str("speech-leave", zh_TW="離開語音頻道"), description=app_commands.locale_str("讓一條魚離開語音頻道", zh_TW="讓一條魚離開語音頻道（會停止目前音訊）"))
     @app_commands.describe(public=app_commands.locale_str("是否公開顯示執行結果", zh_TW="是否公開顯示執行結果"))
     @app_commands.rename(public=app_commands.locale_str("公開", zh_TW="公開"))
     async def speech_leave(self, interaction: discord.Interaction, public: bool = True):
