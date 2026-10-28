@@ -1186,7 +1186,9 @@ def _stop_local_listener(port: int) -> bool:
         for pid, (parent_pid, command_line) in processes.items():
             if pid == os.getpid():
                 continue
-            explicit_match = any(
+            # Match by script basename as well as absolute path: older editor
+            # windows may have been launched from a relative path or another cwd.
+            explicit_match = bool(editor_script_pattern.search(command_line)) or any(
                 command_line_targets_script(command_line, editor_path)
                 for editor_path in editor_paths
             )
