@@ -137,12 +137,18 @@ PAGE = r"""<!doctype html>
 body{margin:0;background:#10131a;color:#e8edf5}main{max-width:1200px;margin:28px auto;padding:0 16px}
 h1{margin-bottom:6px}.muted{color:#aab5c5;overflow-wrap:anywhere}
 .notice{padding:12px 14px;background:#252d3a;border:1px solid #39465a;border-radius:10px;margin:16px 0}
-table{width:100%;border-collapse:collapse;background:#171c25;border-radius:12px;overflow:hidden}
-th,td{padding:10px;border-bottom:1px solid #303847;text-align:left;vertical-align:top}
-th{background:#202735}input{box-sizing:border-box;width:100%;min-width:110px;padding:9px;border-radius:7px;border:1px solid #48556a;background:#0f141c;color:#fff}
-input.time{min-width:220px}button{padding:9px 13px;border:0;border-radius:7px;background:#78a9ff;color:#101827;font-weight:700;cursor:pointer}
+.table-wrap{width:100%;max-width:100%;overflow-x:auto;border-radius:12px;border:1px solid #303847;background:#171c25;overscroll-behavior-x:contain}
+table{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;background:#171c25}
+th,td{padding:10px;border-bottom:1px solid #303847;text-align:left;vertical-align:top;white-space:nowrap}
+th{background:#202735;position:sticky;top:0;z-index:1}
+td:first-child,td:nth-child(2){font-family:ui-monospace,monospace}
+td:nth-child(2){min-width:165px}
+input{box-sizing:border-box;width:180px;min-width:180px;padding:9px;border-radius:7px;border:1px solid #48556a;background:#0f141c;color:#fff}
+input[name="display_name"]{width:180px;min-width:180px}
+input.time{width:230px;min-width:230px}
+button{padding:9px 13px;border:0;border-radius:7px;background:#78a9ff;color:#101827;font-weight:700;cursor:pointer}
 button:hover{filter:brightness(1.08)}.save{white-space:nowrap}.empty{padding:20px;background:#171c25;border-radius:10px}
-@media(max-width:750px){table,tbody,tr,td{display:block}thead{display:none}tr{border-bottom:2px solid #394253;padding:8px}td{border:0;padding:6px}td:before{content:attr(data-label);display:block;color:#aab5c5;font-size:12px;margin-bottom:4px}}
+@media(max-width:750px){main{margin:16px auto;padding:0 10px}.table-wrap{max-width:calc(100vw - 20px)}th,td{padding:8px}}
 </style></head><body><main>
 <h1>經濟資料庫編輯器</h1><div class="muted">資料庫：<code>__DB_PATH__</code></div>
 <div class="notice">每筆經濟帳戶以「伺服器 ID + Discord 使用者 ID」識別；同一個人若在不同伺服器使用經濟功能，會各有一筆伺服器獨立的餘額，不是把暱稱當成不同帳號。請核對 Discord 使用者 ID。只在這台電腦的 127.0.0.1 開放。玩家名稱優先使用伺服器暱稱；建議修改資料前先關閉 Discord Bot。</div>
@@ -164,7 +170,7 @@ async function load(){
   const tr=document.createElement("tr"),form=document.createElement("form");
   const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id);form.id=formId;
   const guildCell=document.createElement("td");guildCell.dataset.label="伺服器 ID";guildCell.textContent=String(user.guild_id??"0");tr.appendChild(guildCell);
-  const userIdCell=document.createElement("td");userIdCell.dataset.label="Discord 使用者 ID";userIdCell.textContent=String(user.user_id??"");userIdCell.style.fontFamily="ui-monospace,monospace";userIdCell.style.overflowWrap="anywhere";tr.appendChild(userIdCell);
+  const userIdCell=document.createElement("td");userIdCell.dataset.label="Discord 使用者 ID";userIdCell.textContent=String(user.user_id??"");userIdCell.style.fontFamily="ui-monospace,monospace";userIdCell.style.whiteSpace="nowrap";tr.appendChild(userIdCell);
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
    input.name=key;input.value=user[key]??"";input.dataset.serverValue=input.value;input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
@@ -188,7 +194,7 @@ async function load(){
   });
   tr.appendChild(form);tbody.appendChild(tr);
  }
- table.appendChild(tbody);root.replaceChildren(table);
+ table.appendChild(tbody);const wrap=document.createElement("div");wrap.className="table-wrap";wrap.appendChild(table);root.replaceChildren(wrap);
 }
 load().catch(err=>document.getElementById("content").textContent="讀取失敗："+err);
 // Live updates: refresh every 2.5 seconds, but never replace the table while
