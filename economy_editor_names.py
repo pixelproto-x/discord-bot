@@ -151,7 +151,7 @@ button:hover{filter:brightness(1.08)}.save{white-space:nowrap}.empty{padding:20p
 @media(max-width:750px){main{margin:16px auto;padding:0 10px}.table-wrap{max-width:calc(100vw - 20px)}th,td{padding:8px}}
 </style></head><body><main>
 <h1>經濟資料庫編輯器</h1><div class="muted">資料庫：<code>__DB_PATH__</code></div>
-<div class="notice">每筆經濟帳戶以「伺服器 ID + Discord 使用者 ID」識別；同一個人若在不同伺服器使用經濟功能，會各有一筆伺服器獨立的餘額，不是把暱稱當成不同帳號。請核對 Discord 使用者 ID。只在這台電腦的 127.0.0.1 開放。玩家名稱優先使用伺服器暱稱；建議修改資料前先關閉 Discord Bot。</div>
+<div class="notice">帳戶以 Discord 使用者 ID 核對；伺服器識別資料只在系統內部使用，不顯示於此編輯器。只在這台電腦的 127.0.0.1 開放。玩家名稱優先使用伺服器暱稱；建議修改資料前先關閉 Discord Bot。</div>
 <div id="status" role="status"></div><div id="content">正在載入資料…</div></main>
 <script>
 const fields=[
@@ -164,12 +164,11 @@ async function load(){
  if(!res.ok){root.textContent=data.error||"讀取失敗";return}
  if(!data.users.length){root.innerHTML='<div class="empty">目前沒有玩家資料。先在 Discord 使用一次經濟指令，建立資料後再重新整理。</div>';return}
  const table=document.createElement("table"),thead=document.createElement("thead"),headrow=document.createElement("tr");
- ["伺服器 ID","Discord 使用者 ID",...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
+ ["Discord 使用者 ID",...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
  thead.appendChild(headrow);table.appendChild(thead);const tbody=document.createElement("tbody");
  for(const user of data.users){
   const tr=document.createElement("tr"),form=document.createElement("form");
   const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id);form.id=formId;
-  const guildCell=document.createElement("td");guildCell.dataset.label="伺服器 ID";guildCell.textContent=String(user.guild_id??"0");tr.appendChild(guildCell);
   const userIdCell=document.createElement("td");userIdCell.dataset.label="Discord 使用者 ID";userIdCell.textContent=String(user.user_id??"");userIdCell.style.fontFamily="ui-monospace,monospace";userIdCell.style.whiteSpace="nowrap";tr.appendChild(userIdCell);
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
