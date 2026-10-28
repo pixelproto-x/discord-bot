@@ -83,6 +83,79 @@ def safe_calculate(expression: str) -> int | float:
 
     return visit(tree.body)
 
+class DiceGameView(discord.ui.View):
+    def __init__(self, *, banker_id: int, banker_name: str, player_limit: int, sides: int):
+        super().__init__(timeout=300)
+        self.banker_id = banker_id
+        self.banker_name = banker_name
+        self.player_limit = player_limit
+        self.sides = sides
+        self.players = {banker_id: banker_name}
+        self.message = None
+        self.finished = False
+
+    def render(self, *, results=None):
+        lines = [
+            "🎲 **多人骰子對決**",
+            f"莊家：{self.banker_name}",
+            f"人數：{len(self.players)}/{self.player_limit}",
+            f"骰子：D{self.sides}",
+            "玩家：" + "、".join(self.players.values()),
+        ]
+        if results is not None:
+            lines.append("")
+            lines.extend(f"**{name}**：{value}" for name, value in results)
+            high = max(value for _, value in results)
+            winners = [name for name, value in results if value == high]
+            lines.append(f"\n🏆 最高點數：**{high}**\n" + ("平手：" if len(winners) > 1 else "勝者：") + "、".join(winners))
+        return "\n".join(lines)
+
+    @discord.ui.button(label="加入遊戲", style=discord.ButtonStyle.primary)
+    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            await interaction.response.send_message("這局已經結束了。", ephemeral=True)
+            return
+        if interaction.user.id in self.players:
+            await interaction.response.send_message("你已經在這局裡了。", ephemeral=True)
+            return
+        if len(self.players) >= self.player_limit:
+            await interaction.response.send_message("人數已滿，不能再加入。", ephemeral=True)
+            return
+        self.players[interaction.user.id] = interaction.user.display_name
+        await interaction.response.edit_message(content=self.render(), view=self)
+
+    @discord.ui.button(label="開始擲骰（莊家）", style=discord.ButtonStyle.success)
+    async def roll_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.banker_id:
+            await interaction.response.send_message("只有開局的莊家可以開始擲骰。", ephemeral=True)
+            return
+        if self.finished:
+            await interaction.response.send_message("這局已經結束了。", ephemeral=True)
+            return
+        if len(self.players) < self.player_limit:
+            await interaction.response.send_message(
+                f"還沒滿人，目前 {len(self.players)}/{self.player_limit} 人。",
+                ephemeral=True,
+            )
+            return
+        self.finished = True
+        results = [(name, random.randint(1, self.sides)) for name in self.players.values()]
+        self.join_button.disabled = True
+        self.roll_button.disabled = True
+        await interaction.response.edit_message(content=self.render(results=results), view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        self.join_button.disabled = True
+        self.roll_button.disabled = True
+        self.stop()
+        if self.message is not None and not self.finished:
+            try:
+                await self.message.edit(content=self.render() + "\n\n本局已逾時關閉。", view=self)
+            except (discord.HTTPException, discord.NotFound):
+                pass
+
+
 class UtilityCog(commands.Cog):
     remind = app_commands.Group(name=app_commands.locale_str("remind", zh_TW="提醒"), description=app_commands.locale_str("設定與管理提醒", zh_TW="設定、查看及取消提醒"))
 
@@ -242,11 +315,44 @@ class UtilityCog(commands.Cog):
     async def coin(self, interaction: discord.Interaction, public: bool = True):
         await interaction.response.send_message(random.choice(["🪙 正面！", "🪙 反面！"]), ephemeral=not public)
 
-    @app_commands.command(name=app_commands.locale_str("dice", zh_TW="擲骰子"), description=app_commands.locale_str("丟骰子，預設六面", zh_TW="擲指定面數的骰子"))
-    @app_commands.describe(sides="骰子面數，2 到 100")
-    @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
-    async def dice(self, interaction: discord.Interaction, sides: app_commands.Range[int, 2, 100] = 6, public: bool = True):
-        await interaction.response.send_message(f"🎲 擲出了 **{random.randint(1, sides)}**（D{sides}）", ephemeral=not public)
+    @app_commands.command(name=app_commands.locale_str("dice", zh_TW="骰子遊戲"), description=app_commands.locale_str("單人擲骰或多人擲骰對決，由開局者當莊家", zh_TW="單人或多人骰子遊戲"))
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="單人", value="single"),
+        app_commands.Choice(name="多人", value="multi"),
+    ])
+    @app_commands.describe(mode="選擇單人或多人遊戲", players="多人遊戲總人數，包含莊家，2 到 20 人", sides="每人擲骰的面數，2 到 100", public="是否公開遊戲")
+    async def dice(
+        self,
+        interaction: discord.Interaction,
+        mode: app_commands.Choice[str],
+        players: app_commands.Range[int, 2, 20] = 2,
+        sides: app_commands.Range[int, 2, 100] = 6,
+        public: bool = True,
+    ):
+        if mode.value == "single":
+            result = random.randint(1, sides)
+            await interaction.response.send_message(
+                f"🎲 **單人擲骰**\n{interaction.user.mention} 擲出 **{result}**（D{sides}）",
+                ephemeral=not public,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+        if interaction.guild is None:
+            await interaction.response.send_message("多人骰子遊戲只能在伺服器中開局。", ephemeral=True)
+            return
+        view = DiceGameView(
+            banker_id=interaction.user.id,
+            banker_name=interaction.user.display_name,
+            player_limit=players,
+            sides=sides,
+        )
+        await interaction.response.send_message(
+            f"🎲 **多人骰子對決**\n莊家：{interaction.user.mention}\n人數：1/{players}（包含莊家）\n骰子：D{sides}\n\n其他人按「加入遊戲」，滿人後由莊家按「開始擲骰」結算。",
+            ephemeral=not public,
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        view.message = await interaction.original_response()
 
     @app_commands.command(name=app_commands.locale_str("roll", zh_TW="擲骰"), description=app_commands.locale_str("自訂骰子，例如 2d20+3", zh_TW="擲自訂骰子"))
     @app_commands.describe(formula="例如 2d20+3")
