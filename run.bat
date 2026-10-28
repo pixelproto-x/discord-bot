@@ -31,6 +31,50 @@ if /I "%~1"=="/dry-run" (
     exit /b 0
 )
 
+rem Pull the latest main branch before every startup. Fast-forward only so local
+rem edits are never overwritten by an automatic merge.
+where git >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Git was not found in PATH. Install Git or fix PATH; bot startup cancelled.
+    popd
+    pause
+    exit /b 1
+)
+
+git rev-parse --is-inside-work-tree >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] This folder is not a Git repository. Bot startup cancelled.
+    popd
+    pause
+    exit /b 1
+)
+
+for /f "delims=" %%B in ('git branch --show-current') do set "BOT_BRANCH=%%B"
+if /I not "%BOT_BRANCH%"=="main" (
+    echo [ERROR] Current Git branch is "%BOT_BRANCH%", not main. Switch to main before startup.
+    popd
+    pause
+    exit /b 1
+)
+
+echo [UPDATE] Checking GitHub main for updates...
+git fetch origin main
+if errorlevel 1 (
+    echo [ERROR] Could not fetch GitHub updates. Bot startup cancelled to avoid running an outdated version.
+    popd
+    pause
+    exit /b 1
+)
+
+git pull --ff-only origin main
+if errorlevel 1 (
+    echo [ERROR] Update could not be applied as a fast-forward. Local changes were preserved; resolve Git status before starting.
+    popd
+    pause
+    exit /b 1
+)
+
+echo.
 echo Starting Discord Bot from %CD%
 echo The bot manages FreeMindAI, Ollama, and Economy Editor without duplicate CMD windows.
 echo.
