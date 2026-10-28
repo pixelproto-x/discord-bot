@@ -33,7 +33,7 @@ class WebToolsCog(commands.Cog):
             return
         await interaction.response.defer(thinking=True, ephemeral=not public)
         url = "https://html.duckduckgo.com/html/?q=" + quote(query)
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; LogRelayBot/1.0)"}
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; 一條魚Bot/1.0)"}
         timeout = aiohttp.ClientTimeout(total=15)
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
