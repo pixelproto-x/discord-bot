@@ -203,8 +203,8 @@ class SpeechControlCog(commands.Cog):
         if not interaction.guild:
             await interaction.response.send_message("請在 Discord 伺服器裡使用。", ephemeral=True)
             return False
-        if not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("這個語音控制指令需要「管理伺服器」權限。", ephemeral=True)
+        if interaction.user.id != OWNER_ID:
+            await interaction.response.send_message("這是主人專用的語音控制指令。", ephemeral=True)
             return False
         return True
 
