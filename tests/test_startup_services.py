@@ -17,17 +17,23 @@ def make_project(root: Path) -> Path:
 
 
 class FreeMindAILaunchCommandTests(unittest.TestCase):
-    def test_launch_uses_windows_shell_execute_without_cmd_quoting(self):
+    def test_launch_starts_detached_batch_without_blocking(self):
         with tempfile.TemporaryDirectory(prefix="FreeMind AI (3) ") as temp:
             project = Path(temp)
             launcher = project / "run.bat"
             launcher.write_text("@echo off\r\necho test\r\n", encoding="utf-8")
             with patch("startup_services.os.name", "nt"), patch(
-                "startup_services.os.startfile", create=True
-            ) as startfile:
+                "startup_services.subprocess.Popen"
+            ) as popen:
                 launch_freemind_ai(launcher)
-            startfile.assert_called_once_with(
-                str(launcher.resolve()), "open", cwd=str(project.resolve())
+            popen.assert_called_once_with(
+                ["cmd.exe", "/d", "/c", "start", "", str(launcher.resolve())],
+                cwd=str(project.resolve()),
+                stdin=startup_services.subprocess.DEVNULL,
+                stdout=startup_services.subprocess.DEVNULL,
+                stderr=startup_services.subprocess.DEVNULL,
+                creationflags=getattr(startup_services.subprocess, "CREATE_NO_WINDOW", 0),
+                close_fds=True,
             )
 
     def test_process_snapshot_parses_windows_tab_separated_fields(self):
