@@ -52,6 +52,33 @@ class PermanentRobberyProtectionTests(unittest.TestCase):
         self.assertEqual(result[0], "success")
         self.assertGreater(result[1], 0)
 
+    def test_designated_pair_can_rob_each_other_without_cooldown(self):
+        guild_id = 123
+        first_id = 1140900506198351924
+        second_id = 1338493569781989407
+        self.store.get(guild_id, first_id)
+        self.store.get(guild_id, second_id)
+
+        first = self.store.rob(
+            guild_id, first_id, second_id,
+            success=True, fraction=0.10, fine_fraction=0.20,
+        )
+        second = self.store.rob(
+            guild_id, second_id, first_id,
+            success=True, fraction=0.10, fine_fraction=0.20,
+        )
+        repeat = self.store.rob(
+            guild_id, first_id, second_id,
+            success=True, fraction=0.10, fine_fraction=0.20,
+        )
+
+        self.assertEqual(first[0], "success")
+        self.assertEqual(second[0], "success")
+        self.assertEqual(repeat[0], "success")
+        self.assertGreater(first[1], 0)
+        self.assertGreater(second[1], 0)
+        self.assertGreater(repeat[1], 0)
+
     def test_other_users_keep_existing_robbery_flow(self):
         guild_id = 123
         robber_id = 456
