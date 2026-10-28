@@ -145,7 +145,7 @@ button:hover{filter:brightness(1.08)}.save{white-space:nowrap}.empty{padding:20p
 @media(max-width:750px){table,tbody,tr,td{display:block}thead{display:none}tr{border-bottom:2px solid #394253;padding:8px}td{border:0;padding:6px}td:before{content:attr(data-label);display:block;color:#aab5c5;font-size:12px;margin-bottom:4px}}
 </style></head><body><main>
 <h1>經濟資料庫編輯器</h1><div class="muted">資料庫：<code>__DB_PATH__</code></div>
-<div class="notice">只在這台電腦的 127.0.0.1 開放。玩家名稱會從 Discord 讀取，優先使用伺服器暱稱；Discord 暫時無法連線時會顯示「無法取得名稱」。建議修改資料前先關閉 Discord Bot。時間欄位可留空，格式為 UTC ISO。</div>
+<div class="notice">每筆經濟帳戶以「伺服器 ID + Discord 使用者 ID」識別；同一個人若在不同伺服器使用經濟功能，會各有一筆伺服器獨立的餘額，不是把暱稱當成不同帳號。請核對 Discord 使用者 ID。只在這台電腦的 127.0.0.1 開放。玩家名稱優先使用伺服器暱稱；建議修改資料前先關閉 Discord Bot。</div>
 <div id="status" role="status"></div><div id="content">正在載入資料…</div></main>
 <script>
 const fields=[
@@ -158,12 +158,13 @@ async function load(){
  if(!res.ok){root.textContent=data.error||"讀取失敗";return}
  if(!data.users.length){root.innerHTML='<div class="empty">目前沒有玩家資料。先在 Discord 使用一次經濟指令，建立資料後再重新整理。</div>';return}
  const table=document.createElement("table"),thead=document.createElement("thead"),headrow=document.createElement("tr");
- ["伺服器 ID",...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
+ ["伺服器 ID","Discord 使用者 ID",...fields.map(f=>f[1]),"操作"].forEach(label=>{const th=document.createElement("th");th.textContent=label;headrow.appendChild(th)});
  thead.appendChild(headrow);table.appendChild(thead);const tbody=document.createElement("tbody");
  for(const user of data.users){
   const tr=document.createElement("tr"),form=document.createElement("form");
   const formId="economy-save-"+String(user.guild_id)+"-"+String(user.user_id);form.id=formId;
   const guildCell=document.createElement("td");guildCell.dataset.label="伺服器 ID";guildCell.textContent=String(user.guild_id??"0");tr.appendChild(guildCell);
+  const userIdCell=document.createElement("td");userIdCell.dataset.label="Discord 使用者 ID";userIdCell.textContent=String(user.user_id??"");userIdCell.style.fontFamily="ui-monospace,monospace";userIdCell.style.overflowWrap="anywhere";tr.appendChild(userIdCell);
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
    input.name=key;input.value=user[key]??"";input.dataset.serverValue=input.value;input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
