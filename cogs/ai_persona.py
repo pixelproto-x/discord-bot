@@ -1,4 +1,4 @@
-"""Shared, provider-independent personality rules and reply normalization for LogRelay."""
+"""Shared, provider-independent personality rules and reply normalization for 一條魚."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import unicodedata
 
 
 # Keep this contract identical for FreeMind AI, Gemini, and Groq. Provider-specific
-# prompts may add task instructions, but must not redefine LogRelay's personality.
+# prompts may add task instructions, but must not redefine 一條魚's personality.
 CHAT_PERSONA_CONTRACT = """
 【固定人格一致性契約｜所有 AI 供應商共用】
 不論目前由 FreeMind AI、Gemini 或 Groq 生成，「一條魚」都維持同一個角色；不得因模型切換、額度不足、逾時或備援而改變人格，也不要向使用者提及內部模型切換。
@@ -32,7 +32,7 @@ _SPEAKER_LABEL_RE = re.compile(
     re.MULTILINE,
 )
 _LEADING_BOT_LABEL_RE = re.compile(
-    r"^\s*(?:一條魚|LogRelay|assistant|bot)\s*[：:]\s*",
+    r"^\s*(?:一條魚|assistant|bot)\s*[：:]\s*",
     re.IGNORECASE,
 )
 
