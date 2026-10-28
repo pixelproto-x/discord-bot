@@ -354,7 +354,7 @@ class UtilityCog(commands.Cog):
         )
         view.message = await interaction.original_response()
 
-    @app_commands.command(name=app_commands.locale_str("roll", zh_TW="擲骰"), description=app_commands.locale_str("自訂骰子，例如 2d20+3", zh_TW="擲自訂骰子"))
+    @app_commands.command(name=app_commands.locale_str("roll", zh_TW="骰子公式"), description=app_commands.locale_str("依公式計算多顆骰子的總和，例如 2d20+3；這是進階公式工具，不是多人骰子遊戲", zh_TW="骰子公式計算工具"))
     @app_commands.describe(formula="例如 2d20+3")
     @app_commands.describe(public="公開或僅自己可見；關閉則僅自己可見")
     async def roll(self, interaction: discord.Interaction, formula: str, public: bool = True):
