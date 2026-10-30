@@ -878,7 +878,7 @@ class SearchCog(commands.Cog):
                 pass
 
     @app_commands.command(
-        name=app_commands.locale_str("instagram", zh_TW="IG影片"),
+        name=app_commands.locale_str("instagram", zh_TW="ig影片"),
         description=app_commands.locale_str(
             "讓一條魚發送 Instagram 公開影片",
             zh_TW="讓一條魚發送 Instagram 公開影片",
