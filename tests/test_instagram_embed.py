@@ -12,8 +12,8 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
         self.assertEqual(
             links,
             [
-                "https://oginstagram.com/reel/ABC123/?igsh=tracking",
-                "https://oginstagram.com/p/XYZ789/",
+                "https://www.instagram.com/reel/ABC123/?igsh=tracking",
+                "https://www.instagram.com/p/XYZ789/",
             ],
         )
 
@@ -22,7 +22,7 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
             "https://m.instagram.com/reels/ABC/ "
             "https://www.instagram.com/reels/ABC/"
         )
-        self.assertEqual(links, ["https://oginstagram.com/reels/ABC/"])
+        self.assertEqual(links, ["https://www.instagram.com/reels/ABC/"])
 
     def test_ignores_profiles_and_non_instagram_urls(self):
         self.assertEqual(
@@ -35,7 +35,7 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
     def test_strips_trailing_sentence_punctuation(self):
         self.assertEqual(
             rewrite_instagram_video_links("看這個 https://instagram.com/reel/ABC123/."),
-            ["https://oginstagram.com/reel/ABC123/"],
+            ["https://www.instagram.com/reel/ABC123/"],
         )
 
 
