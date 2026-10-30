@@ -22,7 +22,7 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
             "https://m.instagram.com/reels/ABC/ "
             "https://www.instagram.com/reels/ABC/"
         )
-        self.assertEqual(links, ["https://www.instagram.com/reels/ABC/"])
+        self.assertEqual(links, ["https://www.instagram.com/p/ABC/"])
 
     def test_ignores_profiles_and_non_instagram_urls(self):
         self.assertEqual(
