@@ -892,7 +892,7 @@ class SearchCog(commands.Cog):
                 reason="Send a playable preview while retaining the original sharer's visible identity",
             )
             caption = re.sub(
-                r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+",
+                r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
                 "",
                 message.content or "",
                 flags=re.I,
