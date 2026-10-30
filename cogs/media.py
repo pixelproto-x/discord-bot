@@ -62,7 +62,9 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
             "instagram.com", "www.instagram.com", "m.instagram.com"
         }:
             continue
-        fixed = urllib.parse.urlunsplit(("https", "oginstagram.com", parsed.path, parsed.query, ""))
+        # yt-dlp supports Instagram's own domain, not the oginstagram.com proxy.
+        path = re.sub(r"^/reels/", "/p/", parsed.path, flags=re.I)
+        fixed = urllib.parse.urlunsplit(("https", "www.instagram.com", path, parsed.query, ""))
         if fixed not in seen:
             seen.add(fixed)
             rewritten.append(fixed)
