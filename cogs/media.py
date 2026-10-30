@@ -891,8 +891,14 @@ class SearchCog(commands.Cog):
                 name="Instagram Video Preview",
                 reason="Send a playable preview while retaining the original sharer's visible identity",
             )
+            caption = re.sub(
+                r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+",
+                "",
+                message.content or "",
+                flags=re.I,
+            ).strip()
             send_kwargs = {
-                "content": "",
+                "content": caption[:1900],
                 "username": message.author.display_name[:80],
                 "avatar_url": message.author.display_avatar.url,
                 "file": discord.File(io.BytesIO(video_data), filename=filename),
