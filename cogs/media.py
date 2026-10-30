@@ -807,7 +807,23 @@ class SearchCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Reply in DMs directly; in servers, only an explicit @mention triggers AI."""
-        if message.author.bot or self.bot.user is None:
+        if message.author.bot:
+            return
+
+        # Preserve the original Instagram link and add an embed-friendly version.
+        # Webhook/bot messages are ignored to prevent loops.
+        if message.guild is not None and not message.webhook_id:
+            fixed_links = rewrite_instagram_video_links(message.content)
+            if fixed_links:
+                try:
+                    await message.channel.send(
+                        "\\n".join(fixed_links),
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"[Instagram embed] send failed: {type(exc).__name__}")
+
+        if self.bot.user is None:
             return
         if message.guild is None:
             if isinstance(message.channel, discord.DMChannel):
