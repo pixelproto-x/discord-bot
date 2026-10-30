@@ -933,17 +933,23 @@ class SearchCog(commands.Cog):
                     )
                     self._instagram_webhooks[webhook_channel.id] = webhook
                 await webhook.send(**send_kwargs)
-                await message.delete()
-                return
+                break
             except discord.NotFound as exc:
+                # Only a missing webhook triggers recreation; never resend merely
+                # because deleting the original user message failed.
                 self._instagram_webhooks.pop(webhook_channel.id, None)
                 webhook = None
                 if attempt:
                     print(f"[Instagram video] webhook no longer exists: {type(exc).__name__}")
                     return
             except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"[Instagram video] send/delete failed: {type(exc).__name__}")
+                print(f"[Instagram video] webhook send failed: {type(exc).__name__}")
                 return
+
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Instagram video] preview sent but original message could not be deleted: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
