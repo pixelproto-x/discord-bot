@@ -895,8 +895,16 @@ class SearchCog(commands.Cog):
         caption: str = "",
     ):
         """Send a public Instagram video as the bot, linked to the user's slash command."""
-        urls = rewrite_instagram_video_links(url)
-        if not urls or len(urls) != 1 or urls[0] != url.strip().rstrip(".,!?)]}"):
+        clean_url = url.strip().rstrip(".,!?)]}")
+        urls = rewrite_instagram_video_links(clean_url)
+        if (
+            len(urls) != 1
+            or not re.fullmatch(
+                r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+",
+                clean_url,
+                flags=re.I,
+            )
+        ):
             await interaction.response.send_message(
                 "請提供有效的 Instagram Reel、影片或貼文網址。",
                 ephemeral=True,
