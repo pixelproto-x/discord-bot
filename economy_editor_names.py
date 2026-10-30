@@ -289,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with connect() as con:
                     rows = con.execute(
-                        "SELECT user_id,guild_id,wallet,bank,last_daily,last_work,last_fish,last_rob FROM users ORDER BY guild_id,user_id"
+                        "SELECT user_id,0 AS guild_id,wallet,bank,last_daily,last_work,last_fish,last_rob FROM users WHERE guild_id=0 ORDER BY user_id"
                     ).fetchall()
                 self.send_json(200, {"users": _add_display_names([dict(row) for row in rows])})
             except Exception as exc:
@@ -315,7 +315,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "請求資料大小不正確。"})
                 return
             data = json.loads(self.rfile.read(length).decode("utf-8"))
-            guild_id = int(data["guild_id"])
+            # All servers edit the same global account; never trust a client-supplied guild scope.
+            guild_id = 0
             user_id = int(data["user_id"])
             wallet, bank = _parse_balance(data["wallet"]), _parse_balance(data["bank"])
             if guild_id < 0 or user_id <= 0 or wallet is None or bank is None:
@@ -330,7 +331,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("時間欄位太長。")
                 times[key] = value or None
             with connect() as con:
-                if not con.execute("SELECT user_id FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone():
+                if not con.execute("SELECT user_id FROM users WHERE guild_id=0 AND user_id=?", (user_id,)).fetchone():
                     self.send_json(404, {"error": "找不到這位玩家，請重新整理頁面。"})
                     return
                 con.execute(
