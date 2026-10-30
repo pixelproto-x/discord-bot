@@ -1219,7 +1219,7 @@ def _stop_local_listener(port: int) -> bool:
             if (
                 parent_pid != os.getpid()
                 and parent is not None
-                and re.search(r"(?i)\\bcmd(?:\\.exe)?\\b", parent[1])
+                and re.search(r"(?i)\bcmd(?:\.exe)?\b", parent[1])
             ):
                 pids.add(parent_pid)
 
