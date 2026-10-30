@@ -82,7 +82,7 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
             return None
 
         options = {
-            "format": "best[ext=mp4]/best",
+            "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
             "max_filesize": MAX_VIDEO_BYTES,
@@ -97,10 +97,10 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
         with yt_dlp.YoutubeDL(options) as downloader:
             downloader.download([url])
 
-        candidates = sorted(Path(temp_dir).glob("video.*"))
+        candidates = sorted(Path(temp_dir).glob("video.mp4"))
         if not candidates:
-            raise RuntimeError("Instagram 沒有提供可下載的公開影片")
-        video_path = next((path for path in candidates if path.suffix.lower() == ".mp4"), candidates[0])
+            raise RuntimeError("Instagram 沒有提供可直接播放的 MP4 影片")
+        video_path = candidates[0]
         data = video_path.read_bytes()
         if not data or len(data) > MAX_VIDEO_BYTES:
             raise ValueError("影片檔案超過 Discord 上傳限制")
