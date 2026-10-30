@@ -295,6 +295,7 @@ class SearchCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._instagram_webhooks: dict[int, discord.Webhook] = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -886,8 +887,9 @@ class SearchCog(commands.Cog):
 
         me = message.guild.me
         permissions = webhook_channel.permissions_for(me) if me else None
-        if not permissions or not (permissions.manage_webhooks and permissions.attach_files):
-            print("[Instagram video] skipped: Manage Webhooks and Attach Files permissions are required")
+        required = ("manage_webhooks", "manage_messages", "attach_files")
+        if not permissions or not all(getattr(permissions, name, False) for name in required):
+            print("[Instagram video] skipped: Manage Webhooks, Manage Messages and Attach Files permissions are required")
             return
 
         try:
@@ -899,40 +901,49 @@ class SearchCog(commands.Cog):
             print(f"[Instagram video] download failed: {type(exc).__name__}: {str(exc)[:160]}")
             return
 
-        webhook = None
-        try:
-            webhook = await webhook_channel.create_webhook(
-                name="Instagram Video Preview",
-                reason="Send a playable preview while retaining the original sharer's visible identity",
-            )
-            caption = re.sub(
-                r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
-                "",
-                message.content or "",
-                flags=re.I,
-            ).strip()
-            command_line = f"{message.author.mention} 使用了 `/instagram`"
-            visible_content = "\n".join(part for part in (command_line, caption[:1700]) if part)
-            send_kwargs = {
-                "content": visible_content,
-                "username": message.author.display_name[:80],
-                "avatar_url": message.author.display_avatar.url,
-                "file": discord.File(io.BytesIO(video_data), filename=filename),
-                "allowed_mentions": discord.AllowedMentions.none(),
-                "wait": True,
-            }
-            if isinstance(channel, discord.Thread):
-                send_kwargs["thread"] = channel
-            await webhook.send(**send_kwargs)
-            await message.delete()
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram video] send/delete failed: {type(exc).__name__}")
-        finally:
-            if webhook is not None:
-                try:
-                    await webhook.delete(reason="Temporary Instagram video preview webhook")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+        caption = re.sub(
+            r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
+            "",
+            message.content or "",
+            flags=re.I,
+        ).strip()
+        command_line = f"{message.author.mention} 使用了 \`/instagram\`"
+        visible_content = "\n".join(part for part in (command_line, caption[:1700]) if part)
+        send_kwargs = {
+            "content": visible_content,
+            "username": message.author.display_name[:80],
+            "avatar_url": message.author.display_avatar.url,
+            "file": discord.File(io.BytesIO(video_data), filename=filename),
+            "allowed_mentions": discord.AllowedMentions.none(),
+            "wait": True,
+        }
+        if isinstance(channel, discord.Thread):
+            send_kwargs["thread"] = channel
+
+        # Reuse this bot-owned webhook for the lifetime of the process instead of
+        # creating/deleting one for every Reel. The per-message name/avatar still
+        # match the person who posted the Instagram link.
+        webhook = self._instagram_webhooks.get(webhook_channel.id)
+        for attempt in range(2):
+            try:
+                if webhook is None:
+                    webhook = await webhook_channel.create_webhook(
+                        name="Instagram Video Preview",
+                        reason="Reuse a bot-managed webhook for automatic Instagram video previews",
+                    )
+                    self._instagram_webhooks[webhook_channel.id] = webhook
+                await webhook.send(**send_kwargs)
+                await message.delete()
+                return
+            except discord.NotFound as exc:
+                self._instagram_webhooks.pop(webhook_channel.id, None)
+                webhook = None
+                if attempt:
+                    print(f"[Instagram video] webhook no longer exists: {type(exc).__name__}")
+                    return
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                print(f"[Instagram video] send/delete failed: {type(exc).__name__}")
+                return
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
