@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import threading
 import webbrowser
 import time
@@ -418,6 +419,72 @@ class Handler(BaseHTTPRequestHandler):
         print("[economy-editor]", fmt % args)
 
 
+def _editor_browser_profile() -> Path:
+    return ROOT / "data" / "economy_editor_browser"
+
+
+def _close_previous_editor_window() -> None:
+    """Close only the dedicated app-window browser profile used by this editor."""
+    if os.name != "nt":
+        return
+    profile = str(_editor_browser_profile().resolve())
+    escaped = profile.replace("'", "''")
+    script = (
+        "$profile = '" + escaped + "'; "
+        "$matches = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and "
+        "$_.CommandLine.IndexOf($profile, [StringComparison]::OrdinalIgnoreCase) -ge 0 }); "
+        "foreach ($item in $matches) { Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue }; "
+        "if ($matches.Count -gt 0) { Start-Sleep -Milliseconds 700 }"
+    )
+    try:
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=8, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _open_editor_app_window(url: str) -> bool:
+    """Launch the editor in an isolated browser app window that can be safely replaced."""
+    if os.name != "nt":
+        return False
+    candidates = [
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
+    ]
+    browser = next((path for path in candidates if str(path) and path.is_file()), None)
+    if browser is None:
+        return False
+    profile = _editor_browser_profile()
+    profile.mkdir(parents=True, exist_ok=True)
+    _close_previous_editor_window()
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen(
+        [
+            str(browser),
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-mode",
+            f"--app={url}",
+        ],
+        cwd=str(ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=flags,
+        close_fds=True,
+    )
+    return True
+
+
 def main():
     try:
         with connect() as con:
@@ -429,12 +496,12 @@ def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}/"
     print(f"經濟資料庫編輯器已啟動：{url}")
-    print("關閉此視窗即可停止編輯器。建議修改前先停止 Discord Bot。")
-    print("正在開啟經濟編輯器頁面；若瀏覽器已開啟，請使用現有分頁。")
+    print("編輯器使用獨立視窗與專用瀏覽器設定；重啟時只會關閉舊編輯器，不會關閉其他瀏覽器分頁。")
     try:
-        webbrowser.open(url, new=2)
+        if not _open_editor_app_window(url):
+            print(f"找不到可用的 Edge 或 Chrome，請手動開啟：{url}")
     except Exception as exc:
-        print(f"無法自動開啟瀏覽器：{type(exc).__name__}；請手動開啟 {url}")
+        print(f"無法自動開啟編輯器視窗：{type(exc).__name__}；請手動開啟 {url}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
