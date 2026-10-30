@@ -5,6 +5,7 @@ import os
 import sqlite3
 import threading
 import webbrowser
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -430,7 +431,7 @@ def _close_previous_editor_window() -> None:
         "$profile = '" + profile + "'",
         "$closed = $false",
         "$targets = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($profile, [StringComparison]::OrdinalIgnoreCase) -ge 0 })",
-        "foreach ($target in $targets) { Stop-Process -Id $target.ProcessId -Force -ErrorAction SilentlyContinue; $closed = $true }",
+        "foreach ($target in $targets) { Stop-Process -Id $target.ProcessId -Force -ErrorAction SilentlyContinue }",
         "$root = [System.Windows.Automation.AutomationElement]::RootElement",
         "$windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)",
         "foreach ($window in $windows) {",
