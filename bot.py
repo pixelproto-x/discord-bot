@@ -1203,31 +1203,25 @@ def _stop_local_listener(port: int) -> bool:
                 ):
                     pids.add(parent_pid)
 
-        # Then inspect the actual port owner. Accept a relative script path only
-        # when that process owns this editor's configured port. If it was started
-        # from a legacy CMD wrapper that names the editor, close that wrapper too.
+        # Port 8766 is reserved exclusively for this economy editor.
+        # Trust the OS-reported listener owner even if it was launched through
+        # pythonw, a renamed wrapper, or a different script path.
         for owner_pid in owners:
-            owner = processes.get(owner_pid)
-            if not owner or not editor_script_pattern.search(owner[1]):
+            if owner_pid == os.getpid():
                 continue
-            current_pid = owner_pid
-            seen: set[int] = set()
-            while current_pid in processes and current_pid not in seen:
-                seen.add(current_pid)
-                parent_pid, command_line = processes[current_pid]
-                if current_pid != os.getpid() and editor_script_pattern.search(command_line):
-                    pids.add(current_pid)
-                parent = processes.get(parent_pid)
-                if (
-                    parent_pid != os.getpid()
-                    and parent is not None
-                    and editor_script_pattern.search(parent[1])
-                    and re.search(r"(?i)\bcmd(?:\.exe)?\b", parent[1])
-                ):
-                    pids.add(parent_pid)
-                if parent_pid <= 0 or parent_pid == current_pid:
-                    break
-                current_pid = parent_pid
+            pids.add(owner_pid)
+            owner = processes.get(owner_pid)
+            if not owner:
+                continue
+            parent_pid = owner[0]
+            parent = processes.get(parent_pid)
+            # Close the old CMD window too, without touching the current bot.
+            if (
+                parent_pid != os.getpid()
+                and parent is not None
+                and re.search(r"(?i)\\bcmd(?:\\.exe)?\\b", parent[1])
+            ):
+                pids.add(parent_pid)
 
         for pid in sorted(pids):
             result = subprocess.run(
@@ -1238,13 +1232,13 @@ def _stop_local_listener(port: int) -> bool:
             if result.returncode == 0:
                 stopped = True
 
-        if stopped:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                if not _is_local_port_open(port):
-                    break
-                time.sleep(0.15)
-        return stopped
+        # Do not start a replacement until Windows confirms the old listener is gone.
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if not _is_local_port_open(port):
+                return stopped or bool(owners)
+            time.sleep(0.2)
+        return False
     except (OSError, subprocess.SubprocessError):
         return False
 
