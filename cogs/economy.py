@@ -168,6 +168,55 @@ class EconomyStore:
                 con.execute("ALTER TABLE users_scoped RENAME TO users")
                 con.commit()
 
+            # One-time safety copy before merging every guild-scoped row.
+            backup_path = DB_PATH.with_name("economy.db.pre-global-backup")
+            if not backup_path.exists():
+                with sqlite3.connect(backup_path) as backup:
+                    con.backup(backup)
+
+            con.execute("BEGIN IMMEDIATE")
+            user_ids = [row["user_id"] for row in con.execute("SELECT DISTINCT user_id FROM users")]
+            for user_id in user_ids:
+                rows = con.execute("SELECT * FROM users WHERE user_id=? ORDER BY guild_id", (user_id,)).fetchall()
+                wallets = [str(row["wallet"]) for row in rows]
+                banks = [str(row["bank"]) for row in rows]
+                wallet = "inf" if any(is_infinite(v) for v in wallets) else str(sum(int(v) for v in wallets))
+                bank = "inf" if any(is_infinite(v) for v in banks) else str(sum(int(v) for v in banks))
+                times = {}
+                for key in ("last_daily", "last_work", "last_fish", "last_rob"):
+                    valid = [v for v in (row[key] for row in rows) if parse_time(v)]
+                    times[key] = max(valid, key=lambda v: parse_time(v)) if valid else None
+                con.execute(
+                    "INSERT INTO users(guild_id,user_id,wallet,bank,last_daily,last_work,last_fish,last_rob) "
+                    "VALUES(0,?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET "
+                    "wallet=excluded.wallet,bank=excluded.bank,last_daily=excluded.last_daily,"
+                    "last_work=excluded.last_work,last_fish=excluded.last_fish,last_rob=excluded.last_rob",
+                    (user_id,wallet,bank,times["last_daily"],times["last_work"],times["last_fish"],times["last_rob"]),
+                )
+                con.execute("DELETE FROM users WHERE user_id=? AND guild_id<>0", (user_id,))
+                for item in con.execute(
+                    "SELECT item_key,SUM(quantity) quantity FROM economy_inventory WHERE user_id=? GROUP BY item_key",
+                    (user_id,),
+                ).fetchall():
+                    con.execute(
+                        "INSERT INTO economy_inventory(guild_id,user_id,item_key,quantity) VALUES(0,?,?,?) "
+                        "ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=excluded.quantity",
+                        (user_id,item["item_key"],item["quantity"]),
+                    )
+                con.execute("DELETE FROM economy_inventory WHERE user_id=? AND guild_id<>0", (user_id,))
+                for effect in con.execute(
+                    "SELECT effect_key,SUM(charges) charges,MAX(expires_at) expires_at "
+                    "FROM economy_effects WHERE user_id=? GROUP BY effect_key", (user_id,),
+                ).fetchall():
+                    con.execute(
+                        "INSERT INTO economy_effects(guild_id,user_id,effect_key,charges,expires_at) VALUES(0,?,?,?,?) "
+                        "ON CONFLICT(guild_id,user_id,effect_key) DO UPDATE SET "
+                        "charges=excluded.charges,expires_at=excluded.expires_at",
+                        (user_id,effect["effect_key"],effect["charges"],effect["expires_at"]),
+                    )
+                con.execute("DELETE FROM economy_effects WHERE user_id=? AND guild_id<>0", (user_id,))
+            con.commit()
+
     def connect(self):
         con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
         con.row_factory = sqlite3.Row
@@ -176,9 +225,11 @@ class EconomyStore:
         return con
 
     def ensure(self, con, guild_id, user_id):
+        guild_id = 0
         con.execute("INSERT OR IGNORE INTO users(guild_id, user_id) VALUES(?, ?)", (guild_id, user_id))
 
     def get(self, guild_id, user_id):
+        guild_id = 0
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, user_id)
@@ -187,6 +238,7 @@ class EconomyStore:
             return row
 
     def claim(self, guild_id, user_id, kind, amount):
+        guild_id = 0
         column = {"daily": "last_daily", "work": "last_work", "fish": "last_fish"}[kind]
         now = now_utc()
         effect_used = []
@@ -232,6 +284,7 @@ class EconomyStore:
             return True, amount, "、".join(effect_used) if effect_used else None
 
     def move(self, guild_id, user_id, amount, deposit):
+        guild_id = 0
         if not valid_amount(amount):
             return False
         source, destination = ("wallet", "bank") if deposit else ("bank", "wallet")
@@ -267,6 +320,7 @@ class EconomyStore:
             return True
 
     def transfer(self, guild_id, sender, receiver, amount):
+        guild_id = 0
         if not valid_amount(amount) or sender == receiver:
             return False
         with closing(self.connect()) as con:
@@ -287,6 +341,7 @@ class EconomyStore:
             return True
 
     def dice(self, guild_id, user_id, amount, payout):
+        guild_id = 0
         if not valid_amount(amount) or type(payout) is not int or payout < 0 or payout > MAX_BALANCE:
             return False
         with closing(self.connect()) as con:
@@ -319,6 +374,7 @@ class EconomyStore:
             return True
 
     def shop_buy(self, guild_id, user_id, item_key, quantity):
+        guild_id = 0
         if item_key not in ITEMS or type(quantity) is not int or not 1 <= quantity <= 99:
             return False, "商品或數量不正確，每次最多購買 99 件。"
         name, price, _ = ITEMS[item_key]
@@ -341,6 +397,7 @@ class EconomyStore:
             return True, f"購買成功：**{name} × {quantity}**，共花費 **{total:,}** 金幣。"
 
     def inventory(self, guild_id, user_id):
+        guild_id = 0
         with closing(self.connect()) as con:
             rows = con.execute(
                 "SELECT item_key,quantity FROM economy_inventory "
@@ -350,6 +407,7 @@ class EconomyStore:
         return [(row["item_key"], int(row["quantity"])) for row in rows if row["item_key"] in ITEMS]
 
     def use_item(self, guild_id, user_id, item_key):
+        guild_id = 0
         if item_key not in ITEMS:
             return False, "找不到這個商品。"
         name = ITEMS[item_key][0]
@@ -399,6 +457,7 @@ class EconomyStore:
             return True, f"已使用 **{name}**。{detail}"
 
     def rob(self, guild_id, robber_id, target_id, success, fraction, fine_fraction):
+        guild_id = 0
         with closing(self.connect()) as con:
             con.execute("BEGIN IMMEDIATE")
             if (target_id in PERMANENT_ANTI_ROB_USER_IDS
