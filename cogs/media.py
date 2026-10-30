@@ -51,7 +51,7 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     """Return embed-friendly URLs for public Instagram posts and reels."""
     rewritten = []
     seen = set()
-                r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
+    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
         try:
