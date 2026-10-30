@@ -92,23 +92,22 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
-            "socket_timeout": 15,
-            "retries": 1,
+            # Instagram's anonymous web endpoint often stalls or rate-limits
+            # server-side clients. Use the Android app API profile first and
+            # keep each network operation bounded.
+            "user_agent": "Instagram 435.0.0.37.76 Android (30/11; 416dpi; 1080x2400; Pixel 7; en_US)",
+            "socket_timeout": 8,
+            "retries": 0,
             "fragment_retries": 1,
+            "extractor_args": {"instagram": {"app_id": "567067343352427"}},
         }
         last_error = None
-        # Retry with yt-dlp's documented iOS Instagram API mode if web extraction fails.
-        for extractor_args in (None, {"instagram": {"app_id": "ios"}}):
-            try:
-                options = dict(base_options)
-                if extractor_args:
-                    options["extractor_args"] = extractor_args
-                with yt_dlp.YoutubeDL(options) as downloader:
-                    downloader.download([url])
-                break
-            except Exception as exc:
-                last_error = exc
-        else:
+        try:
+            with yt_dlp.YoutubeDL(base_options) as downloader:
+                downloader.download([url])
+        except Exception as exc:
+            last_error = exc
+        if last_error is not None:
             raise last_error
 
         candidates = sorted(Path(temp_dir).glob("video.mp4"))
@@ -895,7 +894,7 @@ class SearchCog(commands.Cog):
         try:
             video_data, filename = await asyncio.wait_for(
                 asyncio.to_thread(_download_public_instagram_video, instagram_url),
-                timeout=90,
+                timeout=45,
             )
         except Exception as exc:
             print(f"[Instagram video] download failed: {type(exc).__name__}: {str(exc)[:160]}")
