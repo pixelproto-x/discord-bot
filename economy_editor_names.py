@@ -418,6 +418,45 @@ class Handler(BaseHTTPRequestHandler):
         print("[economy-editor]", fmt % args)
 
 
+def _close_previous_editor_window() -> None:
+    """Close the previous editor tab without touching unrelated browser tabs."""
+    if os.name != "nt":
+        return
+    profile = str((ROOT / "data" / "economy_editor_browser").resolve()).replace("'", "''")
+    script = "\n".join([
+        "Add-Type -AssemblyName UIAutomationClient",
+        "Add-Type -AssemblyName UIAutomationTypes",
+        "Add-Type -AssemblyName System.Windows.Forms",
+        "$profile = '" + profile + "'",
+        "$closed = $false",
+        "$targets = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($profile, [StringComparison]::OrdinalIgnoreCase) -ge 0 })",
+        "foreach ($target in $targets) { Stop-Process -Id $target.ProcessId -Force -ErrorAction SilentlyContinue; $closed = $true }",
+        "$root = [System.Windows.Automation.AutomationElement]::RootElement",
+        "$windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)",
+        "foreach ($window in $windows) {",
+        "  try {",
+        "    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)",
+        "    $tabs = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)",
+        "    foreach ($tab in $tabs) {",
+        "      if ($tab.Current.Name -like '*經濟資料庫編輯器*') {",
+        "        $tab.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()",
+        "        Start-Sleep -Milliseconds 250",
+        "        [System.Windows.Forms.SendKeys]::SendWait('^w')",
+        "        $closed = $true; break",
+        "      }",
+        "    }",
+        "  } catch {}",
+        "  if ($closed) { break }",
+        "}",
+        "if ($closed) { Write-Output 'EDITOR_TAB_CLOSED' } else { Write-Output 'EDITOR_TAB_NOT_FOUND' }"
+    ])
+    try:
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-Command", script], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=12, check=False)
+        if result.returncode != 0 and result.stderr:
+            print(f"[economy-editor] 舊分頁清理失敗：{result.stderr.strip()[:500]}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"[economy-editor] 無法執行舊分頁清理：{type(exc).__name__}")
+
 def main():
     try:
         with connect() as con:
@@ -429,7 +468,8 @@ def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}/"
     print(f"經濟資料庫編輯器已啟動：{url}")
-    print("編輯器會在預設瀏覽器開啟新分頁；同網址的舊分頁會由分頁接管機制切換至停用頁面。")
+    _close_previous_editor_window()
+    print("編輯器會在預設瀏覽器開啟一般分頁；重啟時先關閉標題符合的舊編輯器分頁。")
     try:
         if not webbrowser.open(url, new=2):
             print(f"無法自動開啟瀏覽器，請手動開啟：{url}")
