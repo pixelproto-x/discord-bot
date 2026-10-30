@@ -877,73 +877,60 @@ class SearchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-    async def _replace_instagram_message(self, message: discord.Message, instagram_url: str):
-        """Upload a public Reel as a playable video under the sender's display identity."""
-        channel = message.channel
-        webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
-        if not isinstance(webhook_channel, discord.TextChannel):
+    @app_commands.command(
+        name=app_commands.locale_str("instagram", zh_TW="IG影片"),
+        description=app_commands.locale_str(
+            "讓一條魚發送 Instagram 公開影片",
+            zh_TW="讓一條魚發送 Instagram 公開影片",
+        ),
+    )
+    @app_commands.describe(
+        url="Instagram Reel／影片／貼文網址",
+        caption="要附在影片下方的文字（可留空）",
+    )
+    async def instagram_video(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        caption: str = "",
+    ):
+        """Send a public Instagram video as the bot, linked to the user's slash command."""
+        urls = rewrite_instagram_video_links(url)
+        if not urls or len(urls) != 1 or urls[0] != url.strip().rstrip(".,!?)]}"):
+            await interaction.response.send_message(
+                "請提供有效的 Instagram Reel、影片或貼文網址。",
+                ephemeral=True,
+            )
             return
 
-        me = message.guild.me
-        permissions = webhook_channel.permissions_for(me) if me else None
-        if not permissions or not (permissions.manage_webhooks and permissions.attach_files):
-            print("[Instagram video] skipped: Manage Webhooks and Attach Files permissions are required")
-            return
-
+        await interaction.response.defer(thinking=True)
         try:
             video_data, filename = await asyncio.wait_for(
-                asyncio.to_thread(_download_public_instagram_video, instagram_url),
+                asyncio.to_thread(_download_public_instagram_video, urls[0]),
                 timeout=90,
             )
-        except Exception as exc:
-            print(f"[Instagram video] download failed: {type(exc).__name__}: {str(exc)[:160]}")
-            return
-
-        webhook = None
-        try:
-            webhook = await webhook_channel.create_webhook(
-                name="Instagram Video Preview",
-                reason="Send a playable preview while retaining the original sharer's visible identity",
+            await interaction.followup.send(
+                content=caption.strip()[:1900] or None,
+                file=discord.File(io.BytesIO(video_data), filename=filename),
+                allowed_mentions=discord.AllowedMentions.none(),
             )
-            caption = re.sub(
-                r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
-                "",
-                message.content or "",
-                flags=re.I,
-            ).strip()
-            send_kwargs = {
-                "content": caption[:1900],
-                "username": message.author.display_name[:80],
-                "avatar_url": message.author.display_avatar.url,
-                "file": discord.File(io.BytesIO(video_data), filename=filename),
-                "allowed_mentions": discord.AllowedMentions.none(),
-                "wait": True,
-            }
-            if isinstance(channel, discord.Thread):
-                send_kwargs["thread"] = channel
-            await webhook.send(**send_kwargs)
-            await message.delete()
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram video] send/delete failed: {type(exc).__name__}")
-        finally:
-            if webhook is not None:
-                try:
-                    await webhook.delete(reason="Temporary Instagram video preview webhook")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+        except asyncio.TimeoutError:
+            await interaction.followup.send(
+                "影片處理逾時，請稍後再試。",
+                ephemeral=True,
+            )
+        except Exception as exc:
+            print(f"[Instagram video] slash command failed: {type(exc).__name__}: {str(exc)[:160]}")
+            await interaction.followup.send(
+                "這支 Instagram 影片目前無法取得，可能是私人內容、平台限制或影片格式不支援。",
+                ephemeral=True,
+            )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Reply in DMs directly; in servers, only an explicit @mention triggers AI."""
         if message.author.bot:
             return
-
-        # Replace public Instagram video links with playable uploads that retain
-        # the sender's visible Discord name and avatar through a channel webhook.
-        if message.guild is not None and not message.webhook_id:
-            instagram_links = rewrite_instagram_video_links(message.content)
-            if instagram_links:
-                await self._replace_instagram_message(message, instagram_links[0])
 
         if self.bot.user is None:
             return
