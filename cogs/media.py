@@ -70,6 +70,43 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
 
 
 
+def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
+    """Download a short, publicly accessible Instagram video without login cookies."""
+    with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
+        output_template = str(Path(temp_dir) / "video.%(ext)s")
+
+        def duration_filter(info, *, incomplete=False):
+            duration = info.get("duration")
+            if duration is not None and duration > MAX_VIDEO_SECONDS:
+                return f"影片超過 {MAX_VIDEO_SECONDS} 秒"
+            return None
+
+        options = {
+            "format": "best[ext=mp4]/best",
+            "outtmpl": output_template,
+            "merge_output_format": "mp4",
+            "max_filesize": MAX_VIDEO_BYTES,
+            "match_filter": duration_filter,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 15,
+            "retries": 1,
+            "fragment_retries": 1,
+        }
+        with yt_dlp.YoutubeDL(options) as downloader:
+            downloader.download([url])
+
+        candidates = sorted(Path(temp_dir).glob("video.*"))
+        if not candidates:
+            raise RuntimeError("Instagram 沒有提供可下載的公開影片")
+        video_path = next((path for path in candidates if path.suffix.lower() == ".mp4"), candidates[0])
+        data = video_path.read_bytes()
+        if not data or len(data) > MAX_VIDEO_BYTES:
+            raise ValueError("影片檔案超過 Discord 上傳限制")
+        return data, "instagram-video.mp4"
+
+
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
     try:
@@ -826,24 +863,67 @@ class SearchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
+    async def _replace_instagram_message(self, message: discord.Message, instagram_url: str):
+        """Upload a public Reel as a playable video under the sender's display identity."""
+        channel = message.channel
+        webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
+        if not isinstance(webhook_channel, discord.TextChannel):
+            return
+
+        me = message.guild.me
+        permissions = webhook_channel.permissions_for(me) if me else None
+        if not permissions or not (permissions.manage_webhooks and permissions.attach_files):
+            print("[Instagram video] skipped: Manage Webhooks and Attach Files permissions are required")
+            return
+
+        try:
+            video_data, filename = await asyncio.wait_for(
+                asyncio.to_thread(_download_public_instagram_video, instagram_url),
+                timeout=90,
+            )
+        except Exception as exc:
+            print(f"[Instagram video] download failed: {type(exc).__name__}: {str(exc)[:160]}")
+            return
+
+        webhook = None
+        try:
+            webhook = await webhook_channel.create_webhook(
+                name="Instagram Video Preview",
+                reason="Send a playable preview while retaining the original sharer's visible identity",
+            )
+            send_kwargs = {
+                "content": "",
+                "username": message.author.display_name[:80],
+                "avatar_url": message.author.display_avatar.url,
+                "file": discord.File(io.BytesIO(video_data), filename=filename),
+                "allowed_mentions": discord.AllowedMentions.none(),
+                "wait": True,
+            }
+            if isinstance(channel, discord.Thread):
+                send_kwargs["thread"] = channel
+            await webhook.send(**send_kwargs)
+            await message.delete()
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Instagram video] send/delete failed: {type(exc).__name__}")
+        finally:
+            if webhook is not None:
+                try:
+                    await webhook.delete(reason="Temporary Instagram video preview webhook")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Reply in DMs directly; in servers, only an explicit @mention triggers AI."""
         if message.author.bot:
             return
 
-        # Preserve the original Instagram link and add an embed-friendly version.
-        # Webhook/bot messages are ignored to prevent loops.
+        # Replace public Instagram video links with playable uploads that retain
+        # the sender's visible Discord name and avatar through a channel webhook.
         if message.guild is not None and not message.webhook_id:
-            fixed_links = rewrite_instagram_video_links(message.content)
-            if fixed_links:
-                try:
-                    await message.channel.send(
-                        "\n".join(fixed_links),
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    print(f"[Instagram embed] send failed: {type(exc).__name__}")
+            instagram_links = rewrite_instagram_video_links(message.content)
+            if instagram_links:
+                await self._replace_instagram_message(message, instagram_links[0])
 
         if self.bot.user is None:
             return
