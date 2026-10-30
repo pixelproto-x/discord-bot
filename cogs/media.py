@@ -47,6 +47,28 @@ MAX_ARCHIVE_ENTRIES = 500
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 
+def rewrite_instagram_video_links(content: str) -> list[str]:
+    """Return embed-friendly URLs for public Instagram posts and reels."""
+    rewritten = []
+    seen = set()
+    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
+    for match in pattern.finditer(content or ""):
+        raw_url = match.group(0).rstrip(".,!?)]}")
+        try:
+            parsed = urllib.parse.urlsplit(raw_url)
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or (parsed.hostname or "").lower() not in {
+            "instagram.com", "www.instagram.com", "m.instagram.com"
+        }:
+            continue
+        fixed = urllib.parse.urlunsplit(("https", "oginstagram.com", parsed.path, parsed.query, ""))
+        if fixed not in seen:
+            seen.add(fixed)
+            rewritten.append(fixed)
+    return rewritten
+
+
 
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
@@ -817,7 +839,7 @@ class SearchCog(commands.Cog):
             if fixed_links:
                 try:
                     await message.channel.send(
-                        "\\n".join(fixed_links),
+                        "\n".join(fixed_links),
                         allowed_mentions=discord.AllowedMentions.none(),
                     )
                 except (discord.Forbidden, discord.HTTPException) as exc:
