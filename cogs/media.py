@@ -83,7 +83,7 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
                 return f"影片超過 {MAX_VIDEO_SECONDS} 秒"
             return None
 
-        options = {
+        base_options = {
             "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
@@ -96,8 +96,20 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
             "retries": 1,
             "fragment_retries": 1,
         }
-        with yt_dlp.YoutubeDL(options) as downloader:
-            downloader.download([url])
+        last_error = None
+        # Retry with yt-dlp's documented iOS Instagram API mode if web extraction fails.
+        for extractor_args in (None, {"instagram": {"app_id": "ios"}}):
+            try:
+                options = dict(base_options)
+                if extractor_args:
+                    options["extractor_args"] = extractor_args
+                with yt_dlp.YoutubeDL(options) as downloader:
+                    downloader.download([url])
+                break
+            except Exception as exc:
+                last_error = exc
+        else:
+            raise last_error
 
         candidates = sorted(Path(temp_dir).glob("video.mp4"))
         if not candidates:
