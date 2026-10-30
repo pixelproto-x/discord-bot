@@ -8,9 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any
 
 import aiohttp
+
+
+PROVIDER_COOLDOWN_UNTIL = {}
+PROVIDER_FAILURE_COOLDOWN_SECONDS = 180
 
 
 def _env(name: str, default: str = "") -> str:
@@ -176,20 +181,23 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
     seen = set()
     loop = asyncio.get_running_loop()
     try:
-        chain_timeout = max(8, min(12, int(_env("AI_PROVIDER_CHAIN_TIMEOUT", "10"))))
+        chain_timeout = max(3, min(6, int(_env("AI_PROVIDER_CHAIN_TIMEOUT", "5"))))
     except ValueError:
-        chain_timeout = 45
+        chain_timeout = 5
     deadline = loop.time() + chain_timeout
 
     for name, provider in providers:
         if name in seen:
             continue
         seen.add(name)
+        if PROVIDER_COOLDOWN_UNTIL.get(name, 0) > time.monotonic():
+            print(f"[{label}] provider={name} skipped (cooldown)")
+            continue
         remaining = deadline - loop.time()
-        if remaining < 2:
+        if remaining < 1:
             print(f"[{label}] provider chain time budget exhausted")
             break
-        provider_timeout = min(timeout_seconds_for(name), max(1, int(remaining) - 1))
+        provider_timeout = min(4, timeout_seconds_for(name), max(1, int(remaining)))
         try:
             if callable(provider):
                 request = provider(
@@ -203,11 +211,14 @@ async def generate_fallback(prompt: str, system_instruction: str, *, label: str 
                 )
             answer = await asyncio.wait_for(request, timeout=provider_timeout + 1)
             if answer:
+                PROVIDER_COOLDOWN_UNTIL.pop(name, None)
                 model = provider.get("model", "configured") if isinstance(provider, dict) else "configured"
                 print(f"[{label}] provider={name} model={model} chars={len(answer)}")
                 return answer
+            PROVIDER_COOLDOWN_UNTIL[name] = time.monotonic() + PROVIDER_FAILURE_COOLDOWN_SECONDS
         except Exception as exc:
-            print(f"[{label}] provider={name} error={type(exc).__name__}")
+            PROVIDER_COOLDOWN_UNTIL[name] = time.monotonic() + PROVIDER_FAILURE_COOLDOWN_SECONDS
+            print(f"[{label}] provider={name} error={type(exc).__name__}; cooldown applied")
     return ""
 
 
