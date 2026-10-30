@@ -128,6 +128,35 @@ def _add_display_names(rows: list[dict]) -> list[dict]:
     ]
 
 
+EDITOR_TAB_MANAGER_SCRIPT = r"""
+self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
+self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("message", event => {
+    if (!event.data || event.data.type !== "takeover-economy-editor-tabs") return;
+    const sourceClientId = event.source && event.source.id;
+    const expectedOrigin = new URL(self.registration.scope).origin;
+    event.waitUntil((async () => {
+        const clients = await self.clients.matchAll({type: "window", includeUncontrolled: true});
+        await Promise.all(clients.map(async client => {
+            if (client.id === sourceClientId) return;
+            let target;
+            try { target = new URL(client.url); } catch { return; }
+            if (target.origin !== expectedOrigin || !["/", "/index.html"].includes(target.pathname)) return;
+            try { await client.navigate(new URL("/__economy_editor_replaced", expectedOrigin).href); } catch {}
+        }));
+    })());
+});
+"""
+
+EDITOR_RETIRED_PAGE = """<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>經濟編輯器已更新</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#10131a;color:#e8edf5;font:16px system-ui,"Microsoft JhengHei",sans-serif}main{max-width:520px;margin:24px;padding:28px;border:1px solid #39465a;border-radius:16px;background:#171c25}p{color:#aab5c5;line-height:1.7}button{padding:10px 16px;border:0;border-radius:8px;background:#78a9ff;color:#101827;font-weight:700;cursor:pointer}</style>
+</head><body><main><h1>舊的經濟編輯器已停用</h1>
+<p>新版經濟資料庫編輯器已經開啟。這個舊分頁已切換到停用頁面，可以直接關閉。</p>
+<button type="button" onclick="window.close()">關閉此分頁</button></main></body></html>"""
+
 PAGE = r"""<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -196,6 +225,28 @@ async function load(){
  table.appendChild(tbody);const wrap=document.createElement("div");wrap.className="table-wrap";wrap.appendChild(table);root.replaceChildren(wrap);
 }
 load().catch(err=>document.getElementById("content").textContent="讀取失敗："+err);
+// Keep only the newest Economy Editor tab, using the same handoff pattern as 一條魚 Control.
+const EDITOR_TAB_KEY="yitiaoyu-economy-editor-active-tab";
+const EDITOR_TAB_ID=(()=>{try{return String(Date.now())+"-"+Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-")}catch{return String(Date.now())+"-"+String(Math.random())}})();
+window.addEventListener("storage",event=>{
+ if(event.key!==EDITOR_TAB_KEY||!event.newValue||event.newValue===EDITOR_TAB_ID)return;
+ try{window.close()}catch{}
+ setTimeout(()=>{try{if(!window.closed)window.location.replace("/__economy_editor_replaced")}catch{}},0);
+});
+function releaseEditorTab(){try{if(localStorage.getItem(EDITOR_TAB_KEY)===EDITOR_TAB_ID)localStorage.removeItem(EDITOR_TAB_KEY)}catch{}}
+try{localStorage.setItem(EDITOR_TAB_KEY,EDITOR_TAB_ID)}catch{}
+window.addEventListener("pagehide",releaseEditorTab,{once:true});
+async function takeOverOlderEditorTabs(){
+ if(!("serviceWorker" in navigator)||location.protocol==="file:")return;
+ try{
+  const registration=await navigator.serviceWorker.register("/editor-tab-manager.js",{scope:"/"});
+  await navigator.serviceWorker.ready;
+  const worker=registration.active||navigator.serviceWorker.controller;
+  if(worker)worker.postMessage({type:"takeover-economy-editor-tabs"});
+ }catch(e){}
+}
+void takeOverOlderEditorTabs();
+
 // Live updates: refresh every 2.5 seconds, but never replace the table while
 // the user is typing or has unsaved edits in any field.
 let liveRefreshRunning=false;
@@ -282,6 +333,24 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html)
             return
+        if path == "/editor-tab-manager.js":
+            data = EDITOR_TAB_MANAGER_SCRIPT.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if path == "/__economy_editor_replaced":
+            data = EDITOR_RETIRED_PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/health":
             self.send_json(200, {"ok": True})
             return
@@ -363,7 +432,7 @@ def main():
     print("關閉此視窗即可停止編輯器。建議修改前先停止 Discord Bot。")
     print("正在開啟經濟編輯器頁面；若瀏覽器已開啟，請使用現有分頁。")
     try:
-        webbrowser.open(url, new=0)
+        webbrowser.open(url, new=2)
     except Exception as exc:
         print(f"無法自動開啟瀏覽器：{type(exc).__name__}；請手動開啟 {url}")
     try:
