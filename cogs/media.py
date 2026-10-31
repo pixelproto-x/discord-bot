@@ -824,29 +824,34 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _replace_instagram_message(self, message: discord.Message):
-        """Reply with playable Instagram embed links without impersonating or deleting the author message."""
+        """Post the converted Instagram preview as the bot and remove the source link after success."""
         channel = message.channel
         me = message.guild.me if message.guild else None
         permissions = channel.permissions_for(me) if me else None
-        if not permissions or not permissions.send_messages or not permissions.embed_links:
-            print("[Instagram embed] skipped: Send Messages and Embed Links permissions are required")
+        if not permissions or not permissions.send_messages or not permissions.embed_links or not permissions.manage_messages:
+            print("[Instagram embed] skipped: Send Messages, Embed Links and Manage Messages permissions are required")
             return
 
         rewritten_urls = rewrite_instagram_video_links(message.content or "")
         if not rewritten_urls:
             return
 
-        # Send a normal bot reply. Never use a webhook to impersonate the author,
-        # and never delete or replace the original message.
-        reply_content = "\\n".join(rewritten_urls)
+        # Send the replacement first; retain the source link if sending fails.
         try:
-            await message.reply(
-                content=reply_content[:2000],
-                mention_author=False,
+            await channel.send(
+                content="\n".join(rewritten_urls)[:2000],
                 allowed_mentions=discord.AllowedMentions.none(),
+                reference=message,
+                mention_author=False,
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] reply failed: {type(exc).__name__}")
+            print(f"[Instagram embed] replacement send failed; original message kept: {type(exc).__name__}")
+            return
+
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Instagram embed] replacement sent but original message could not be deleted: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
