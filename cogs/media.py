@@ -3,7 +3,6 @@ import io
 import os
 import re
 import time
-import tempfile
 import subprocess
 import urllib.parse
 from pathlib import Path
@@ -71,77 +70,11 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     return rewritten
 
 
-def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES) -> tuple[bytes, str, dict]:
-    """Download a public Instagram video and reuse the same extraction for its stats."""
-    with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
-        output_template = str(Path(temp_dir) / "video.%(ext)s")
-
-        base_options = {
-            "format": "best[ext=mp4][vcodec^=avc1]/bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "outtmpl": output_template,
-            "merge_output_format": "mp4",
-            "max_filesize": max(MAX_VIDEO_SOURCE_BYTES, max_bytes),
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "socket_timeout": 20,
-            "retries": 3,
-            "fragment_retries": 3,
-            "extractor_retries": 2,
-            "file_access_retries": 2,
-            "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
-        }
-        last_error = None
-        info = None
-        for extractor_args in (
-            {"instagram": {"app_id": "567067343352427"}},
-            {"instagram": {"app_id": "ios"}},
-            None,
-        ):
-            try:
-                options = dict(base_options)
-                if extractor_args:
-                    options["extractor_args"] = extractor_args
-                with yt_dlp.YoutubeDL(options) as downloader:
-                    info = downloader.extract_info(url, download=True)
-                last_error = None
-                break
-            except Exception as exc:
-                last_error = exc
-        if last_error is not None:
-            raise last_error
-
-        candidates = sorted(Path(temp_dir).glob("video.mp4"))
-        if not candidates:
-            candidates = sorted(Path(temp_dir).glob("video.*"))
-        if not candidates:
-            raise RuntimeError("Instagram 沒有提供可播放的影片檔案")
-
-        video_path = candidates[0]
-        data = video_path.read_bytes()
-        if not data or len(data) > MAX_VIDEO_SOURCE_BYTES:
-            raise ValueError("Instagram 原始影片超過 250 MB 的安全下載上限")
-        if data[4:8] != b"ftyp":
-            raise ValueError("下載結果不是有效的 MP4 檔案")
-
-        comments = []
-        if isinstance(info, dict):
-            for item in (info.get("comments") or [])[:5]:
-                if not isinstance(item, dict):
-                    continue
-                text = (item.get("text") or item.get("content") or "").strip()
-                if text:
-                    author = (item.get("author") or item.get("username") or "").strip()
-                    comments.append(f"**{author}:** {text}" if author else text)
-            stats = {
-                "like_count": info.get("like_count"),
-                "comment_count": info.get("comment_count"),
-                "comments": comments,
-            }
-        else:
-            stats = {}
-        return data, "instagram-video.mp4", stats
-
+def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES):
+    """Local video downloading is intentionally disabled; videos must come from remote Cobalt."""
+    raise RuntimeError(
+        "本機影片下載已停用。請先設定可用的遠端 COBALT_API_URL；Bot 不會把影片存到這台電腦。"
+    )
 
 def _extract_public_instagram_stats(url: str) -> dict:
     """Fetch lightweight public metadata without downloading the video."""
@@ -253,7 +186,7 @@ async def _download_instagram_via_cobalt(url: str, max_bytes: int) -> tuple[byte
 
 
 def _fit_instagram_video_to_limit(data: bytes, max_bytes: int) -> bytes:
-    """Keep compatible MP4s unchanged; transcode oversized videos to fit Discord's guild limit."""
+    """Transcode oversized MP4 data through FFmpeg pipes; never create local video files."""
     if len(data) <= max_bytes:
         return data
     if len(data) < 12 or data[4:8] != b"ftyp":
@@ -266,80 +199,82 @@ def _fit_instagram_video_to_limit(data: bytes, max_bytes: int) -> bytes:
         (720, "33", "96k"),
         (480, "35", "64k"),
     )
-    with tempfile.TemporaryDirectory(prefix="instagram_compress_") as temp_dir:
-        source = Path(temp_dir) / "source.mp4"
-        source.write_bytes(data)
-        for width, crf, audio_bitrate in profiles:
-            output = Path(temp_dir) / f"compressed-{width}.mp4"
-            command = [
-                ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                "-i", str(source),
-                "-vf", f"scale='min({width},iw)':-2",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", crf,
-                "-c:a", "aac", "-b:a", audio_bitrate,
-                "-movflags", "+faststart",
-                str(output),
-            ]
-            try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    timeout=180,
-                )
-                if output.is_file() and 12 <= output.stat().st_size <= max_bytes:
-                    compressed = output.read_bytes()
-                    if compressed[4:8] == b"ftyp":
-                        return compressed
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-                print(f"[Instagram video] compression profile {width}p failed: {type(exc).__name__}")
-                continue
+    last_error = None
+    for width, crf, audio_bitrate in profiles:
+        command = [
+            ffmpeg, "-hide_banner", "-loglevel", "error",
+            "-i", "pipe:0",
+            "-vf", f"scale='min({width},iw)':-2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", crf,
+            "-c:a", "aac", "-b:a", audio_bitrate,
+            "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
+            "-f", "mp4", "pipe:1",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                input=data,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=180,
+                check=True,
+            )
+            compressed = result.stdout
+            if 12 <= len(compressed) <= max_bytes and compressed[4:8] == b"ftyp":
+                return compressed
+            last_error = ValueError("compressed output is still over Discord's upload limit")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            last_error = exc
+            print(f"[Instagram video] in-memory compression profile {width}p failed: {type(exc).__name__}")
+            continue
+
     raise ValueError(
         f"影片經多種畫質壓縮後仍超過 Discord 上傳限制 {max_bytes // (1024 * 1024)} MB"
-    )
-
+    ) from last_error
 
 async def _download_instagram_video_fast(url: str, max_bytes: int) -> tuple[bytes, str, dict]:
-    """Cobalt-first async pipeline with yt-dlp fallback and best-effort metadata."""
+    """Remote-only Instagram pipeline. No video bytes are written to local disk."""
+    api_url = os.getenv("COBALT_API_URL", "").strip()
+    if not api_url:
+        raise RuntimeError(
+            "遠端影片服務尚未設定（COBALT_API_URL）。為避免佔用你的電腦，"
+            "本機 yt-dlp 下載已完全停用；請先部署並設定遠端 Cobalt 服務。"
+        )
+
     stats_task = asyncio.create_task(asyncio.to_thread(_extract_public_instagram_stats, url))
     data = None
     filename = "instagram-video.mp4"
+    last_error = None
 
-    if os.getenv("COBALT_API_URL", "").strip():
-        for attempt in range(2):
-            try:
-                data, filename = await _download_instagram_via_cobalt(
-                    url, MAX_VIDEO_SOURCE_BYTES
-                )
-                break
-            except Exception as exc:
-                print(
-                    f"[Instagram video] Cobalt attempt {attempt + 1}/2 failed: "
-                    f"{type(exc).__name__}"
-                )
-                if attempt == 0:
-                    await asyncio.sleep(1.0)
+    for attempt in range(2):
+        try:
+            data, filename = await _download_instagram_via_cobalt(
+                url, MAX_VIDEO_SOURCE_BYTES
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            print(
+                f"[Instagram video] remote Cobalt attempt {attempt + 1}/2 failed: "
+                f"{type(exc).__name__}"
+            )
+            if attempt == 0:
+                await asyncio.sleep(1.0)
 
     if data is None:
-        try:
-            data, filename, fallback_stats = await asyncio.to_thread(
-                _download_public_instagram_video, url, MAX_VIDEO_SOURCE_BYTES
-            )
-        except Exception:
-            if not stats_task.done():
-                stats_task.cancel()
-            raise
-        stats = fallback_stats if isinstance(fallback_stats, dict) else {}
-    else:
-        try:
-            stats = await asyncio.wait_for(asyncio.shield(stats_task), timeout=2.0)
-        except Exception:
-            stats = {}
+        if not stats_task.done():
+            stats_task.cancel()
+        raise RuntimeError(
+            "遠端 Instagram 影片服務連線失敗；未改用本機下載，也未在電腦建立影片檔。"
+        ) from last_error
+
+    try:
+        stats = await asyncio.wait_for(asyncio.shield(stats_task), timeout=2.0)
+    except Exception:
+        stats = {}
 
     fitted = await asyncio.to_thread(_fit_instagram_video_to_limit, data, max_bytes)
     return fitted, filename, stats if isinstance(stats, dict) else {}
-
 
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
