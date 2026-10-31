@@ -824,74 +824,29 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _replace_instagram_message(self, message: discord.Message):
-        """Replace Instagram URLs with Discord-playable embed links."""
+        """Reply with playable Instagram embed links without impersonating or deleting the author message."""
         channel = message.channel
-        webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
-        if not isinstance(webhook_channel, discord.TextChannel):
+        me = message.guild.me if message.guild else None
+        permissions = channel.permissions_for(me) if me else None
+        if not permissions or not permissions.send_messages or not permissions.embed_links:
+            print("[Instagram embed] skipped: Send Messages and Embed Links permissions are required")
             return
 
-        me = message.guild.me
-        permissions = webhook_channel.permissions_for(me) if me else None
-        required = ("manage_webhooks", "manage_messages", "embed_links")
-        if not permissions or not all(getattr(permissions, name, False) for name in required):
-            print("[Instagram embed] skipped: Manage Webhooks, Manage Messages and Embed Links permissions are required")
-            return
-
-        url_pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
-        rewritten_content = message.content or ""
-        matches = list(url_pattern.finditer(rewritten_content))
-        rewritten_urls = rewrite_instagram_video_links(rewritten_content)
+        rewritten_urls = rewrite_instagram_video_links(message.content or "")
         if not rewritten_urls:
             return
 
-        # Replace URLs from right to left so earlier character offsets remain valid.
-        for match, fixed_url in reversed(list(zip(matches, rewritten_urls))):
-            raw_url = match.group(0)
-            trailing = ""
-            while raw_url and raw_url[-1] in ".,!?)]}":
-                trailing = raw_url[-1] + trailing
-                raw_url = raw_url[:-1]
-            rewritten_content = (
-                rewritten_content[:match.start()] + fixed_url + trailing
-                + rewritten_content[match.end():]
-            )
-
-        send_kwargs = {
-            "content": rewritten_content[:2000],
-            "username": message.author.display_name[:80],
-            "avatar_url": message.author.display_avatar.url,
-            "allowed_mentions": discord.AllowedMentions.none(),
-            "wait": True,
-        }
-        if isinstance(channel, discord.Thread):
-            send_kwargs["thread"] = channel
-
-        # Reuse one bot-owned webhook; no download or file upload is required.
-        webhook = self._instagram_webhooks.get(webhook_channel.id)
-        for attempt in range(2):
-            try:
-                if webhook is None:
-                    webhook = await webhook_channel.create_webhook(
-                        name="Instagram Embed Preview",
-                        reason="Reuse a bot-managed webhook for automatic Instagram link previews",
-                    )
-                    self._instagram_webhooks[webhook_channel.id] = webhook
-                await webhook.send(**send_kwargs)
-                break
-            except discord.NotFound as exc:
-                self._instagram_webhooks.pop(webhook_channel.id, None)
-                webhook = None
-                if attempt:
-                    print(f"[Instagram embed] webhook no longer exists: {type(exc).__name__}")
-                    return
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"[Instagram embed] webhook send failed: {type(exc).__name__}")
-                return
-
+        # Send a normal bot reply. Never use a webhook to impersonate the author,
+        # and never delete or replace the original message.
+        reply_content = "\\n".join(rewritten_urls)
         try:
-            await message.delete()
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] converted link sent but original message could not be deleted: {type(exc).__name__}")
+            await message.reply(
+                content=reply_content[:2000],
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Instagram embed] reply failed: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
