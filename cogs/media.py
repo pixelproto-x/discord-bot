@@ -906,7 +906,7 @@ class SearchCog(commands.Cog):
             message.content or "",
             flags=re.I,
         ).strip()
-        command_line = f"{message.author.mention} 使用了 \`/instagram\`"
+        command_line = f"{message.author.mention} 使用了 `/instagram`"
         visible_content = "\n".join(part for part in (command_line, caption[:1700]) if part)
         send_kwargs = {
             "content": visible_content,
