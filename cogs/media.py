@@ -146,6 +146,134 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
             stats = {}
         return data, "instagram-video.mp4", stats
 
+
+def _extract_public_instagram_stats(url: str) -> dict:
+    """Fetch lightweight public metadata without downloading the video."""
+    options = {
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "socket_timeout": 5,
+        "retries": 0,
+        "extractor_retries": 0,
+    }
+    for extractor_args in (
+        {"instagram": {"app_id": "567067343352427"}},
+        {"instagram": {"app_id": "ios"}},
+        None,
+    ):
+        try:
+            current = dict(options)
+            if extractor_args:
+                current["extractor_args"] = extractor_args
+            with yt_dlp.YoutubeDL(current) as downloader:
+                info = downloader.extract_info(url, download=False)
+            if not isinstance(info, dict):
+                continue
+            comments = []
+            for item in (info.get("comments") or [])[:5]:
+                if not isinstance(item, dict):
+                    continue
+                text = (item.get("text") or item.get("content") or "").strip()
+                if text:
+                    author = (item.get("author") or item.get("username") or "").strip()
+                    comments.append(f"**{author}:** {text}" if author else text)
+            return {
+                "like_count": info.get("like_count"),
+                "comment_count": info.get("comment_count"),
+                "comments": comments,
+            }
+        except Exception:
+            continue
+    return {}
+
+
+async def _download_instagram_via_cobalt(url: str, max_bytes: int) -> tuple[bytes, str]:
+    """Use an explicitly configured Cobalt instance; never depend on an unauthorized public API."""
+    api_url = os.getenv("COBALT_API_URL", "").strip()
+    if not api_url:
+        raise RuntimeError("COBALT_API_URL is not configured")
+    parsed_api = urllib.parse.urlsplit(api_url)
+    if parsed_api.scheme not in ("http", "https") or not parsed_api.netloc:
+        raise ValueError("COBALT_API_URL must be an HTTP(S) URL")
+
+    timeout = aiohttp.ClientTimeout(total=45, connect=8, sock_read=25)
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    api_key = os.getenv("COBALT_API_KEY", "").strip()
+    if api_key:
+        headers["Authorization"] = f"Api-Key {api_key}"
+
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+        async with session.post(
+            api_url,
+            json={
+                "url": url,
+                "videoQuality": "720",
+                "downloadMode": "auto",
+                "filenameStyle": "basic",
+            },
+        ) as response:
+            response.raise_for_status()
+            result = await response.json(content_type=None)
+
+        status = result.get("status") if isinstance(result, dict) else None
+        if status in ("redirect", "tunnel"):
+            download_url = result.get("url")
+        elif status == "picker":
+            videos = [
+                item for item in (result.get("picker") or [])
+                if isinstance(item, dict) and item.get("type") == "video" and item.get("url")
+            ]
+            download_url = videos[0]["url"] if videos else None
+        else:
+            error = result.get("error", {}) if isinstance(result, dict) else {}
+            code = error.get("code", "unknown") if isinstance(error, dict) else str(error)
+            raise RuntimeError(f"Cobalt did not return a video: {code}")
+
+        if not isinstance(download_url, str):
+            raise RuntimeError("Cobalt returned no downloadable video URL")
+        parsed_download = urllib.parse.urlsplit(download_url)
+        if parsed_download.scheme not in ("http", "https") or not parsed_download.netloc:
+            raise ValueError("Cobalt returned an invalid download URL")
+
+        async with session.get(download_url, allow_redirects=True) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > max_bytes:
+                raise ValueError("Instagram video exceeds the Discord upload limit")
+            chunks = []
+            total = 0
+            async for chunk in response.content.iter_chunked(256 * 1024):
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError("Instagram video exceeds the Discord upload limit")
+                chunks.append(chunk)
+
+    data = b"".join(chunks)
+    if len(data) < 12 or data[4:8] != b"ftyp":
+        raise ValueError("Cobalt download is not a valid MP4 file")
+    return data, "instagram-video.mp4"
+
+
+async def _download_instagram_video_fast(url: str, max_bytes: int) -> tuple[bytes, str, dict]:
+    """Cobalt-first async pipeline with yt-dlp fallback and best-effort metadata."""
+    if os.getenv("COBALT_API_URL", "").strip():
+        stats_task = asyncio.create_task(asyncio.to_thread(_extract_public_instagram_stats, url))
+        try:
+            data, filename = await _download_instagram_via_cobalt(url, max_bytes)
+            try:
+                stats = await asyncio.wait_for(asyncio.shield(stats_task), timeout=1.5)
+            except (asyncio.TimeoutError, Exception):
+                stats = {}
+            return data, filename, stats if isinstance(stats, dict) else {}
+        except Exception as exc:
+            if not stats_task.done():
+                stats_task.cancel()
+            print(f"[Instagram video] Cobalt path unavailable; using yt-dlp fallback: {type(exc).__name__}")
+    return await asyncio.to_thread(_download_public_instagram_video, url, max_bytes)
+
+
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
     try:
@@ -321,6 +449,11 @@ class SearchCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._instagram_tasks = {}
+        self._instagram_pending = set()
+        self._instagram_queue = asyncio.Queue(maxsize=64)
+        self._instagram_workers = []
+        self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "4") or "4"), 8))
+        self._instagram_cache = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -359,6 +492,43 @@ class SearchCog(commands.Cog):
                 f".env exists={ENV_FILE.is_file()}, key parsed from .env={key_in_file}. "
                 "Check GEMINI_API_KEY in the project-root .env."
             )
+
+    async def cog_load(self):
+        """Start a bounded worker pool so bursts of links do not spawn unlimited downloads."""
+        if self._instagram_workers:
+            return
+        for worker_id in range(self._instagram_worker_count):
+            self._instagram_workers.append(
+                asyncio.create_task(self._instagram_download_worker(worker_id))
+            )
+        print(f"[Instagram video] started {len(self._instagram_workers)} download workers")
+
+    async def cog_unload(self):
+        """Stop workers cleanly when the cog is unloaded."""
+        workers = list(self._instagram_workers)
+        self._instagram_workers.clear()
+        for worker in workers:
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _instagram_download_worker(self, worker_id: int):
+        while True:
+            message, notice = await self._instagram_queue.get()
+            try:
+                await self._replace_instagram_message(message, processing_notice=notice)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[Instagram video] worker={worker_id} failed: {type(exc).__name__}: {str(exc)[:160]}")
+                if notice:
+                    try:
+                        await notice.edit(content="Instagram 影片處理失敗，原始連結已保留。")
+                    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        pass
+            finally:
+                self._instagram_pending.discard(message.id)
+                self._instagram_queue.task_done()
 
     def _has_ai_provider_configured(self) -> bool:
         """Return whether at least one cloud AI provider has credentials configured."""
@@ -904,14 +1074,12 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _begin_instagram_processing(self, message: discord.Message):
-        """Acknowledge an Instagram link first, then hand off all slow work."""
+        """Acknowledge immediately, then enqueue the download for a bounded worker."""
         notice = None
         try:
-            # A normal reply is more visible than a reaction and is sent before
-            # any Instagram extraction or media download begins.
             notice = await asyncio.wait_for(
                 message.reply(
-                    "⏳ 已收到 Instagram 影片，正在處理；完成後會自動替換原連結。",
+                    "⏳ 已收到 Instagram 影片，正在排隊處理；完成後會自動替換原連結。",
                     mention_author=False,
                     allowed_mentions=discord.AllowedMentions.none(),
                 ),
@@ -919,7 +1087,16 @@ class SearchCog(commands.Cog):
             )
         except (asyncio.TimeoutError, discord.Forbidden, discord.HTTPException):
             pass
-        await self._replace_instagram_message(message, processing_notice=notice)
+
+        try:
+            self._instagram_queue.put_nowait((message, notice))
+        except asyncio.QueueFull:
+            self._instagram_pending.discard(message.id)
+            if notice:
+                try:
+                    await notice.edit(content="目前影片處理佇列已滿，原始連結已保留，請稍後再傳。")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
 
     async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
         """Replace a public Instagram link with a playable MP4 attachment and public stats."""
@@ -958,10 +1135,24 @@ class SearchCog(commands.Cog):
                     pass
 
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
-        video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
-        try:
-            video_data, filename, stats = await asyncio.wait_for(video_task, timeout=90)
-            stats = stats if isinstance(stats, dict) else {}
+        cache_entry = self._instagram_cache.get(source_url)
+        if cache_entry and time.monotonic() - cache_entry[0] <= 180:
+            _, video_data, filename, stats = cache_entry
+            self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
+            print("[Instagram video] cache hit")
+        else:
+            self._instagram_cache.pop(source_url, None)
+            try:
+                video_data, filename, stats = await asyncio.wait_for(
+                    _download_instagram_video_fast(source_url, upload_limit),
+                    timeout=90,
+                )
+                stats = stats if isinstance(stats, dict) else {}
+                self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
+                while len(self._instagram_cache) > 3:
+                    self._instagram_cache.pop(next(iter(self._instagram_cache)))
+            except Exception:
+                raise
         except Exception as exc:
             print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             if reaction_added:
@@ -1050,8 +1241,8 @@ class SearchCog(commands.Cog):
             if instagram_links:
                 # De-duplicate gateway deliveries and keep all media work off the
                 # message listener so detection/other bot features stay responsive.
-                existing_task = self._instagram_tasks.get(message.id)
-                if existing_task is None or existing_task.done():
+                if message.id not in self._instagram_pending:
+                    self._instagram_pending.add(message.id)
                     task = asyncio.create_task(self._begin_instagram_processing(message))
                     self._instagram_tasks[message.id] = task
                     task.add_done_callback(
