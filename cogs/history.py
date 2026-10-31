@@ -585,7 +585,7 @@ class History(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
-        if message.guild is None or message.author.bot:
+        if message.guild is None:
             return
         try:
             await self._process_delete(message.id, message.guild.id, message)
