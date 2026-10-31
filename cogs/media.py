@@ -966,7 +966,7 @@ class SearchCog(commands.Cog):
             message.content or "",
             flags=re.I,
         ).strip()
-        content = f"Instagram 影片 · {message.author.display_name}"
+        content = f"Instagram 影片 · <@{message.author.id}>"
         if caption:
             content += f"\n{caption[:1500]}"
 
