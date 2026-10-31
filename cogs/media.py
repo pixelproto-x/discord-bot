@@ -262,9 +262,9 @@ class SearchCog(commands.Cog):
         self._instagram_queue = asyncio.Queue(maxsize=64)
         self._instagram_workers = []
         try:
-            self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "4") or "4"), 8))
+            self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_EMBED_WORKERS", os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "2")) or "2"), 8))
         except ValueError:
-            self._instagram_worker_count = 4
+            self._instagram_worker_count = 2
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
