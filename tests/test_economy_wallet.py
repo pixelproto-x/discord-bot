@@ -223,8 +223,8 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
                 ("777", 0, receiver),
             )
         self.assertTrue(self.cog.store.transfer(123, user_id, receiver, 1))
-        self.assertEqual(self.cog.store.get(123, receiver)["wallet"], "1001")
-        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "1001")
+        self.assertEqual(self.cog.store.get(123, receiver)["wallet"], "778")
+        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "778")
 
 
 class LegacyEconomyMigrationTests(unittest.TestCase):
