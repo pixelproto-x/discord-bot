@@ -80,7 +80,7 @@ class EconomyEditorSaveTests(unittest.TestCase):
             attempts["count"] += 1
             if attempts["count"] <= 2:
                 raise sqlite3.OperationalError("database is locked")
-            con = real_connect(*args, **kwargs)
+            con = real_connect(self.db_path, timeout=10)
             con.row_factory = sqlite3.Row
             con.execute("PRAGMA busy_timeout=10000")
             return con
