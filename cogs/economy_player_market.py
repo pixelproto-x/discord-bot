@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.economy_world import DB_PATH, GOODS, MAX_BALANCE, WorldEconomy
+from cogs.economy_sqlite import connect_economy_database
 from cogs.public_response import PublicizeView
 
 UTC = timezone.utc
@@ -37,13 +38,8 @@ class PlayerMarketStore:
             """)
 
     def connect(self):
-        con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        con.execute("PRAGMA journal_mode=WAL")
-        return con
+        return connect_economy_database(DB_PATH, label="Economy Player Market")
 
-    @staticmethod
     def _wallet_value(value: str) -> int | None:
         return None if str(value).strip().lower() in {"inf", "-inf"} else int(value)
 
