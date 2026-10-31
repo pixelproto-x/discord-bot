@@ -146,37 +146,6 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
             stats = {}
         return data, "instagram-video.mp4", stats
 
-def _get_public_instagram_stats(url: str) -> dict:
-    """Read public Instagram metadata with yt-dlp without downloading the video."""
-    options = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "noplaylist": True,
-        "socket_timeout": 15,
-        "retries": 1,
-        "extractor_args": {"instagram": {"comments": ["all"]}},
-    }
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=False)
-    if not isinstance(info, dict):
-        raise RuntimeError("Instagram did not return video metadata")
-    comments = info.get("comments") or []
-    comment_texts = []
-    for item in comments[:5]:
-        if not isinstance(item, dict):
-            continue
-        text = (item.get("text") or item.get("content") or "").strip()
-        if text:
-            author = (item.get("author") or item.get("username") or "").strip()
-            comment_texts.append(f"**{author}:** {text}" if author else text)
-    return {
-        "like_count": info.get("like_count"),
-        "comment_count": info.get("comment_count"),
-        "comments": comment_texts,
-    }
-
-
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
     try:
