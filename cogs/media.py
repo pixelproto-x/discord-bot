@@ -8,7 +8,8 @@ import urllib.parse
 from pathlib import Path
 
 import aiohttp
-import discordimport imageio_ffmpeg
+import discord
+import imageio_ffmpeg
 from PIL import Image, ImageStat
 from discord import app_commands
 from discord.ext import commands
