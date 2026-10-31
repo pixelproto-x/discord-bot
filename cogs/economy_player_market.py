@@ -40,6 +40,7 @@ class PlayerMarketStore:
     def connect(self):
         return connect_economy_database(DB_PATH, label="Economy Player Market")
 
+    @staticmethod
     def _wallet_value(value: str) -> int | None:
         return None if str(value).strip().lower() in {"inf", "-inf"} else int(value)
 
