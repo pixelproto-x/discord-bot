@@ -1,13 +1,9 @@
-import os
-import subprocess
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from cogs.media import (
-    MAX_VIDEO_SOURCE_BYTES,
-    _download_instagram_video_fast,
-    _fit_instagram_video_to_limit,
+    rewrite_instagram_embed_url,
     rewrite_instagram_video_links,
 )
 
@@ -47,68 +43,51 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
             ["https://www.instagram.com/reel/ABC123/"],
         )
 
-
-class InstagramRemoteOnlyTests(unittest.IsolatedAsyncioTestCase):
-    async def test_refuses_to_download_locally_when_remote_service_is_missing(self):
-        with (
-            patch.dict(os.environ, {"COBALT_API_URL": ""}),
-            patch("cogs.media._download_public_instagram_video") as local_fallback,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "COBALT_API_URL"):
-                await _download_instagram_video_fast(
-                    "https://www.instagram.com/reel/ABC/", 1024
-                )
-        local_fallback.assert_not_called()
-
-    async def test_retries_remote_cobalt_once_and_never_uses_local_fallback(self):
-        video = bytes.fromhex("000000186674797069736f6d") + b"video"
-        cobalt = AsyncMock(
-            side_effect=[
-                RuntimeError("temporary upstream error"),
-                (video, "instagram-video.mp4"),
-            ]
+    def test_rewrites_to_oginstagram_and_preserves_query(self):
+        self.assertEqual(
+            rewrite_instagram_embed_url(
+                "https://www.instagram.com/reel/ABC123/?img_index=2"
+            ),
+            "https://oginstagram.com/reel/ABC123/?img_index=2",
         )
-        with (
-            patch.dict(os.environ, {"COBALT_API_URL": "https://cobalt.example/api"}),
-            patch("cogs.media._download_instagram_via_cobalt", cobalt),
-            patch("cogs.media._extract_public_instagram_stats", return_value={"like_count": 1}),
-            patch("cogs.media._download_public_instagram_video") as local_fallback,
-        ):
-            result = await _download_instagram_video_fast(
-                "https://www.instagram.com/reel/ABC/", 1024
-            )
 
-        self.assertEqual(result[0], video)
-        self.assertEqual(result[1], "instagram-video.mp4")
-        self.assertEqual(cobalt.await_count, 2)
-        local_fallback.assert_not_called()
+    def test_rejects_non_instagram_hosts(self):
+        with self.assertRaises(ValueError):
+            rewrite_instagram_embed_url("https://evil.example/reel/ABC123/")
 
 
-class InstagramVideoCompatibilityTests(unittest.TestCase):
-    def test_small_mp4_is_not_reencoded(self):
-        source = bytes.fromhex("000000186674797069736f6d") + b"video"
-        self.assertIs(_fit_instagram_video_to_limit(source, 1024), source)
+class InstagramEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_posts_proxy_url_without_uploading_video_then_deletes_original(self):
+        from cogs.media import SearchCog
 
-    def test_source_processing_limit_is_bounded(self):
-        self.assertEqual(MAX_VIDEO_SOURCE_BYTES, 250 * 1024 * 1024)
+        sent = AsyncMock()
+        channel = SimpleNamespace(
+            parent=None,
+            permissions_for=lambda _member: SimpleNamespace(
+                send_messages=True,
+                manage_messages=True,
+            ),
+            send=sent,
+        )
+        message = SimpleNamespace(
+            channel=channel,
+            content="這個好看 https://www.instagram.com/reel/ABC123/",
+            guild=SimpleNamespace(me=object()),
+            author=SimpleNamespace(id=123),
+            delete=AsyncMock(),
+        )
+        notice = SimpleNamespace(delete=AsyncMock(), edit=AsyncMock())
+        cog = SearchCog.__new__(SearchCog)
 
-    def test_oversized_video_is_transcoded_through_memory_pipes(self):
-        source = bytes.fromhex("000000186674797069736f6d") + b"large-video-data"
-        output = bytes.fromhex("000000186674797069736f6d") + b"small"
-        fake_result = SimpleNamespace(stdout=output, stderr=b"")
-        with (
-            patch("cogs.media.imageio_ffmpeg.get_ffmpeg_exe", return_value="ffmpeg"),
-            patch("cogs.media.subprocess.run", return_value=fake_result) as run,
-        ):
-            result = _fit_instagram_video_to_limit(source, len(output) + 1)
+        await cog._replace_instagram_message(message, processing_notice=notice)
 
-        self.assertEqual(result, output)
-        args, kwargs = run.call_args
-        self.assertIn("pipe:0", args[0])
-        self.assertIn("pipe:1", args[0])
-        self.assertEqual(kwargs["input"], source)
-        self.assertEqual(kwargs["stdout"], subprocess.PIPE)
-        self.assertNotIn("tempfile", str(args[0]))
+        sent.assert_awaited_once()
+        kwargs = sent.await_args.kwargs
+        self.assertIn("https://oginstagram.com/reel/ABC123/", kwargs["content"])
+        self.assertNotIn("file", kwargs)
+        self.assertNotIn("embed", kwargs)
+        message.delete.assert_awaited_once()
+        notice.delete.assert_awaited_once()
 
 
 if __name__ == "__main__":
