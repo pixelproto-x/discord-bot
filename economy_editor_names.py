@@ -454,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
             user_id = int(data["user_id"])
             wallet, bank = _parse_balance(data["wallet"]), _parse_balance(data["bank"])
             if guild_id < 0 or user_id <= 0 or wallet is None or bank is None:
-                self.send_json(400, {"error": "ID 或金額不合法；現金與銀行存款只能是非負整數或 inf（無限），最多 2000 位數。"})
+                self.send_json(400, {"error": "ID 或金額不合法；可輸入正負整數、整數算式、inf 或 -inf，最多 2000 位數。"})
                 return
             times = {}
             for key in ("last_daily", "last_work", "last_fish", "last_rob"):
