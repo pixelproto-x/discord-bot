@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.public_response import PublicizeView
+from cogs.economy_sqlite import connect_economy_database
 
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
 MAX_DIGITS = 2000
@@ -226,25 +227,7 @@ class EconomyStore:
             con.commit()
 
     def connect(self):
-        con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError as wal_error:
-            try:
-                con.execute("PRAGMA journal_mode=DELETE")
-            except sqlite3.OperationalError as fallback_error:
-                con.close()
-                raise sqlite3.OperationalError(
-                    "無法啟用經濟資料庫 WAL，且回退 DELETE 模式也失敗。"
-                    f" WAL 錯誤: {wal_error}; DELETE 錯誤: {fallback_error}"
-                ) from fallback_error
-            print(
-                "[Economy] WAL 模式無法啟用，已改用 DELETE journal mode："
-                f"{wal_error}"
-            )
-        return con
+        return connect_economy_database(DB_PATH, label="Economy")
 
     def ensure(self, con, guild_id, user_id):
         guild_id = 0
