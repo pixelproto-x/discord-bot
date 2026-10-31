@@ -87,7 +87,7 @@ def format_coins(value):
     digits_text = str(abs(amount))
     digits = len(digits_text)
     # Keep the magnitude visible while avoiding huge Discord messages.
-    if digits > 18:
+    if digits > 20:
         significant = digits_text[:6].rstrip("0") or "0"
         mantissa = significant[0]
         if len(significant) > 1:
