@@ -8,9 +8,7 @@ import urllib.parse
 from pathlib import Path
 
 import aiohttp
-import discord
-import yt_dlp
-import imageio_ffmpeg
+import discordimport imageio_ffmpeg
 from PIL import Image, ImageStat
 from discord import app_commands
 from discord.ext import commands
@@ -66,54 +64,6 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
         fixed = urllib.parse.urlunsplit(("https", "kirkstagram.com", path, "", ""))
         rewritten.append(fixed)
     return rewritten
-
-def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
-    """Download a short, publicly accessible Instagram video without login cookies."""
-    with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
-        output_template = str(Path(temp_dir) / "video.%(ext)s")
-
-        def duration_filter(info, *, incomplete=False):
-            duration = info.get("duration")
-            if duration is not None and duration > MAX_VIDEO_SECONDS:
-                return f"影片超過 {MAX_VIDEO_SECONDS} 秒"
-            return None
-
-        base_options = {
-            "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]",
-            "outtmpl": output_template,
-            "merge_output_format": "mp4",
-            "max_filesize": MAX_VIDEO_BYTES,
-            "match_filter": duration_filter,
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            # Instagram's anonymous web endpoint often stalls or rate-limits
-            # server-side clients. Use the Android app API profile first and
-            # keep each network operation bounded.
-            "user_agent": "Instagram 435.0.0.37.76 Android (30/11; 416dpi; 1080x2400; Pixel 7; en_US)",
-            "socket_timeout": 8,
-            "retries": 0,
-            "fragment_retries": 1,
-            "extractor_args": {"instagram": {"app_id": "567067343352427"}},
-        }
-        last_error = None
-        try:
-            with yt_dlp.YoutubeDL(base_options) as downloader:
-                downloader.download([url])
-        except Exception as exc:
-            last_error = exc
-        if last_error is not None:
-            raise last_error
-
-        candidates = sorted(Path(temp_dir).glob("video.mp4"))
-        if not candidates:
-            raise RuntimeError("Instagram 沒有提供可直接播放的 MP4 影片")
-        video_path = candidates[0]
-        data = video_path.read_bytes()
-        if not data or len(data) > MAX_VIDEO_BYTES:
-            raise ValueError("影片檔案超過 Discord 上傳限制")
-        return data, "instagram-video.mp4"
-
 
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
@@ -872,7 +822,7 @@ class SearchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-    async def _replace_instagram_message(self, message: discord.Message, instagram_url: str):
+    async def _replace_instagram_message(self, message: discord.Message):
         """Replace Instagram URLs with Discord-playable embed links."""
         channel = message.channel
         webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
@@ -952,7 +902,7 @@ class SearchCog(commands.Cog):
         if message.guild is not None and not message.webhook_id:
             instagram_links = rewrite_instagram_video_links(message.content)
             if instagram_links:
-                await self._replace_instagram_message(message, instagram_links[0])
+                await self._replace_instagram_message(message)
         if self.bot.user is None:
             return
         if message.guild is None:
