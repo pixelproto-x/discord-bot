@@ -255,6 +255,19 @@ def is_collection_url(value: str) -> bool:
         return bool(re.match(r"^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?:playlist|album)/", path))
     return False
 
+
+def is_youtube_shorts_url(value: str) -> bool:
+    """Return whether a YouTube URL points to a Shorts video."""
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+
+    if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+        return False
+    return bool(re.match(r"^/shorts(?:/|$)", parsed.path, re.IGNORECASE))
+
 def track_url(track) -> str:
     return str(getattr(track, "uri", None) or getattr(track, "url", None) or "")
 
@@ -1281,6 +1294,11 @@ class MusicCog(commands.Cog):
         if not match:
             return
         query = match.group(0).rstrip(".,!?)]}，。！？")
+        # Shared Shorts are video links, not music-play requests. Keep them out
+        # of the automatic voice playback listener; explicit /music play remains
+        # available when someone intentionally wants to play a supported URL.
+        if is_youtube_shorts_url(query):
+            return
         # Pasting a playlist/album is not an explicit play request. Only
         # process collections through /music play so ordinary chat stays quiet.
         if is_collection_url(query):
