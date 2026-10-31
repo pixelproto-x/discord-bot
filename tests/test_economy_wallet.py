@@ -100,6 +100,38 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "1000")
         self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "1000")
 
+    def test_transfer_rejects_zero_wallet_without_crediting_receiver(self):
+        guild_id, sender, receiver = 123, 456, 789
+        self.cog.store.get(guild_id, sender)
+        self.cog.store.get(guild_id, receiver)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet='0' WHERE guild_id=0 AND user_id=?",
+                (sender,),
+            )
+            con.execute(
+                "UPDATE users SET wallet='250' WHERE guild_id=0 AND user_id=?",
+                (receiver,),
+            )
+
+        self.assertFalse(self.cog.store.transfer(guild_id, sender, receiver, 1))
+        self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "0")
+        self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "250")
+
+    def test_transfer_rejects_negative_infinity_wallet(self):
+        guild_id, sender, receiver = 123, 456, 789
+        self.cog.store.get(guild_id, sender)
+        self.cog.store.get(guild_id, receiver)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet='-inf' WHERE guild_id=0 AND user_id=?",
+                (sender,),
+            )
+
+        self.assertFalse(self.cog.store.transfer(guild_id, sender, receiver, 1))
+        self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "-inf")
+        self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "1000")
+
     def test_dice_rejects_bet_larger_than_wallet(self):
         guild_id, user_id = 123, 456
         self.cog.store.get(guild_id, user_id)
