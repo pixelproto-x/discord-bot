@@ -188,8 +188,8 @@ class EconomyStore:
                 rows = con.execute("SELECT * FROM users WHERE user_id=? ORDER BY guild_id", (user_id,)).fetchall()
                 wallets = [str(row["wallet"]) for row in rows]
                 banks = [str(row["bank"]) for row in rows]
-                wallet = "inf" if any(is_infinite(v) for v in wallets) else str(sum(int(v) for v in wallets))
-                bank = "inf" if any(is_infinite(v) for v in banks) else str(sum(int(v) for v in banks))
+                wallet = "inf" if any(str(v).strip().lower() == "inf" for v in wallets) else ("-inf" if any(str(v).strip().lower() == "-inf" for v in wallets) else str(sum(int(v) for v in wallets)))
+                bank = "inf" if any(str(v).strip().lower() == "inf" for v in banks) else ("-inf" if any(str(v).strip().lower() == "-inf" for v in banks) else str(sum(int(v) for v in banks)))
                 times = {}
                 for key in ("last_daily", "last_work", "last_fish", "last_rob"):
                     valid = [v for v in (row[key] for row in rows) if parse_time(v)]
@@ -370,7 +370,7 @@ class EconomyStore:
                     return False
                 updated = str(updated_value)
             else:
-                updated = "inf"
+                updated = "-inf" if str(wallet).strip().lower() == "-inf" else "inf"
             cursor = con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=? AND wallet=?",
                 (updated, guild_id, user_id, wallet),
@@ -570,7 +570,7 @@ class EconomyCog(commands.Cog):
         embed.set_thumbnail(url=user.display_avatar.url)
         wallet = row["wallet"]
         bank = row["bank"]
-        total = "inf" if is_infinite(wallet) or is_infinite(bank) else str(int(wallet) + int(bank))
+        total = "inf" if "inf" in {str(wallet).strip().lower(), str(bank).strip().lower()} else ("-inf" if "-inf" in {str(wallet).strip().lower(), str(bank).strip().lower()} else str(int(wallet) + int(bank)))
         embed.add_field(name="現金", value=f"{format_coins(wallet)} 金幣")
         embed.add_field(name="銀行存款", value=f"{format_coins(bank)} 金幣")
         embed.add_field(name="總資產", value=f"{format_coins(total)} 金幣", inline=False)
