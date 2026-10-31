@@ -48,10 +48,10 @@ MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 
 def rewrite_instagram_video_links(content: str) -> list[str]:
-    """Return embed-friendly URLs for public Instagram posts and reels."""
+    """Convert Instagram post/reel URLs to Discord-friendly playable embed links."""
     rewritten = []
     seen = set()
-    pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
+    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
         try:
@@ -62,15 +62,13 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
             "instagram.com", "www.instagram.com", "m.instagram.com"
         }:
             continue
-        # yt-dlp supports Instagram's own domain, not the oginstagram.com proxy.
         path = re.sub(r"^/reels/", "/p/", parsed.path, flags=re.I)
-        fixed = urllib.parse.urlunsplit(("https", "www.instagram.com", path, parsed.query, ""))
+        # Use an embed provider instead of downloading media from Instagram.
+        fixed = urllib.parse.urlunsplit(("https", "kirkstagram.com", path, "", ""))
         if fixed not in seen:
             seen.add(fixed)
             rewritten.append(fixed)
     return rewritten
-
-
 
 def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
     """Download a short, publicly accessible Instagram video without login cookies."""
@@ -878,7 +876,7 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _replace_instagram_message(self, message: discord.Message, instagram_url: str):
-        """Upload a public Reel as a playable video under the sender's display identity."""
+        """Replace Instagram URLs with Discord-playable embed links."""
         channel = message.channel
         webhook_channel = channel.parent if isinstance(channel, discord.Thread) else channel
         if not isinstance(webhook_channel, discord.TextChannel):
@@ -886,69 +884,66 @@ class SearchCog(commands.Cog):
 
         me = message.guild.me
         permissions = webhook_channel.permissions_for(me) if me else None
-        required = ("manage_webhooks", "manage_messages", "attach_files")
+        required = ("manage_webhooks", "manage_messages", "embed_links")
         if not permissions or not all(getattr(permissions, name, False) for name in required):
-            print("[Instagram video] skipped: Manage Webhooks, Manage Messages and Attach Files permissions are required")
+            print("[Instagram embed] skipped: Manage Webhooks, Manage Messages and Embed Links permissions are required")
             return
 
-        try:
-            video_data, filename = await asyncio.wait_for(
-                asyncio.to_thread(_download_public_instagram_video, instagram_url),
-                timeout=45,
+        url_pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
+        rewritten_content = message.content or ""
+        matches = list(url_pattern.finditer(rewritten_content))
+        rewritten_urls = rewrite_instagram_video_links(rewritten_content)
+        if not rewritten_urls:
+            return
+
+        # Replace URLs from right to left so earlier character offsets remain valid.
+        for match, fixed_url in reversed(list(zip(matches, rewritten_urls))):
+            raw_url = match.group(0)
+            trailing = ""
+            while raw_url and raw_url[-1] in ".,!?)]}":
+                trailing = raw_url[-1] + trailing
+                raw_url = raw_url[:-1]
+            rewritten_content = (
+                rewritten_content[:match.start()] + fixed_url + trailing
+                + rewritten_content[match.end():]
             )
-        except Exception as exc:
-            print(f"[Instagram video] download failed: {type(exc).__name__}: {str(exc)[:160]}")
-            return
 
-        caption = re.sub(
-            r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
-            "",
-            message.content or "",
-            flags=re.I,
-        ).strip()
-        command_line = f"{message.author.mention} 使用了 `/instagram`"
-        visible_content = "\n".join(part for part in (command_line, caption[:1700]) if part)
         send_kwargs = {
-            "content": visible_content,
+            "content": rewritten_content[:2000],
             "username": message.author.display_name[:80],
             "avatar_url": message.author.display_avatar.url,
-            "file": discord.File(io.BytesIO(video_data), filename=filename),
             "allowed_mentions": discord.AllowedMentions.none(),
             "wait": True,
         }
         if isinstance(channel, discord.Thread):
             send_kwargs["thread"] = channel
 
-        # Reuse this bot-owned webhook for the lifetime of the process instead of
-        # creating/deleting one for every Reel. The per-message name/avatar still
-        # match the person who posted the Instagram link.
+        # Reuse one bot-owned webhook; no download or file upload is required.
         webhook = self._instagram_webhooks.get(webhook_channel.id)
         for attempt in range(2):
             try:
                 if webhook is None:
                     webhook = await webhook_channel.create_webhook(
-                        name="Instagram Video Preview",
-                        reason="Reuse a bot-managed webhook for automatic Instagram video previews",
+                        name="Instagram Embed Preview",
+                        reason="Reuse a bot-managed webhook for automatic Instagram link previews",
                     )
                     self._instagram_webhooks[webhook_channel.id] = webhook
                 await webhook.send(**send_kwargs)
                 break
             except discord.NotFound as exc:
-                # Only a missing webhook triggers recreation; never resend merely
-                # because deleting the original user message failed.
                 self._instagram_webhooks.pop(webhook_channel.id, None)
                 webhook = None
                 if attempt:
-                    print(f"[Instagram video] webhook no longer exists: {type(exc).__name__}")
+                    print(f"[Instagram embed] webhook no longer exists: {type(exc).__name__}")
                     return
             except (discord.Forbidden, discord.HTTPException) as exc:
-                print(f"[Instagram video] webhook send failed: {type(exc).__name__}")
+                print(f"[Instagram embed] webhook send failed: {type(exc).__name__}")
                 return
 
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram video] preview sent but original message could not be deleted: {type(exc).__name__}")
+            print(f"[Instagram embed] converted link sent but original message could not be deleted: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
