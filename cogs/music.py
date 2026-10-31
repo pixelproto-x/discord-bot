@@ -75,10 +75,6 @@ LAVALINK_INACTIVE_PLAYER_TIMEOUT = 300
 LAVALINK_CONNECT_TIMEOUT_SECONDS = 8
 LAVALINK_NODE_RETRY_COOLDOWN_SECONDS = 15
 MUSIC_SEARCH_TIMEOUT_SECONDS = 12
-SUPPORTED_URL_RE = re.compile(
-    r"https?://(?:www\.)?(?:youtube\.com|music\.youtube\.com|youtu\.be|open\.spotify\.com)(?:/[^\s<>]*)?",
-    re.IGNORECASE,
-)
 
 
 @dataclass
@@ -255,18 +251,6 @@ def is_collection_url(value: str) -> bool:
         return bool(re.match(r"^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?:playlist|album)/", path))
     return False
 
-
-def is_youtube_shorts_url(value: str) -> bool:
-    """Return whether a YouTube URL points to a Shorts video."""
-    try:
-        parsed = urlsplit(value)
-        host = (parsed.hostname or "").lower().rstrip(".")
-    except ValueError:
-        return False
-
-    if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
-        return False
-    return bool(re.match(r"^/shorts(?:/|$)", parsed.path, re.IGNORECASE))
 
 def track_url(track) -> str:
     return str(getattr(track, "uri", None) or getattr(track, "url", None) or "")
@@ -1285,25 +1269,6 @@ class MusicCog(commands.Cog):
             else:
                 message_text = "這個連結目前無法解析，或 Lavalink 節點暫時不可用。"
             await message.reply(message_text, mention_author=False)
-
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild or not message.content:
-            return
-        match = SUPPORTED_URL_RE.search(message.content)
-        if not match:
-            return
-        query = match.group(0).rstrip(".,!?)]}，。！？")
-        # Shared Shorts are video links, not music-play requests. Keep them out
-        # of the automatic voice playback listener; explicit /music play remains
-        # available when someone intentionally wants to play a supported URL.
-        if is_youtube_shorts_url(query):
-            return
-        # Pasting a playlist/album is not an explicit play request. Only
-        # process collections through /music play so ordinary chat stays quiet.
-        if is_collection_url(query):
-            return
-        await self.play_query_from_message(message, query)
 
     @music.command(name=app_commands.locale_str("play", zh_TW="播放音樂"), description=app_commands.locale_str("搜尋歌曲或播放 YouTube／Spotify 網址", zh_TW="搜尋歌曲或播放 YouTube／Spotify 網址"))
     @app_commands.describe(query="歌名、歌手、YouTube 或 Spotify 網址", public=app_commands.locale_str("是否讓其他人看見這則回覆", zh_TW="是否公開顯示回覆"))
