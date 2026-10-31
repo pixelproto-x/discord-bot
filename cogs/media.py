@@ -1031,7 +1031,22 @@ class SearchCog(commands.Cog):
         content = f"{' / '.join(platform_names)} 影音 · <@{message.author.id}>"
         if caption:
             content += f"\n{caption[:900]}"
-        content += "\n" + "\n".join(embed_urls[:8])
+        if len(embed_urls) > 8:
+            if processing_notice:
+                try:
+                    await processing_notice.edit(content="這則訊息包含超過 8 個影音連結，原始訊息已保留，請分批傳送。")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+            return
+        content += "\n" + "\n".join(embed_urls)
+
+        if len(content) > 1900:
+            if processing_notice:
+                try:
+                    await processing_notice.edit(content="轉換後的連結內容太長，原始訊息已保留。")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+            return
 
         try:
             # Remote embed providers fetch metadata/media. This bot only posts URLs:
