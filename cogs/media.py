@@ -50,7 +50,7 @@ MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 def rewrite_instagram_video_links(content: str) -> list[str]:
     """Convert Instagram post/reel URLs to Discord-friendly playable embed links."""
     rewritten = []
-    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
+    pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
         try:
@@ -886,7 +886,7 @@ class SearchCog(commands.Cog):
             print("[Instagram embed] skipped: Manage Webhooks, Manage Messages and Embed Links permissions are required")
             return
 
-        url_pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
+        url_pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
         rewritten_content = message.content or ""
         matches = list(url_pattern.finditer(rewritten_content))
         rewritten_urls = rewrite_instagram_video_links(rewritten_content)
