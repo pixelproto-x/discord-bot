@@ -332,16 +332,69 @@ class EconomyStore:
             con.execute("BEGIN IMMEDIATE")
             self.ensure(con, guild_id, sender)
             self.ensure(con, guild_id, receiver)
-            a = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, sender)).fetchone()["wallet"]
-            b = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, receiver)).fetchone()["wallet"]
-            if not is_infinite(a) and int(a) < amount:
+            sender_row = con.execute(
+                "SELECT wallet FROM users WHERE guild_id=? AND user_id=?",
+                (guild_id, sender),
+            ).fetchone()
+            receiver_row = con.execute(
+                "SELECT wallet FROM users WHERE guild_id=? AND user_id=?",
+                (guild_id, receiver),
+            ).fetchone()
+            if sender_row is None or receiver_row is None:
                 con.rollback()
                 return False
-            if not is_infinite(b) and int(b) + amount > MAX_BALANCE:
+
+            sender_wallet = str(sender_row["wallet"]).strip().lower()
+            receiver_wallet = str(receiver_row["wallet"]).strip().lower()
+
+            # Only positive infinity is an unlimited source of funds.
+            # Zero, negative balances and negative infinity can never pay.
+            if sender_wallet == "-inf":
                 con.rollback()
                 return False
-            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (subtract_balance(a, amount), guild_id, sender))
-            con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (add_balance(b, amount), guild_id, receiver))
+            if sender_wallet != "inf":
+                try:
+                    sender_balance = int(sender_wallet)
+                except (TypeError, ValueError):
+                    con.rollback()
+                    return False
+                if sender_balance <= 0 or sender_balance < amount:
+                    con.rollback()
+                    return False
+
+            if receiver_wallet == "-inf":
+                con.rollback()
+                return False
+            if receiver_wallet != "inf":
+                try:
+                    receiver_balance = int(receiver_wallet)
+                except (TypeError, ValueError):
+                    con.rollback()
+                    return False
+                if receiver_balance < 0 or receiver_balance + amount > MAX_BALANCE:
+                    con.rollback()
+                    return False
+
+            # Compare the exact balance read inside this transaction. This makes
+            # the debit fail closed if the stored value is unexpected or changed.
+            new_sender_wallet = subtract_balance(sender_wallet, amount)
+            debit = con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=? AND wallet=?",
+                (new_sender_wallet, guild_id, sender, sender_row["wallet"]),
+            )
+            if debit.rowcount != 1:
+                con.rollback()
+                return False
+
+            new_receiver_wallet = add_balance(receiver_wallet, amount)
+            credit = con.execute(
+                "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=? AND wallet=?",
+                (new_receiver_wallet, guild_id, receiver, receiver_row["wallet"]),
+            )
+            if credit.rowcount != 1:
+                con.rollback()
+                return False
+
             con.commit()
             return True
 
