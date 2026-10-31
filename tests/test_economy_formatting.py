@@ -15,7 +15,7 @@ class WalletFormattingRegressionTests(unittest.TestCase):
 
     def test_extremely_large_balances_use_scientific_notation(self):
         self.assertEqual(format_coins("1" + "0" * 1200), "1×10^1200")
-        self.assertEqual(format_coins("-" + "9" * 20), "-9.99999×10^19")
+        self.assertEqual(format_coins("-" + "9" * 21), "-9.99999×10^20")
 
 
 if __name__ == "__main__":
