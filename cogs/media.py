@@ -49,10 +49,10 @@ MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 
 def rewrite_instagram_video_links(content: str) -> list[str]:
-    """Return canonical public Instagram URLs suitable for yt-dlp extraction."""
+    """Return canonical public Instagram post/reel URLs found in a message."""
     rewritten = []
     seen = set()
-    pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
+    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
         try:
@@ -71,211 +71,17 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     return rewritten
 
 
-def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES):
-    """Local video downloading is intentionally disabled; videos must come from remote Cobalt."""
-    raise RuntimeError(
-        "本機影片下載已停用。請先設定可用的遠端 COBALT_API_URL；Bot 不會把影片存到這台電腦。"
-    )
+def rewrite_instagram_embed_url(url: str) -> str:
+    """Rewrite an Instagram URL to OGInstagram; video bytes never pass through this bot."""
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.hostname or "").lower() not in {
+        "instagram.com", "www.instagram.com", "m.instagram.com"
+    }:
+        raise ValueError("Not an Instagram URL")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Invalid Instagram URL")
+    return urllib.parse.urlunsplit(("https", "oginstagram.com", parsed.path, parsed.query, ""))
 
-def _extract_public_instagram_stats(url: str) -> dict:
-    """Fetch lightweight public metadata without downloading the video."""
-    options = {
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "socket_timeout": 5,
-        "retries": 0,
-        "extractor_retries": 0,
-    }
-    for extractor_args in (
-        {"instagram": {"app_id": "567067343352427"}},
-        {"instagram": {"app_id": "ios"}},
-        None,
-    ):
-        try:
-            current = dict(options)
-            if extractor_args:
-                current["extractor_args"] = extractor_args
-            with yt_dlp.YoutubeDL(current) as downloader:
-                info = downloader.extract_info(url, download=False)
-            if not isinstance(info, dict):
-                continue
-            comments = []
-            for item in (info.get("comments") or [])[:5]:
-                if not isinstance(item, dict):
-                    continue
-                text = (item.get("text") or item.get("content") or "").strip()
-                if text:
-                    author = (item.get("author") or item.get("username") or "").strip()
-                    comments.append(f"**{author}:** {text}" if author else text)
-            return {
-                "like_count": info.get("like_count"),
-                "comment_count": info.get("comment_count"),
-                "comments": comments,
-            }
-        except Exception:
-            continue
-    return {}
-
-
-async def _download_instagram_via_cobalt(url: str, max_bytes: int) -> tuple[bytes, str]:
-    """Use an explicitly configured Cobalt instance; never depend on an unauthorized public API."""
-    api_url = os.getenv("COBALT_API_URL", "").strip()
-    if not api_url:
-        raise RuntimeError("COBALT_API_URL is not configured")
-    parsed_api = urllib.parse.urlsplit(api_url)
-    if parsed_api.scheme not in ("http", "https") or not parsed_api.netloc:
-        raise ValueError("COBALT_API_URL must be an HTTP(S) URL")
-
-    timeout = aiohttp.ClientTimeout(total=45, connect=8, sock_read=25)
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    api_key = os.getenv("COBALT_API_KEY", "").strip()
-    if api_key:
-        headers["Authorization"] = f"Api-Key {api_key}"
-
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-        async with session.post(
-            api_url,
-            json={
-                "url": url,
-                "videoQuality": "720",
-                "downloadMode": "auto",
-                "filenameStyle": "basic",
-            },
-        ) as response:
-            response.raise_for_status()
-            result = await response.json(content_type=None)
-
-        status = result.get("status") if isinstance(result, dict) else None
-        if status in ("redirect", "tunnel"):
-            download_url = result.get("url")
-        elif status == "picker":
-            videos = [
-                item for item in (result.get("picker") or [])
-                if isinstance(item, dict) and item.get("type") == "video" and item.get("url")
-            ]
-            download_url = videos[0]["url"] if videos else None
-        else:
-            error = result.get("error", {}) if isinstance(result, dict) else {}
-            code = error.get("code", "unknown") if isinstance(error, dict) else str(error)
-            raise RuntimeError(f"Cobalt did not return a video: {code}")
-
-        if not isinstance(download_url, str):
-            raise RuntimeError("Cobalt returned no downloadable video URL")
-        parsed_download = urllib.parse.urlsplit(download_url)
-        if parsed_download.scheme not in ("http", "https") or not parsed_download.netloc:
-            raise ValueError("Cobalt returned an invalid download URL")
-
-        async with session.get(download_url, allow_redirects=True) as response:
-            response.raise_for_status()
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > MAX_VIDEO_SOURCE_BYTES:
-                raise ValueError("Instagram source video exceeds the 250 MB processing limit")
-            chunks = []
-            total = 0
-            async for chunk in response.content.iter_chunked(256 * 1024):
-                total += len(chunk)
-                if total > MAX_VIDEO_SOURCE_BYTES:
-                    raise ValueError("Instagram source video exceeds the 250 MB processing limit")
-                chunks.append(chunk)
-
-    data = b"".join(chunks)
-    if len(data) < 12 or data[4:8] != b"ftyp":
-        raise ValueError("Cobalt download is not a valid MP4 file")
-    return data, "instagram-video.mp4"
-
-
-def _fit_instagram_video_to_limit(data: bytes, max_bytes: int) -> bytes:
-    """Transcode oversized MP4 data through FFmpeg pipes; never create local video files."""
-    if len(data) <= max_bytes:
-        return data
-    if len(data) < 12 or data[4:8] != b"ftyp":
-        raise ValueError("Instagram source is not a valid MP4 file")
-
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    profiles = (
-        (1280, "29", "160k"),
-        (960, "31", "128k"),
-        (720, "33", "96k"),
-        (480, "35", "64k"),
-    )
-    last_error = None
-    for width, crf, audio_bitrate in profiles:
-        command = [
-            ffmpeg, "-hide_banner", "-loglevel", "error",
-            "-i", "pipe:0",
-            "-vf", f"scale='min({width},iw)':-2",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", crf,
-            "-c:a", "aac", "-b:a", audio_bitrate,
-            "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
-            "-f", "mp4", "pipe:1",
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                input=data,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=180,
-                check=True,
-            )
-            compressed = result.stdout
-            if 12 <= len(compressed) <= max_bytes and compressed[4:8] == b"ftyp":
-                return compressed
-            last_error = ValueError("compressed output is still over Discord's upload limit")
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as exc:
-            last_error = exc
-            print(f"[Instagram video] in-memory compression profile {width}p failed: {type(exc).__name__}")
-            continue
-
-    raise ValueError(
-        f"影片經多種畫質壓縮後仍超過 Discord 上傳限制 {max_bytes // (1024 * 1024)} MB"
-    ) from last_error
-
-async def _download_instagram_video_fast(url: str, max_bytes: int) -> tuple[bytes, str, dict]:
-    """Remote-only Instagram pipeline. No video bytes are written to local disk."""
-    api_url = os.getenv("COBALT_API_URL", "").strip()
-    if not api_url:
-        raise RuntimeError(
-            "遠端影片服務尚未設定（COBALT_API_URL）。為避免佔用你的電腦，"
-            "本機 yt-dlp 下載已完全停用；請先部署並設定遠端 Cobalt 服務。"
-        )
-
-    stats_task = asyncio.create_task(asyncio.to_thread(_extract_public_instagram_stats, url))
-    data = None
-    filename = "instagram-video.mp4"
-    last_error = None
-
-    for attempt in range(2):
-        try:
-            data, filename = await _download_instagram_via_cobalt(
-                url, MAX_VIDEO_SOURCE_BYTES
-            )
-            break
-        except Exception as exc:
-            last_error = exc
-            print(
-                f"[Instagram video] remote Cobalt attempt {attempt + 1}/2 failed: "
-                f"{type(exc).__name__}"
-            )
-            if attempt == 0:
-                await asyncio.sleep(1.0)
-
-    if data is None:
-        if not stats_task.done():
-            stats_task.cancel()
-        raise RuntimeError(
-            "遠端 Instagram 影片服務連線失敗；未改用本機下載，也未在電腦建立影片檔。"
-        ) from last_error
-
-    try:
-        stats = await asyncio.wait_for(asyncio.shield(stats_task), timeout=2.0)
-    except Exception:
-        stats = {}
-
-    fitted = await asyncio.to_thread(_fit_instagram_video_to_limit, data, max_bytes)
-    return fitted, filename, stats if isinstance(stats, dict) else {}
 
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
@@ -500,14 +306,14 @@ class SearchCog(commands.Cog):
             )
 
     async def cog_load(self):
-        """Start a bounded worker pool so bursts of links do not spawn unlimited downloads."""
+        """Start a bounded worker pool for Instagram embed-link rewrites."""
         if self._instagram_workers:
             return
         for worker_id in range(self._instagram_worker_count):
             self._instagram_workers.append(
                 asyncio.create_task(self._instagram_download_worker(worker_id))
             )
-        print(f"[Instagram video] started {len(self._instagram_workers)} download workers")
+        print(f"[Instagram embed] started {len(self._instagram_workers)} rewrite workers")
 
     async def cog_unload(self):
         """Stop workers cleanly when the cog is unloaded."""
@@ -526,10 +332,10 @@ class SearchCog(commands.Cog):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                print(f"[Instagram video] worker={worker_id} failed: {type(exc).__name__}: {str(exc)[:160]}")
+                print(f"[Instagram embed] worker={worker_id} failed: {type(exc).__name__}: {str(exc)[:160]}")
                 if notice:
                     try:
-                        await notice.edit(content="Instagram 影片處理失敗，原始連結已保留。")
+                        await notice.edit(content="Instagram 嵌入預覽處理失敗，原始連結已保留。")
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                         pass
             finally:
@@ -1080,12 +886,12 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _begin_instagram_processing(self, message: discord.Message):
-        """Acknowledge immediately, then enqueue the download for a bounded worker."""
+        """Queue a lightweight embed-link rewrite; never download video data."""
         notice = None
         try:
             notice = await asyncio.wait_for(
                 message.reply(
-                    "⏳ 已收到 Instagram 影片，正在排隊處理；完成後會自動替換原連結。",
+                    "⏳ 已收到 Instagram 影片，正在整理嵌入預覽。",
                     mention_author=False,
                     allowed_mentions=discord.AllowedMentions.none(),
                 ),
@@ -1100,12 +906,12 @@ class SearchCog(commands.Cog):
             self._instagram_pending.discard(message.id)
             if notice:
                 try:
-                    await notice.edit(content="目前影片處理佇列已滿，原始連結已保留，請稍後再傳。")
+                    await notice.edit(content="目前處理佇列已滿，原始連結已保留，請稍後再傳。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
 
     async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
-        """Replace a public Instagram link with a playable MP4 attachment and public stats."""
+        """Replace the original Instagram URL with a third-party playable embed URL."""
         channel = message.channel
         source_urls = rewrite_instagram_video_links(message.content or "")
         if not source_urls:
@@ -1114,127 +920,52 @@ class SearchCog(commands.Cog):
         permission_channel = channel.parent if isinstance(channel, discord.Thread) else channel
         me = message.guild.me if message.guild else None
         permissions = permission_channel.permissions_for(me) if me and permission_channel else None
-        required = ("send_messages", "attach_files", "manage_messages")
+        required = ("send_messages", "manage_messages")
         if not permissions or not all(getattr(permissions, name, False) for name in required):
-            print("[Instagram video] skipped: Send Messages, Attach Files and Manage Messages permissions are required")
+            print("[Instagram embed] skipped: Send Messages and Manage Messages permissions are required")
             if processing_notice:
                 try:
-                    await processing_notice.edit(content="機器人缺少傳送訊息、附加檔案或管理訊息權限，原始連結已保留。")
+                    await processing_notice.edit(content="機器人缺少傳送訊息或管理訊息權限，原始連結已保留。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
             return
 
         source_url = source_urls[0]
-
-        # The listener sends a visible acknowledgement before this worker starts.
-        # If that reply was unavailable, use a reaction as the lightweight fallback.
-        processing_reaction = "⏳"
-        reaction_added = False
-        if processing_notice is None:
-            try:
-                await message.add_reaction(processing_reaction)
-                reaction_added = True
-            except (discord.Forbidden, discord.HTTPException):
-                try:
-                    processing_notice = await channel.send(
-                        "⏳ 正在處理 Instagram 影片，完成後會自動替換原連結。",
-                        reference=message,
-                        mention_author=False,
-                        allowed_mentions=discord.AllowedMentions.none(),
-                    )
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-
-        upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
-        try:
-            cache_entry = self._instagram_cache.get(source_url)
-            if (
-                cache_entry
-                and time.monotonic() - cache_entry[0] <= 180
-                and len(cache_entry[1]) <= upload_limit
-            ):
-                _, video_data, filename, stats = cache_entry
-                self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
-                print("[Instagram video] cache hit")
-            else:
-                self._instagram_cache.pop(source_url, None)
-                video_data, filename, stats = await asyncio.wait_for(
-                    _download_instagram_video_fast(source_url, upload_limit),
-                    timeout=240,
-                )
-                stats = stats if isinstance(stats, dict) else {}
-                self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
-                while len(self._instagram_cache) > 3:
-                    self._instagram_cache.pop(next(iter(self._instagram_cache)))
-        except Exception as exc:
-            print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
-            if reaction_added:
-                try:
-                    await message.remove_reaction(processing_reaction, self.bot.user)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    pass
-            if processing_notice:
-                try:
-                    await processing_notice.edit(content="Instagram 影片暫時無法取得，原始連結已保留。")
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    pass
-            return
-
-        embed = discord.Embed(title="Instagram 影片", color=discord.Color.purple())
-        likes = stats.get("like_count")
-        comment_count = stats.get("comment_count")
-        embed.add_field(name="讚數", value=f"{likes:,}" if isinstance(likes, int) else "無法取得", inline=True)
-        embed.add_field(name="留言數", value=f"{comment_count:,}" if isinstance(comment_count, int) else "無法取得", inline=True)
-        comments = stats.get("comments") or []
-        if comments:
-            embed.add_field(name="熱門留言", value="\n".join(comments)[:1024], inline=False)
-        embed.set_footer(text="影片由公開 Instagram 來源取得；互動數據以可讀取資料為準")
-
+        embed_url = rewrite_instagram_embed_url(source_url)
         caption = re.sub(
-            r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
+            r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+",
             "",
             message.content or "",
             flags=re.I,
         ).strip()
         content = f"Instagram 影片 · <@{message.author.id}>"
         if caption:
-            content += f"\n{caption[:1500]}"
+            content += f"\\n{caption[:1200]}"
+        content += f"\\n{embed_url}"
 
         try:
-            # Send as the bot itself: never impersonate the original poster via webhook.
-            # Discord renders compatible MP4 attachments as inline playable video.
+            # OGInstagram supplies Open Graph metadata and a playable media preview.
+            # This bot only posts the rewritten URL: no video download, cache, or local file.
             await channel.send(
                 content=content[:1900],
-                embed=embed,
-                file=discord.File(io.BytesIO(video_data), filename=filename),
                 allowed_mentions=discord.AllowedMentions.none(),
                 reference=message,
                 mention_author=False,
+                suppress_embeds=False,
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram video] upload failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
-            if reaction_added:
-                try:
-                    await message.remove_reaction(processing_reaction, self.bot.user)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    pass
+            print(f"[Instagram embed] send failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             if processing_notice:
                 try:
-                    await processing_notice.edit(content="Instagram 影片上傳失敗，原始連結已保留。")
+                    await processing_notice.edit(content="Instagram 嵌入預覽傳送失敗，原始連結已保留。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
             return
 
-        if reaction_added:
-            try:
-                await message.remove_reaction(processing_reaction, self.bot.user)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                pass
-
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram video] video posted but original message could not be deleted: {type(exc).__name__}")
+            print(f"[Instagram embed] preview posted but original message could not be deleted: {type(exc).__name__}")
 
         if processing_notice:
             try:
