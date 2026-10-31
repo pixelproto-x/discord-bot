@@ -11,6 +11,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.economy_sqlite import connect_economy_database
+
 DB_PATH = Path(__file__).resolve().parent.parent / "economy.db"
 MAX_BALANCE = int("9" * 2000)
 UTC = timezone.utc
@@ -110,24 +112,21 @@ class WorldEconomy:
 
 
     def connect(self):
-        con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        con.execute("PRAGMA journal_mode=WAL")
-        return con
+        return connect_economy_database(DB_PATH, label="Economy World")
 
     def ensure_user(self, con, guild_id: int, user_id: int):
+        # Wallets are global across servers; world assets remain guild-scoped.
         con.execute(
-            "INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(?,?, '1000','0')",
-            (guild_id, user_id),
+            "INSERT OR IGNORE INTO users(guild_id,user_id,wallet,bank) VALUES(0,?, '1000','0')",
+            (user_id,),
         )
 
     def wallet(self, con, guild_id: int, user_id: int) -> str:
         self.ensure_user(con, guild_id, user_id)
-        return str(con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, user_id)).fetchone()["wallet"])
+        return str(con.execute("SELECT wallet FROM users WHERE guild_id=0 AND user_id=?", (user_id,)).fetchone()["wallet"])
 
     def set_wallet(self, con, guild_id: int, user_id: int, value: str):
-        con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?", (value, guild_id, user_id))
+        con.execute("UPDATE users SET wallet=? WHERE guild_id=0 AND user_id=?", (value, user_id))
 
     def ledger(self, con, guild_id: int, user_id: int, kind: str, amount: int, detail: str):
         con.execute(
