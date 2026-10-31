@@ -592,7 +592,7 @@ class SearchCog(commands.Cog):
             if self.gemini_client and time.monotonic() < getattr(self, 'gemini_cooldown_until', 0.0):
                 print("[Gemini chat] provider cooldown active; using Groq fallback")
             if visual_parts:
-                prompt += "\\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
+                prompt += "\n[這則訊息含圖片或動態貼圖，但目前 Gemini 視覺模型不可用，備援模型無法直接查看圖片。請坦白說明這點，不要假裝看過。]"
             return _sanitize_chat_reply(await self._generate_groq_text(
                 prompt, system_instruction, label="Groq chat (Gemini unavailable)",
                 max_tokens=320, temperature=0.75, top_p=0.9,
@@ -610,7 +610,7 @@ class SearchCog(commands.Cog):
             contents = [base_contents, *(visual_parts or [])] if visual_parts else base_contents
             if attempt == 1 and failure_reason == "short_response":
                 retry_instruction = (
-                    "\\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
+                    "\n請重新回答：上一個回覆太短。請用至少一個完整自然句子接話，"
                     "不要只回兩三個詞；仍要像朋友聊天，不要寫成正式文章。"
                 )
                 contents = [*contents, retry_instruction] if isinstance(contents, list) else contents + retry_instruction
@@ -864,7 +864,7 @@ class SearchCog(commands.Cog):
             print("[Instagram embed] skipped: Send Messages, Embed Links and Manage Messages permissions are required")
             return
 
-        original_urls = re.findall(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", message.content or "", re.I)
+        original_urls = re.findall(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\\s<>]+", message.content or "", re.I)
         rewritten_urls = rewrite_instagram_video_links(message.content or "")
         if not rewritten_urls or not original_urls:
             return
@@ -885,12 +885,12 @@ class SearchCog(commands.Cog):
         embed.add_field(name="💬 留言數", value=f"{comment_count:,}" if isinstance(comment_count, int) else "無法取得", inline=True)
         comments = stats.get("comments") or []
         if comments:
-            embed.add_field(name="熱門留言", value="\\n".join(comments)[:1024], inline=False)
+            embed.add_field(name="熱門留言", value="\n".join(comments)[:1024], inline=False)
         embed.set_footer(text="數據以 Instagram 公開頁面可取得的資料為準")
 
         try:
             await channel.send(
-                content="\\n".join(rewritten_urls)[:1800],
+                content="\n".join(rewritten_urls)[:1800],
                 embed=embed,
                 allowed_mentions=discord.AllowedMentions.none(),
                 reference=message,
@@ -1923,7 +1923,7 @@ class SearchCog(commands.Cog):
         )
         if answer:
             await interaction.followup.send(
-                f"AI 供應商備援測試成功\\n測試回覆：{answer[:150]}",
+                f"AI 供應商備援測試成功\n測試回覆：{answer[:150]}",
                 ephemeral=True,
             )
         else:
