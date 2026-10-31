@@ -607,6 +607,27 @@ class History(commands.Cog):
         except Exception:
             logger.exception("記錄 Raw 刪除訊息失敗：%s", payload.message_id)
 
+    @commands.Cog.listener()
+    async def on_raw_bulk_message_delete(
+        self, payload: discord.RawBulkMessageDeleteEvent
+    ) -> None:
+        """Record each message from Discord bulk-delete events, including uncached messages."""
+        if payload.guild_id is None:
+            return
+        cached_by_id = {
+            message.id: message
+            for message in getattr(payload, "cached_messages", ())
+        }
+        for message_id in payload.message_ids:
+            try:
+                await self._process_delete(
+                    message_id,
+                    payload.guild_id,
+                    cached_by_id.get(message_id),
+                )
+            except Exception:
+                logger.exception("記錄批次刪除訊息失敗：%s", message_id)
+
     @app_commands.command(name=app_commands.locale_str("history", zh_TW="訊息紀錄"),
         description="查詢已刪除的訊息歷史紀錄",
     )
