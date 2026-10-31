@@ -31,7 +31,23 @@ def connect():
 
 def init_db():
     with connect() as con:
-        con.execute("PRAGMA journal_mode=WAL")
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as wal_error:
+            # WAL needs -wal/-shm sidecar files and can fail on synced or restricted
+            # folders (for example, a live OneDrive project directory). Fall back
+            # to SQLite's rollback journal without touching or recreating the DB.
+            try:
+                con.execute("PRAGMA journal_mode=DELETE")
+            except sqlite3.OperationalError as fallback_error:
+                raise sqlite3.OperationalError(
+                    "無法啟用 SQLite WAL，且回退 DELETE 模式也失敗。"
+                    f" WAL 錯誤: {wal_error}; DELETE 錯誤: {fallback_error}"
+                ) from fallback_error
+            print(
+                "[Storage] WAL 模式無法啟用，已改用 DELETE journal mode："
+                f"{wal_error}"
+            )
         con.executescript("""
         CREATE TABLE IF NOT EXISTS reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
