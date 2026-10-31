@@ -70,7 +70,7 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     return rewritten
 
 
-def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
+def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES) -> tuple[bytes, str]:
     """Download a short, publicly accessible Instagram video as an MP4 attachment."""
     with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
         output_template = str(Path(temp_dir) / "video.%(ext)s")
@@ -82,10 +82,10 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
             return None
 
         base_options = {
-            "format": "best[ext=mp4][vcodec^=avc1]/best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+            "format": "best[ext=mp4][vcodec^=avc1]/bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
-            "max_filesize": MAX_VIDEO_BYTES,
+            "max_filesize": max_bytes,
             "match_filter": duration_filter,
             "noplaylist": True,
             "quiet": True,
@@ -122,8 +122,8 @@ def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
 
         video_path = candidates[0]
         data = video_path.read_bytes()
-        if not data or len(data) > MAX_VIDEO_BYTES:
-            raise ValueError(f"影片檔案超過目前設定的 {MAX_VIDEO_BYTES // (1024 * 1024)} MB 上限")
+        if not data or len(data) > max_bytes:
+            raise ValueError(f"影片檔案超過伺服器可上傳上限 {max_bytes // (1024 * 1024)} MB")
         if data[4:8] != b"ftyp":
             raise ValueError("下載結果不是有效的 MP4 檔案")
         return data, "instagram-video.mp4"
@@ -931,7 +931,8 @@ class SearchCog(commands.Cog):
             return
 
         source_url = source_urls[0]
-        video_task = asyncio.to_thread(_download_public_instagram_video, source_url)
+        upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
+        video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
         stats_task = asyncio.to_thread(_get_public_instagram_stats, source_url)
         try:
             video_result, stats_result = await asyncio.gather(
