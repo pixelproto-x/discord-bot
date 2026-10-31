@@ -9,12 +9,13 @@ class WalletFormattingRegressionTests(unittest.TestCase):
         self.assertEqual(format_coins("0"), "0")
         self.assertEqual(format_coins("-1234"), "-1,234")
 
-    def test_infinite_balance_is_not_passed_to_numeric_formatting(self):
+    def test_positive_and_negative_infinity_are_formatted(self):
         self.assertEqual(format_coins("inf"), "∞（無限）")
+        self.assertEqual(format_coins("-inf"), "-∞（負無限）")
 
-    def test_extremely_large_balances_are_bounded(self):
-        value = "9" * 1201
-        self.assertEqual(format_coins(value), "超大金額（1201 位數）")
+    def test_extremely_large_balances_use_scientific_notation(self):
+        self.assertEqual(format_coins("1" + "0" * 1200), "1×10^1200")
+        self.assertEqual(format_coins("-" + "9" * 20), "-9.99999×10^19")
 
 
 if __name__ == "__main__":
