@@ -48,6 +48,15 @@ MAX_ARCHIVE_ENTRIES = 500
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 
+def is_interaction_response_message(message) -> bool:
+    """Return whether a message was generated as an application interaction response."""
+    return bool(
+        getattr(message, "interaction_metadata", None)
+        or getattr(message, "interaction", None)
+        or getattr(message, "application_id", None)
+    )
+
+
 def rewrite_instagram_video_links(content: str) -> list[str]:
     """Return canonical public Instagram post/reel URLs found in a message."""
     rewritten = []
@@ -1126,10 +1135,7 @@ class SearchCog(commands.Cog):
             if (
                 referenced
                 and getattr(getattr(referenced, "author", None), "id", None) == bot_id
-                and (
-                    getattr(referenced, "interaction_metadata", None)
-                    or getattr(referenced, "interaction", None)
-                )
+                and is_interaction_response_message(referenced)
             ):
                 return
 
