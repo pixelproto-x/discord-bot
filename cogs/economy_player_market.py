@@ -45,7 +45,7 @@ class PlayerMarketStore:
 
     @staticmethod
     def _wallet_value(value: str) -> int | None:
-        return None if str(value).strip().lower() == "inf" else int(value)
+        return None if str(value).strip().lower() in {"inf", "-inf"} else int(value)
 
     def list_items(self, guild_id: int, limit: int = 10):
         with closing(self.connect()) as con:
