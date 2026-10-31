@@ -1114,6 +1114,11 @@ class SearchCog(commands.Cog):
         required = ("send_messages", "attach_files", "manage_messages")
         if not permissions or not all(getattr(permissions, name, False) for name in required):
             print("[Instagram video] skipped: Send Messages, Attach Files and Manage Messages permissions are required")
+            if processing_notice:
+                try:
+                    await processing_notice.edit(content="機器人缺少傳送訊息、附加檔案或管理訊息權限，原始連結已保留。")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
             return
 
         source_url = source_urls[0]
@@ -1140,7 +1145,11 @@ class SearchCog(commands.Cog):
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
         try:
             cache_entry = self._instagram_cache.get(source_url)
-            if cache_entry and time.monotonic() - cache_entry[0] <= 180:
+            if (
+                cache_entry
+                and time.monotonic() - cache_entry[0] <= 180
+                and len(cache_entry[1]) <= upload_limit
+            ):
                 _, video_data, filename, stats = cache_entry
                 self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
                 print("[Instagram video] cache hit")
