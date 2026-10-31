@@ -121,6 +121,32 @@ class MusicMessageListenerTests(unittest.IsolatedAsyncioTestCase):
             await cog.on_message(message)
         play.assert_awaited_once_with(message, "https://open.spotify.com/track/abc123")
 
+    async def test_pasted_youtube_shorts_is_not_treated_as_music_request(self):
+        from types import SimpleNamespace
+
+        cog = music.MusicCog(SimpleNamespace())
+        message = SimpleNamespace(
+            author=SimpleNamespace(bot=False),
+            guild=SimpleNamespace(id=123),
+            content="https://www.youtube.com/shorts/abc123",
+        )
+        with patch.object(cog, "play_query_from_message", new=AsyncMock()) as play:
+            await cog.on_message(message)
+        play.assert_not_awaited()
+
+    async def test_regular_youtube_video_keeps_existing_auto_play_behavior(self):
+        from types import SimpleNamespace
+
+        cog = music.MusicCog(SimpleNamespace())
+        message = SimpleNamespace(
+            author=SimpleNamespace(bot=False),
+            guild=SimpleNamespace(id=123),
+            content="https://www.youtube.com/watch?v=abc123",
+        )
+        with patch.object(cog, "play_query_from_message", new=AsyncMock()) as play:
+            await cog.on_message(message)
+        play.assert_awaited_once_with(message, "https://www.youtube.com/watch?v=abc123")
+
 
 class MusicTrackDisplayTests(unittest.TestCase):
     def test_track_metadata_has_safe_fallbacks(self):
