@@ -903,7 +903,25 @@ class SearchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-    async def _replace_instagram_message(self, message: discord.Message):
+    async def _begin_instagram_processing(self, message: discord.Message):
+        """Acknowledge an Instagram link first, then hand off all slow work."""
+        notice = None
+        try:
+            # A normal reply is more visible than a reaction and is sent before
+            # any Instagram extraction or media download begins.
+            notice = await asyncio.wait_for(
+                message.reply(
+                    "⏳ 已收到 Instagram 影片，正在處理；完成後會自動替換原連結。",
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                ),
+                timeout=2.5,
+            )
+        except (asyncio.TimeoutError, discord.Forbidden, discord.HTTPException):
+            pass
+        await self._replace_instagram_message(message, processing_notice=notice)
+
+    async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
         """Replace a public Instagram link with a playable MP4 attachment and public stats."""
         channel = message.channel
         source_urls = rewrite_instagram_video_links(message.content or "")
@@ -920,25 +938,24 @@ class SearchCog(commands.Cog):
 
         source_url = source_urls[0]
 
-        # Follow the proven reaction-first pattern used by other self-hosted
-        # Discord media bots: acknowledge the link before starting yt-dlp.
+        # The listener sends a visible acknowledgement before this worker starts.
+        # If that reply was unavailable, use a reaction as the lightweight fallback.
         processing_reaction = "⏳"
         reaction_added = False
-        processing_notice = None
-        try:
-            await message.add_reaction(processing_reaction)
-            reaction_added = True
-        except (discord.Forbidden, discord.HTTPException):
-            # Fall back to a short status reply when Add Reactions is unavailable.
+        if processing_notice is None:
             try:
-                processing_notice = await channel.send(
-                    "⏳ 正在處理 Instagram 影片，完成後會自動替換原連結。",
-                    reference=message,
-                    mention_author=False,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
+                await message.add_reaction(processing_reaction)
+                reaction_added = True
             except (discord.Forbidden, discord.HTTPException):
-                pass
+                try:
+                    processing_notice = await channel.send(
+                        "⏳ 正在處理 Instagram 影片，完成後會自動替換原連結。",
+                        reference=message,
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
 
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
         video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
@@ -1035,7 +1052,7 @@ class SearchCog(commands.Cog):
                 # message listener so detection/other bot features stay responsive.
                 existing_task = self._instagram_tasks.get(message.id)
                 if existing_task is None or existing_task.done():
-                    task = asyncio.create_task(self._replace_instagram_message(message))
+                    task = asyncio.create_task(self._begin_instagram_processing(message))
                     self._instagram_tasks[message.id] = task
                     task.add_done_callback(
                         lambda completed, message_id=message.id: self._instagram_tasks.pop(message_id, None)
