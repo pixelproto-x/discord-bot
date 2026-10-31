@@ -864,7 +864,7 @@ class SearchCog(commands.Cog):
             print("[Instagram embed] skipped: Send Messages, Embed Links and Manage Messages permissions are required")
             return
 
-        original_urls = re.findall(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\\s<>]+", message.content or "", re.I)
+        original_urls = re.findall(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", message.content or "", re.I)
         rewritten_urls = rewrite_instagram_video_links(message.content or "")
         if not rewritten_urls or not original_urls:
             return
