@@ -52,7 +52,7 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     """Return canonical public Instagram post/reel URLs found in a message."""
     rewritten = []
     seen = set()
-    pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
+    pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
         try:
@@ -265,7 +265,6 @@ class SearchCog(commands.Cog):
             self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "4") or "4"), 8))
         except ValueError:
             self._instagram_worker_count = 4
-        self._instagram_cache = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -933,15 +932,15 @@ class SearchCog(commands.Cog):
         source_url = source_urls[0]
         embed_url = rewrite_instagram_embed_url(source_url)
         caption = re.sub(
-            r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+",
+            r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
             "",
             message.content or "",
             flags=re.I,
         ).strip()
         content = f"Instagram 影片 · <@{message.author.id}>"
         if caption:
-            content += f"\\n{caption[:1200]}"
-        content += f"\\n{embed_url}"
+            content += f"\n{caption[:1200]}"
+        content += f"\n{embed_url}"
 
         try:
             # OGInstagram supplies Open Graph metadata and a playable media preview.
