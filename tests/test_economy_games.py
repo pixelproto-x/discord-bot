@@ -38,7 +38,7 @@ class EconomyMiniGameStoreTests(unittest.TestCase):
                 with closing(self.store.economy.connect()) as con:
                     con.execute(
                         "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                        (balance, 123, 456),
+                        (balance, 0, 456),
                     )
                 ok, _ = self.store.play(123, 456, 1, 4, "test", "test")
                 self.assertFalse(ok)
