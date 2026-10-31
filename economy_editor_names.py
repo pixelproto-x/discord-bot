@@ -9,6 +9,7 @@ import threading
 import webbrowser
 import subprocess
 import time
+import traceback
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -358,6 +359,36 @@ def connect():
     return con
 
 
+
+def _save_user_balances(user_id: int, wallet: str, bank: str, times: dict[str, str | None], retries: int = 3) -> bool:
+    """Save one global economy account, retrying transient SQLite writer locks."""
+    for attempt in range(retries + 1):
+        try:
+            # BEGIN IMMEDIATE obtains the writer reservation before checking/updating
+            # the row, preventing a read-then-write race with the running Discord bot.
+            with closing(connect()) as con:
+                con.execute("BEGIN IMMEDIATE")
+                exists = con.execute(
+                    "SELECT 1 FROM users WHERE guild_id=0 AND user_id=?", (user_id,)
+                ).fetchone()
+                if not exists:
+                    con.rollback()
+                    return False
+                con.execute(
+                    "UPDATE users SET wallet=?,bank=?,last_daily=?,last_work=?,last_fish=?,last_rob=? "
+                    "WHERE guild_id=0 AND user_id=?",
+                    (wallet, bank, times["last_daily"], times["last_work"],
+                     times["last_fish"], times["last_rob"], user_id),
+                )
+                con.commit()
+                return True
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if not any(marker in message for marker in ("database is locked", "database is busy", "locked")) or attempt >= retries:
+                raise
+            time.sleep(0.2 * (2 ** attempt))
+    return False
+
 def _is_same_origin_post(origin: str, host: str) -> bool:
     """Only allow browser writes initiated by this exact loopback editor origin."""
     expected_host = f"{HOST}:{PORT}"
@@ -464,20 +495,16 @@ class Handler(BaseHTTPRequestHandler):
                     if len(value) > 80:
                         raise ValueError("時間欄位太長。")
                 times[key] = value or None
-            with connect() as con:
-                if not con.execute("SELECT user_id FROM users WHERE guild_id=0 AND user_id=?", (user_id,)).fetchone():
-                    self.send_json(404, {"error": "找不到這位玩家，請重新整理頁面。"})
-                    return
-                con.execute(
-                    "UPDATE users SET wallet=?,bank=?,last_daily=?,last_work=?,last_fish=?,last_rob=? WHERE guild_id=? AND user_id=?",
-                    (wallet, bank, times["last_daily"], times["last_work"], times["last_fish"], times["last_rob"], guild_id, user_id),
-                )
-                con.commit()
+            if not _save_user_balances(user_id, wallet, bank, times):
+                self.send_json(404, {"error": "找不到這位玩家，請重新整理頁面。"})
+                return
             self.send_json(200, {"ok": True})
         except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
             self.send_json(400, {"error": f"資料格式不正確：{exc}"})
         except Exception as exc:
-            self.send_json(500, {"error": str(exc)})
+            print(f"[economy-editor] /api/save 儲存失敗：{type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            self.send_json(500, {"error": "資料庫儲存失敗，詳細原因已記錄在編輯器終端機。"})
 
     def log_message(self, fmt, *args):
         print("[economy-editor]", fmt % args)
