@@ -26,7 +26,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=?, bank=? WHERE guild_id=? AND user_id=?",
-                ("1234567", "2345", guild_id, user_id),
+                ("1234567", "2345", 0, user_id),
             )
 
         user = SimpleNamespace(
@@ -84,7 +84,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                ("0", guild_id, user_id),
+                ("0", 0, user_id),
             )
         ok, _ = self.cog.store.shop_buy(guild_id, user_id, "anti_rob", 1)
         self.assertFalse(ok)
@@ -112,7 +112,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                ("0", guild_id, user_id),
+                ("0", 0, user_id),
             )
         self.assertFalse(self.cog.store.dice(guild_id, user_id, 10000, 0))
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "0")
@@ -123,7 +123,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                ("-10000", guild_id, user_id),
+                ("-10000", 0, user_id),
             )
         self.assertFalse(self.cog.store.dice(guild_id, user_id, 1, 2))
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "-10000")
@@ -200,7 +200,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.cog.store.get(guild_id, user_id)["wallet"], "1000")
 
 
-    def test_same_user_has_independent_wallets_per_guild(self):
+    def test_same_user_shares_one_wallet_across_guilds(self):
         user_id = 456
         self.cog.store.get(123, user_id)
         with closing(self.cog.store.connect()) as con:
@@ -210,10 +210,10 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
             )
         other_guild = self.cog.store.get(789, user_id)
         original_guild = self.cog.store.get(123, user_id)
-        self.assertEqual(other_guild["wallet"], "1000")
+        self.assertEqual(other_guild["wallet"], "4321")
         self.assertEqual(original_guild["wallet"], "4321")
 
-    def test_transfer_only_changes_receiver_account_in_current_guild(self):
+    def test_transfer_updates_the_shared_receiver_wallet(self):
         user_id, receiver = 456, 789
         self.cog.store.get(123, user_id)
         self.cog.store.get(789, receiver)
@@ -224,7 +224,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(self.cog.store.transfer(123, user_id, receiver, 1))
         self.assertEqual(self.cog.store.get(123, receiver)["wallet"], "1001")
-        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "777")
+        self.assertEqual(self.cog.store.get(789, receiver)["wallet"], "1001")
 
 
 class LegacyEconomyMigrationTests(unittest.TestCase):
@@ -257,7 +257,7 @@ class LegacyEconomyMigrationTests(unittest.TestCase):
         original = store.get(123, 456)
         isolated = store.get(789, 456)
         self.assertEqual((original["wallet"], original["bank"]), ("9876", "321"))
-        self.assertEqual((isolated["wallet"], isolated["bank"]), ("1000", "0"))
+        self.assertEqual((isolated["wallet"], isolated["bank"]), ("9876", "321"))
         with closing(store.connect()) as con:
             pk = {row["name"]: row["pk"] for row in con.execute("PRAGMA table_info(users)")}
         self.assertEqual(pk["guild_id"], 1)
