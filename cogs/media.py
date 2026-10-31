@@ -50,7 +50,6 @@ MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 def rewrite_instagram_video_links(content: str) -> list[str]:
     """Convert Instagram post/reel URLs to Discord-friendly playable embed links."""
     rewritten = []
-    seen = set()
     pattern = re.compile(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
@@ -65,9 +64,7 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
         path = re.sub(r"^/reels/", "/p/", parsed.path, flags=re.I)
         # Use an embed provider instead of downloading media from Instagram.
         fixed = urllib.parse.urlunsplit(("https", "kirkstagram.com", path, "", ""))
-        if fixed not in seen:
-            seen.add(fixed)
-            rewritten.append(fixed)
+        rewritten.append(fixed)
     return rewritten
 
 def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
