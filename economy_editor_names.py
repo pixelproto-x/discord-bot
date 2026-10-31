@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import json
+import operator
 import os
 import sqlite3
 import threading
@@ -203,7 +205,7 @@ async function load(){
   for(const [key,label] of fields){
    const td=document.createElement("td");td.dataset.label=label;const input=document.createElement("input");
    input.name=key;input.value=user[key]??"";input.dataset.serverValue=input.value;input.readOnly=key==="display_name";input.setAttribute("aria-label",label);input.setAttribute("form",formId);
-   if(key==="wallet"||key==="bank"){input.type="text";input.inputMode="text";input.placeholder="非負整數或 inf（無限）"}
+   if(key==="wallet"||key==="bank"){input.type="text";input.inputMode="text";input.placeholder="整數、算式或 inf／-inf"}
    else if(key.startsWith("last_")){input.className="time";input.placeholder="留空代表沒有紀錄"}
    td.appendChild(input);tr.appendChild(td);
   }
@@ -273,16 +275,78 @@ setInterval(async()=>{
 </script></body></html>"""
 
 
+MAX_BALANCE_DIGITS = 2000
+_BINARY_OPERATORS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
+}
+_UNARY_OPERATORS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+
+def _evaluate_balance_expression(source):
+    """Evaluate a bounded integer-only arithmetic expression without eval()."""
+    if len(source) > 2000:
+        raise ValueError("算式太長。")
+    try:
+        tree = ast.parse(source, mode="eval")
+    except (SyntaxError, ValueError):
+        raise ValueError("算式格式不正確。") from None
+    if sum(1 for _ in ast.walk(tree)) > 100:
+        raise ValueError("算式太複雜。")
+
+    def evaluate(node):
+        if isinstance(node, ast.Expression):
+            result = evaluate(node.body)
+        elif isinstance(node, ast.Constant) and type(node.value) is int:
+            result = node.value
+        elif isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPERATORS:
+            result = _UNARY_OPERATORS[type(node.op)](evaluate(node.operand))
+        elif isinstance(node, ast.BinOp):
+            left, right = evaluate(node.left), evaluate(node.right)
+            if isinstance(node.op, ast.Pow):
+                if right < 0 or right > MAX_BALANCE_DIGITS:
+                    raise ValueError("次方範圍不合法。")
+                if left not in (-1, 0, 1) and len(str(abs(left))) * right > MAX_BALANCE_DIGITS:
+                    raise ValueError("計算結果超過 2000 位數。")
+                result = pow(left, right)
+            elif isinstance(node.op, ast.Div):
+                if right == 0 or left % right:
+                    raise ValueError("金額必須是整數，除法結果不能有小數。")
+                result = left // right
+            elif type(node.op) in _BINARY_OPERATORS:
+                if isinstance(node.op, (ast.FloorDiv, ast.Mod)) and right == 0:
+                    raise ValueError("不能除以 0。")
+                result = _BINARY_OPERATORS[type(node.op)](left, right)
+            else:
+                raise ValueError("只支援 +、-、*、/、//、% 和 **。")
+        else:
+            raise ValueError("只支援整數與基本運算。")
+        if len(str(abs(result))) > MAX_BALANCE_DIGITS:
+            raise ValueError("計算結果超過 2000 位數。")
+        return result
+
+    return evaluate(tree)
+
+
 def _parse_balance(value):
     raw = str(value).strip().lower()
-    if raw == "inf":
+    if raw in {"inf", "+inf"}:
         return "inf"
+    if raw == "-inf":
+        return "-inf"
     if not raw or not raw.isascii():
         return None
-    digits = raw[1:] if raw.startswith("-") else raw
-    if raw.startswith("-") or not digits.isdecimal() or not 1 <= len(digits) <= 2000:
+    try:
+        digits = raw.lstrip("+-")
+        if digits.isdecimal():
+            if len(digits) > MAX_BALANCE_DIGITS:
+                return None
+            result = int(raw)
+        else:
+            result = _evaluate_balance_expression(raw)
+        return str(result)
+    except (ValueError, ZeroDivisionError, OverflowError):
         return None
-    return str(int(raw))
 
 
 def connect():
