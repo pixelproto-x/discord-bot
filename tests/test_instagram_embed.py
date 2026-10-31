@@ -1,6 +1,12 @@
+import os
 import unittest
+from unittest.mock import patch
 
-from cogs.media import rewrite_instagram_video_links
+from cogs.media import (
+    _download_instagram_video_fast,
+    _download_public_instagram_video,
+    rewrite_instagram_video_links,
+)
 
 
 class InstagramEmbedRewriteTests(unittest.TestCase):
@@ -22,7 +28,7 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
             "https://m.instagram.com/reels/ABC/ "
             "https://www.instagram.com/reels/ABC/"
         )
-        self.assertEqual(links, ["https://www.instagram.com/p/ABC/"])
+        self.assertEqual(links, ["https://www.instagram.com/reel/ABC/"])
 
     def test_ignores_profiles_and_non_instagram_urls(self):
         self.assertEqual(
@@ -37,6 +43,19 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
             rewrite_instagram_video_links("看這個 https://instagram.com/reel/ABC123/."),
             ["https://www.instagram.com/reel/ABC123/"],
         )
+
+
+class InstagramFastPathFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_uses_ytdlp_when_no_cobalt_instance_is_configured(self):
+        expected = (b"mp4-data", "instagram-video.mp4", {"like_count": 12})
+        with (
+            patch.dict(os.environ, {"COBALT_API_URL": ""}),
+            patch("cogs.media._download_public_instagram_video", return_value=expected) as fallback,
+        ):
+            result = await _download_instagram_video_fast("https://www.instagram.com/reel/ABC/", 1024)
+
+        self.assertEqual(result, expected)
+        fallback.assert_called_once_with("https://www.instagram.com/reel/ABC/", 1024)
 
 
 if __name__ == "__main__":
