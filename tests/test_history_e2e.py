@@ -104,6 +104,16 @@ class HistoryEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(view.records[0]["author_name"], "Original Display Name")
         view.stop()
 
+    async def test_bot_authored_message_is_included_in_history(self):
+        message = self.make_message(502)
+        message.author.bot = True
+        await self.cog.on_message(message)
+        self.assertIsNotNone(self.store.get_snapshot(message.id))
+        await self.cog.on_message_delete(message)
+        self.assertTrue(self.store.has_deleted(message.id))
+        deleted = self.store.get_deleted(message.guild.id)
+        self.assertEqual(deleted[0]["author_name"], "Original Display Name")
+
     async def test_unauthorized_command_is_denied_ephemerally(self):
         interaction = SimpleNamespace(
             user=SimpleNamespace(id=123456789),
