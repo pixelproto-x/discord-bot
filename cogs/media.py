@@ -924,11 +924,21 @@ class SearchCog(commands.Cog):
         # Discord media bots: acknowledge the link before starting yt-dlp.
         processing_reaction = "⏳"
         reaction_added = False
+        processing_notice = None
         try:
             await message.add_reaction(processing_reaction)
             reaction_added = True
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            # Fall back to a short status reply when Add Reactions is unavailable.
+            try:
+                processing_notice = await channel.send(
+                    "⏳ 正在處理 Instagram 影片，完成後會自動替換原連結。",
+                    reference=message,
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
 
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
         video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
@@ -940,6 +950,11 @@ class SearchCog(commands.Cog):
             if reaction_added:
                 try:
                     await message.remove_reaction(processing_reaction, self.bot.user)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+            if processing_notice:
+                try:
+                    await processing_notice.edit(content="Instagram 影片暫時無法取得，原始連結已保留。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
             return
@@ -982,6 +997,11 @@ class SearchCog(commands.Cog):
                     await message.remove_reaction(processing_reaction, self.bot.user)
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
+            if processing_notice:
+                try:
+                    await processing_notice.edit(content="Instagram 影片上傳失敗，原始連結已保留。")
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
             return
 
         if reaction_added:
@@ -994,6 +1014,12 @@ class SearchCog(commands.Cog):
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             print(f"[Instagram video] video posted but original message could not be deleted: {type(exc).__name__}")
+
+        if processing_notice:
+            try:
+                await processing_notice.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
