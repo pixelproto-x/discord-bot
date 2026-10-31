@@ -118,6 +118,32 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "0")
         self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "250")
 
+    async def test_transfer_command_never_reports_success_with_zero_wallet(self):
+        guild_id, sender, receiver = 123, 456, 789
+        self.cog.store.get(guild_id, sender)
+        self.cog.store.get(guild_id, receiver)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet='0' WHERE guild_id=0 AND user_id=?",
+                (sender,),
+            )
+
+        ctx = SimpleNamespace(
+            guild=SimpleNamespace(id=guild_id),
+            author=SimpleNamespace(id=sender),
+            reply=AsyncMock(),
+        )
+        member = SimpleNamespace(id=receiver, bot=False, mention="<@789>")
+
+        await self.cog._transfer(ctx, member, "1")
+
+        ctx.reply.assert_awaited_once()
+        message = ctx.reply.await_args.args[0]
+        self.assertIn("餘額不足", message)
+        self.assertNotIn("已轉帳", message)
+        self.assertEqual(self.cog.store.get(guild_id, sender)["wallet"], "0")
+        self.assertEqual(self.cog.store.get(guild_id, receiver)["wallet"], "1000")
+
     def test_transfer_rejects_negative_infinity_wallet(self):
         guild_id, sender, receiver = 123, 456, 789
         self.cog.store.get(guild_id, sender)
