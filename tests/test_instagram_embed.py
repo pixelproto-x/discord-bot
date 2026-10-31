@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from cogs.media import (
     _download_instagram_video_fast,
-    _download_public_instagram_video,
     rewrite_instagram_video_links,
 )
 
