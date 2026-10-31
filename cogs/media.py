@@ -70,8 +70,8 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
     return rewritten
 
 
-def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES) -> tuple[bytes, str]:
-    """Download a short, publicly accessible Instagram video as an MP4 attachment."""
+def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES) -> tuple[bytes, str, dict]:
+    """Download a public Instagram video and reuse the same extraction for its stats."""
     with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
         output_template = str(Path(temp_dir) / "video.%(ext)s")
 
@@ -90,12 +90,13 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
-            "socket_timeout": 12,
+            "socket_timeout": 10,
             "retries": 1,
             "fragment_retries": 1,
             "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
         }
         last_error = None
+        info = None
         for extractor_args in (
             {"instagram": {"app_id": "567067343352427"}},
             {"instagram": {"app_id": "ios"}},
@@ -106,7 +107,7 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
                 if extractor_args:
                     options["extractor_args"] = extractor_args
                 with yt_dlp.YoutubeDL(options) as downloader:
-                    downloader.download([url])
+                    info = downloader.extract_info(url, download=True)
                 last_error = None
                 break
             except Exception as exc:
@@ -126,7 +127,24 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
             raise ValueError(f"影片檔案超過伺服器可上傳上限 {max_bytes // (1024 * 1024)} MB")
         if data[4:8] != b"ftyp":
             raise ValueError("下載結果不是有效的 MP4 檔案")
-        return data, "instagram-video.mp4"
+
+        comments = []
+        if isinstance(info, dict):
+            for item in (info.get("comments") or [])[:5]:
+                if not isinstance(item, dict):
+                    continue
+                text = (item.get("text") or item.get("content") or "").strip()
+                if text:
+                    author = (item.get("author") or item.get("username") or "").strip()
+                    comments.append(f"**{author}:** {text}" if author else text)
+            stats = {
+                "like_count": info.get("like_count"),
+                "comment_count": info.get("comment_count"),
+                "comments": comments,
+            }
+        else:
+            stats = {}
+        return data, "instagram-video.mp4", stats
 
 def _get_public_instagram_stats(url: str) -> dict:
     """Read public Instagram metadata with yt-dlp without downloading the video."""
@@ -933,19 +951,9 @@ class SearchCog(commands.Cog):
         source_url = source_urls[0]
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
         video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
-        stats_task = asyncio.to_thread(_get_public_instagram_stats, source_url)
         try:
-            video_result, stats_result = await asyncio.gather(
-                asyncio.wait_for(video_task, timeout=100),
-                asyncio.wait_for(stats_task, timeout=40),
-                return_exceptions=True,
-            )
-            if isinstance(video_result, BaseException):
-                raise video_result
-            video_data, filename = video_result
-            stats = stats_result if isinstance(stats_result, dict) else {}
-            if isinstance(stats_result, BaseException):
-                print(f"[Instagram stats] unavailable: {type(stats_result).__name__}: {str(stats_result)[:160]}")
+            video_data, filename, stats = await asyncio.wait_for(video_task, timeout=90)
+            stats = stats if isinstance(stats, dict) else {}
         except Exception as exc:
             print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             return
@@ -1000,7 +1008,9 @@ class SearchCog(commands.Cog):
         if message.guild is not None and not message.webhook_id:
             instagram_links = rewrite_instagram_video_links(message.content)
             if instagram_links:
-                await self._replace_instagram_message(message)
+                # Run conversion in the background so a slow Instagram response never
+                # holds up this message listener or other bot message handling.
+                asyncio.create_task(self._replace_instagram_message(message))
         if self.bot.user is None:
             return
         if message.guild is None:
