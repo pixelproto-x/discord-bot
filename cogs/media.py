@@ -38,7 +38,7 @@ from cogs.ai_persona import (
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 25_000_000
-MAX_VIDEO_BYTES = 20 * 1024 * 1024
+MAX_VIDEO_BYTES = 100 * 1024 * 1024
 MAX_VIDEO_SOURCE_BYTES = 250 * 1024 * 1024
 
 
@@ -77,16 +77,18 @@ def _download_public_instagram_video(url: str, max_bytes: int = MAX_VIDEO_BYTES)
         output_template = str(Path(temp_dir) / "video.%(ext)s")
 
         base_options = {
-            "format": "best[ext=mp4][vcodec^=avc1]/bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]",
+            "format": "best[ext=mp4][vcodec^=avc1]/bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
             "max_filesize": max(MAX_VIDEO_SOURCE_BYTES, max_bytes),
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
-            "socket_timeout": 10,
-            "retries": 1,
-            "fragment_retries": 1,
+            "socket_timeout": 20,
+            "retries": 3,
+            "fragment_retries": 3,
+            "extractor_retries": 2,
+            "file_access_retries": 2,
             "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
         }
         last_error = None
