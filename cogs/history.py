@@ -514,7 +514,7 @@ class History(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        if message.guild is None or message.author.bot:
+        if message.guild is None:
             return
 
         record = {
@@ -564,7 +564,7 @@ class History(commands.Cog):
 
             # If the bot missed the original message event, use the cached message
             # as a best-effort fallback while Discord's attachment URL still works.
-            if message is None or message.guild is None or message.author.bot:
+            if message is None or message.guild is None:
                 return
 
             fallback = {
