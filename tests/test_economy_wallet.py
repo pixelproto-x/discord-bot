@@ -153,6 +153,44 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(remaining, 0)
         self.assertLessEqual(remaining, economy.COOLDOWNS["rob"])
 
+    def test_failed_robbery_fines_bank_balance_when_wallet_is_empty(self):
+        guild_id, robber_id, target_id = 123, 456, 789
+        self.cog.store.get(guild_id, robber_id)
+        self.cog.store.get(guild_id, target_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet='0', bank='1000' WHERE guild_id=? AND user_id=?",
+                (guild_id, robber_id),
+            )
+
+        outcome, fine = self.cog.store.rob(
+            guild_id, robber_id, target_id, False, 0.2, 0.1
+        )
+        row = self.cog.store.get(guild_id, robber_id)
+        self.assertEqual(outcome, "failed")
+        self.assertEqual(fine, 100)
+        self.assertEqual(row["wallet"], "0")
+        self.assertEqual(row["bank"], "900")
+
+    def test_failed_robbery_uses_wallet_first_then_bank_for_fine(self):
+        guild_id, robber_id, target_id = 123, 456, 789
+        self.cog.store.get(guild_id, robber_id)
+        self.cog.store.get(guild_id, target_id)
+        with closing(self.cog.store.connect()) as con:
+            con.execute(
+                "UPDATE users SET wallet='40', bank='960' WHERE guild_id=? AND user_id=?",
+                (guild_id, robber_id),
+            )
+
+        outcome, fine = self.cog.store.rob(
+            guild_id, robber_id, target_id, False, 0.2, 0.1
+        )
+        row = self.cog.store.get(guild_id, robber_id)
+        self.assertEqual(outcome, "failed")
+        self.assertEqual(fine, 100)
+        self.assertEqual(row["wallet"], "0")
+        self.assertEqual(row["bank"], "900")
+
     def test_transactions_reject_invalid_amounts(self):
         guild_id, user_id = 123, 456
         self.cog.store.get(guild_id, user_id)
