@@ -320,6 +320,7 @@ class SearchCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._instagram_tasks = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -918,6 +919,17 @@ class SearchCog(commands.Cog):
             return
 
         source_url = source_urls[0]
+
+        # Follow the proven reaction-first pattern used by other self-hosted
+        # Discord media bots: acknowledge the link before starting yt-dlp.
+        processing_reaction = "⏳"
+        reaction_added = False
+        try:
+            await message.add_reaction(processing_reaction)
+            reaction_added = True
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
         video_task = asyncio.to_thread(_download_public_instagram_video, source_url, upload_limit)
         try:
@@ -925,6 +937,11 @@ class SearchCog(commands.Cog):
             stats = stats if isinstance(stats, dict) else {}
         except Exception as exc:
             print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
+            if reaction_added:
+                try:
+                    await message.remove_reaction(processing_reaction, self.bot.user)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
             return
 
         embed = discord.Embed(title="Instagram 影片", color=discord.Color.purple())
@@ -960,7 +977,18 @@ class SearchCog(commands.Cog):
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
             print(f"[Instagram video] upload failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
+            if reaction_added:
+                try:
+                    await message.remove_reaction(processing_reaction, self.bot.user)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
             return
+
+        if reaction_added:
+            try:
+                await message.remove_reaction(processing_reaction, self.bot.user)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
 
         try:
             await message.delete()
@@ -977,9 +1005,15 @@ class SearchCog(commands.Cog):
         if message.guild is not None and not message.webhook_id:
             instagram_links = rewrite_instagram_video_links(message.content)
             if instagram_links:
-                # Run conversion in the background so a slow Instagram response never
-                # holds up this message listener or other bot message handling.
-                asyncio.create_task(self._replace_instagram_message(message))
+                # De-duplicate gateway deliveries and keep all media work off the
+                # message listener so detection/other bot features stay responsive.
+                existing_task = self._instagram_tasks.get(message.id)
+                if existing_task is None or existing_task.done():
+                    task = asyncio.create_task(self._replace_instagram_message(message))
+                    self._instagram_tasks[message.id] = task
+                    task.add_done_callback(
+                        lambda completed, message_id=message.id: self._instagram_tasks.pop(message_id, None)
+                    )
         if self.bot.user is None:
             return
         if message.guild is None:
