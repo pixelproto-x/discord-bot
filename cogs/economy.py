@@ -474,7 +474,7 @@ class EconomyStore:
                 return "protected_permanent", 0
             self.ensure(con, guild_id, robber_id)
             self.ensure(con, guild_id, target_id)
-            robber = con.execute("SELECT wallet,last_rob FROM users WHERE guild_id=? AND user_id=?", (guild_id, robber_id)).fetchone()
+            robber = con.execute("SELECT wallet,bank,last_rob FROM users WHERE guild_id=? AND user_id=?", (guild_id, robber_id)).fetchone()
             target = con.execute("SELECT wallet FROM users WHERE guild_id=? AND user_id=?", (guild_id, target_id)).fetchone()
             now = now_utc()
             last = parse_time(robber["last_rob"])
@@ -514,14 +514,31 @@ class EconomyStore:
                             (add_balance(robber["wallet"], stolen), guild_id, robber_id))
                 result = ("success", stolen)
             else:
-                if is_infinite(robber["wallet"]):
+                wallet = str(robber["wallet"])
+                bank = str(robber["bank"])
+                # Calculate the penalty from the player's total finite funds so
+                # depositing everything before a robbery cannot reduce it to zero.
+                if is_infinite(wallet):
                     fine = 0
                 else:
-                    current = int(robber["wallet"])
-                    # Never fine more than the cash actually held.
-                    fine = min(current, max(1, int(Decimal(current) * Decimal(str(fine_fraction)))) if current > 0 else 0)
-                con.execute("UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                            (subtract_balance(robber["wallet"], fine), guild_id, robber_id))
+                    cash = int(wallet)
+                    savings = 0 if is_infinite(bank) else int(bank)
+                    available = max(0, cash) + max(0, savings)
+                    fine = min(
+                        available,
+                        max(1, int(Decimal(available) * Decimal(str(fine_fraction))))
+                        if available > 0 else 0,
+                    )
+                    cash_paid = min(max(0, cash), fine)
+                    bank_paid = fine - cash_paid
+                    if cash_paid:
+                        wallet = str(cash - cash_paid)
+                    if bank_paid:
+                        bank = str(int(bank) - bank_paid)
+                con.execute(
+                    "UPDATE users SET wallet=?,bank=? WHERE guild_id=? AND user_id=?",
+                    (wallet, bank, guild_id, robber_id),
+                )
                 result = ("failed", fine)
             # Every resolved robbery attempt starts the 10-minute cooldown,
             # whether it succeeds or fails. Earlier exits are only for blocked,
