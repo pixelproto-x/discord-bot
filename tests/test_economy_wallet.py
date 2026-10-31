@@ -154,7 +154,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(remaining, economy.COOLDOWNS["rob"])
 
     def test_failed_robbery_fines_bank_balance_when_wallet_is_empty(self):
-        guild_id, robber_id, target_id = 123, 456, 789
+        guild_id, robber_id, target_id = 0, 456, 789
         self.cog.store.get(guild_id, robber_id)
         self.cog.store.get(guild_id, target_id)
         with closing(self.cog.store.connect()) as con:
@@ -173,7 +173,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["bank"], "900")
 
     def test_failed_robbery_uses_wallet_first_then_bank_for_fine(self):
-        guild_id, robber_id, target_id = 123, 456, 789
+        guild_id, robber_id, target_id = 0, 456, 789
         self.cog.store.get(guild_id, robber_id)
         self.cog.store.get(guild_id, target_id)
         with closing(self.cog.store.connect()) as con:
