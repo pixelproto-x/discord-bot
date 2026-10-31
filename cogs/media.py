@@ -48,8 +48,9 @@ MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_ENTRY_BYTES = 256 * 1024
 
 def rewrite_instagram_video_links(content: str) -> list[str]:
-    """Convert Instagram post/reel URLs to Discord-friendly playable embed links."""
+    """Return canonical public Instagram URLs suitable for yt-dlp extraction."""
     rewritten = []
+    seen = set()
     pattern = re.compile(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", re.I)
     for match in pattern.finditer(content or ""):
         raw_url = match.group(0).rstrip(".,!?)]}")
@@ -61,11 +62,71 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
             "instagram.com", "www.instagram.com", "m.instagram.com"
         }:
             continue
-        path = re.sub(r"^/reels/", "/p/", parsed.path, flags=re.I)
-        # Use an embed provider instead of downloading media from Instagram.
-        fixed = urllib.parse.urlunsplit(("https", "kirkstagram.com", path, "", ""))
-        rewritten.append(fixed)
+        path = re.sub(r"^/reels/", "/reel/", parsed.path, flags=re.I)
+        fixed = urllib.parse.urlunsplit(("https", "www.instagram.com", path, parsed.query, ""))
+        if fixed not in seen:
+            seen.add(fixed)
+            rewritten.append(fixed)
     return rewritten
+
+
+def _download_public_instagram_video(url: str) -> tuple[bytes, str]:
+    """Download a short, publicly accessible Instagram video as an MP4 attachment."""
+    with tempfile.TemporaryDirectory(prefix="instagram_video_") as temp_dir:
+        output_template = str(Path(temp_dir) / "video.%(ext)s")
+
+        def duration_filter(info, *, incomplete=False):
+            duration = info.get("duration")
+            if duration is not None and duration > MAX_VIDEO_SECONDS:
+                return f"影片超過 {MAX_VIDEO_SECONDS} 秒"
+            return None
+
+        base_options = {
+            "format": "best[ext=mp4][vcodec^=avc1]/best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+            "outtmpl": output_template,
+            "merge_output_format": "mp4",
+            "max_filesize": MAX_VIDEO_BYTES,
+            "match_filter": duration_filter,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "socket_timeout": 12,
+            "retries": 1,
+            "fragment_retries": 1,
+            "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
+        }
+        last_error = None
+        for extractor_args in (
+            {"instagram": {"app_id": "567067343352427"}},
+            {"instagram": {"app_id": "ios"}},
+            None,
+        ):
+            try:
+                options = dict(base_options)
+                if extractor_args:
+                    options["extractor_args"] = extractor_args
+                with yt_dlp.YoutubeDL(options) as downloader:
+                    downloader.download([url])
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+
+        candidates = sorted(Path(temp_dir).glob("video.mp4"))
+        if not candidates:
+            candidates = sorted(Path(temp_dir).glob("video.*"))
+        if not candidates:
+            raise RuntimeError("Instagram 沒有提供可播放的影片檔案")
+
+        video_path = candidates[0]
+        data = video_path.read_bytes()
+        if not data or len(data) > MAX_VIDEO_BYTES:
+            raise ValueError(f"影片檔案超過目前設定的 {MAX_VIDEO_BYTES // (1024 * 1024)} MB 上限")
+        if data[4:8] != b"ftyp":
+            raise ValueError("下載結果不是有效的 MP4 檔案")
+        return data, "instagram-video.mp4"
 
 def _get_public_instagram_stats(url: str) -> dict:
     """Read public Instagram metadata with yt-dlp without downloading the video."""
@@ -272,7 +333,6 @@ class SearchCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self._instagram_webhooks: dict[int, discord.Webhook] = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -856,54 +916,78 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _replace_instagram_message(self, message: discord.Message):
-        """Post the converted Instagram preview with public likes/comments, then delete the source link."""
+        """Replace a public Instagram link with a playable MP4 attachment and public stats."""
         channel = message.channel
+        source_urls = rewrite_instagram_video_links(message.content or "")
+        if not source_urls:
+            return
+
+        permission_channel = channel.parent if isinstance(channel, discord.Thread) else channel
         me = message.guild.me if message.guild else None
-        permissions = channel.permissions_for(me) if me else None
-        if not permissions or not permissions.send_messages or not permissions.embed_links or not permissions.manage_messages:
-            print("[Instagram embed] skipped: Send Messages, Embed Links and Manage Messages permissions are required")
+        permissions = permission_channel.permissions_for(me) if me and permission_channel else None
+        required = ("send_messages", "attach_files", "manage_messages")
+        if not permissions or not all(getattr(permissions, name, False) for name in required):
+            print("[Instagram video] skipped: Send Messages, Attach Files and Manage Messages permissions are required")
             return
 
-        original_urls = re.findall(r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+", message.content or "", re.I)
-        rewritten_urls = rewrite_instagram_video_links(message.content or "")
-        if not rewritten_urls or not original_urls:
-            return
-
+        source_url = source_urls[0]
+        video_task = asyncio.to_thread(_download_public_instagram_video, source_url)
+        stats_task = asyncio.to_thread(_get_public_instagram_stats, source_url)
         try:
-            stats = await asyncio.wait_for(
-                asyncio.to_thread(_get_public_instagram_stats, original_urls[0].rstrip(".,!?)]}")),
-                timeout=35,
+            video_result, stats_result = await asyncio.gather(
+                asyncio.wait_for(video_task, timeout=100),
+                asyncio.wait_for(stats_task, timeout=40),
+                return_exceptions=True,
             )
+            if isinstance(video_result, BaseException):
+                raise video_result
+            video_data, filename = video_result
+            stats = stats_result if isinstance(stats_result, dict) else {}
+            if isinstance(stats_result, BaseException):
+                print(f"[Instagram stats] unavailable: {type(stats_result).__name__}: {str(stats_result)[:160]}")
         except Exception as exc:
-            stats = {}
-            print(f"[Instagram stats] unavailable: {type(exc).__name__}: {str(exc)[:160]}")
+            print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
+            return
 
-        embed = discord.Embed(title="Instagram 影片資訊", color=discord.Color.purple())
+        embed = discord.Embed(title="Instagram 影片", color=discord.Color.purple())
         likes = stats.get("like_count")
         comment_count = stats.get("comment_count")
-        embed.add_field(name="❤️ 讚數", value=f"{likes:,}" if isinstance(likes, int) else "無法取得", inline=True)
-        embed.add_field(name="💬 留言數", value=f"{comment_count:,}" if isinstance(comment_count, int) else "無法取得", inline=True)
+        embed.add_field(name="讚數", value=f"{likes:,}" if isinstance(likes, int) else "無法取得", inline=True)
+        embed.add_field(name="留言數", value=f"{comment_count:,}" if isinstance(comment_count, int) else "無法取得", inline=True)
         comments = stats.get("comments") or []
         if comments:
             embed.add_field(name="熱門留言", value="\n".join(comments)[:1024], inline=False)
-        embed.set_footer(text="數據以 Instagram 公開頁面可取得的資料為準")
+        embed.set_footer(text="影片由公開 Instagram 來源取得；互動數據以可讀取資料為準")
+
+        caption = re.sub(
+            r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
+            "",
+            message.content or "",
+            flags=re.I,
+        ).strip()
+        content = f"Instagram 影片 · {message.author.display_name}"
+        if caption:
+            content += f"\n{caption[:1500]}"
 
         try:
+            # Send as the bot itself: never impersonate the original poster via webhook.
+            # Discord renders compatible MP4 attachments as inline playable video.
             await channel.send(
-                content="\n".join(rewritten_urls)[:1800],
+                content=content[:1900],
                 embed=embed,
+                file=discord.File(io.BytesIO(video_data), filename=filename),
                 allowed_mentions=discord.AllowedMentions.none(),
                 reference=message,
                 mention_author=False,
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] replacement send failed; original message kept: {type(exc).__name__}")
+            print(f"[Instagram video] upload failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             return
 
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] replacement sent but original message could not be deleted: {type(exc).__name__}")
+            print(f"[Instagram video] video posted but original message could not be deleted: {type(exc).__name__}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
