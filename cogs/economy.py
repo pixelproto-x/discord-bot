@@ -73,28 +73,36 @@ def valid_amount(value):
 
 
 def is_infinite(value):
-    return str(value).strip().lower() == "inf"
+    return str(value).strip().lower() in {"inf", "-inf"}
 
 
 def format_coins(value):
     """Format finite and unlimited database balances without oversized Discord output."""
-    if is_infinite(value):
+    raw = str(value).strip().lower()
+    if raw == "inf":
         return "∞（無限）"
+    if raw == "-inf":
+        return "-∞（負無限）"
     amount = int(value)
-    digits = len(str(abs(amount)))
-    # Thousands separators can expand a 2000-digit balance beyond Discord's
-    # 2000-character message limit. Keep unusually large values readable.
-    if digits > 1200:
-        return f"超大金額（{digits} 位數）"
+    digits_text = str(abs(amount))
+    digits = len(digits_text)
+    # Keep the magnitude visible while avoiding huge Discord messages.
+    if digits > 18:
+        significant = digits_text[:6].rstrip("0") or "0"
+        mantissa = significant[0]
+        if len(significant) > 1:
+            mantissa += "." + significant[1:]
+        sign = "-" if amount < 0 else ""
+        return f"{sign}{mantissa}×10^{digits - 1}"
     return f"{amount:,}"
 
 
 def add_balance(value, amount):
-    return "inf" if is_infinite(value) else str(int(value) + amount)
+    return ("-inf" if str(value).strip().lower() == "-inf" else "inf") if is_infinite(value) else str(int(value) + amount)
 
 
 def subtract_balance(value, amount):
-    return "inf" if is_infinite(value) else str(int(value) - amount)
+    return ("-inf" if str(value).strip().lower() == "-inf" else "inf") if is_infinite(value) else str(int(value) - amount)
 
 
 def cooldown_text(seconds):
