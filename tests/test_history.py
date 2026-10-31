@@ -22,7 +22,7 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
         storage.DB_PATH = self.original_db_path
         self.temp_dir.cleanup()
 
-    def make_message(self, message_id=500, *, with_attachment=False):
+    def make_message(self, message_id=500, *, with_attachment=False, author_is_bot=False):
         attachments = []
         if with_attachment:
             attachments.append(
@@ -35,7 +35,7 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
             )
         author = SimpleNamespace(
             id=42,
-            bot=False,
+            bot=author_is_bot,
             display_name="顯示名稱",
             name="account_name",
             display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
@@ -60,6 +60,15 @@ class HistoryFeatureTests(unittest.IsolatedAsyncioTestCase):
             "archived": True,
         }]
 
+
+    async def test_bot_authored_messages_are_snapshotted_and_deleted(self):
+        message = self.make_message(501, author_is_bot=True)
+        await self.history.on_message(message)
+        self.assertIsNotNone(self.store.get_snapshot(message.id))
+        await self.history.on_message_delete(message)
+        self.assertTrue(self.store.has_deleted(message.id))
+        deleted = self.store.get_deleted(message.guild.id)
+        self.assertEqual(deleted[0]["author_id"], message.author.id)
 
     async def test_oversized_attachment_is_not_downloaded_or_uploaded(self):
         attachment = SimpleNamespace(
