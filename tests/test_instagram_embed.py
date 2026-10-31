@@ -61,7 +61,7 @@ class InstagramRemoteOnlyTests(unittest.IsolatedAsyncioTestCase):
         local_fallback.assert_not_called()
 
     async def test_retries_remote_cobalt_once_and_never_uses_local_fallback(self):
-        video = b"\\x00\\x00\\x00\\x18ftypisom" + b"video"
+        video = bytes.fromhex("000000186674797069736f6d") + b"video"
         cobalt = AsyncMock(
             side_effect=[
                 RuntimeError("temporary upstream error"),
@@ -86,15 +86,15 @@ class InstagramRemoteOnlyTests(unittest.IsolatedAsyncioTestCase):
 
 class InstagramVideoCompatibilityTests(unittest.TestCase):
     def test_small_mp4_is_not_reencoded(self):
-        source = b"\\x00\\x00\\x00\\x18ftypisom" + b"video"
+        source = bytes.fromhex("000000186674797069736f6d") + b"video"
         self.assertIs(_fit_instagram_video_to_limit(source, 1024), source)
 
     def test_source_processing_limit_is_bounded(self):
         self.assertEqual(MAX_VIDEO_SOURCE_BYTES, 250 * 1024 * 1024)
 
     def test_oversized_video_is_transcoded_through_memory_pipes(self):
-        source = b"\\x00\\x00\\x00\\x18ftypisom" + b"large-video-data"
-        output = b"\\x00\\x00\\x00\\x18ftypisom" + b"small"
+        source = bytes.fromhex("000000186674797069736f6d") + b"large-video-data"
+        output = bytes.fromhex("000000186674797069736f6d") + b"small"
         fake_result = SimpleNamespace(stdout=output, stderr=b"")
         with (
             patch("cogs.media.imageio_ffmpeg.get_ffmpeg_exe", return_value="ffmpeg"),
