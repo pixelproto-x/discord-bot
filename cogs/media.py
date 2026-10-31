@@ -264,7 +264,7 @@ async def _download_instagram_video_fast(url: str, max_bytes: int) -> tuple[byte
             data, filename = await _download_instagram_via_cobalt(url, max_bytes)
             try:
                 stats = await asyncio.wait_for(asyncio.shield(stats_task), timeout=1.5)
-            except (asyncio.TimeoutError, Exception):
+            except Exception:
                 stats = {}
             return data, filename, stats if isinstance(stats, dict) else {}
         except Exception as exc:
@@ -452,7 +452,10 @@ class SearchCog(commands.Cog):
         self._instagram_pending = set()
         self._instagram_queue = asyncio.Queue(maxsize=64)
         self._instagram_workers = []
-        self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "4") or "4"), 8))
+        try:
+            self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "4") or "4"), 8))
+        except ValueError:
+            self._instagram_worker_count = 4
         self._instagram_cache = {}
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
@@ -1135,14 +1138,14 @@ class SearchCog(commands.Cog):
                     pass
 
         upload_limit = min(MAX_VIDEO_BYTES, int(getattr(message.guild, "filesize_limit", MAX_VIDEO_BYTES) or MAX_VIDEO_BYTES))
-        cache_entry = self._instagram_cache.get(source_url)
-        if cache_entry and time.monotonic() - cache_entry[0] <= 180:
-            _, video_data, filename, stats = cache_entry
-            self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
-            print("[Instagram video] cache hit")
-        else:
-            self._instagram_cache.pop(source_url, None)
-            try:
+        try:
+            cache_entry = self._instagram_cache.get(source_url)
+            if cache_entry and time.monotonic() - cache_entry[0] <= 180:
+                _, video_data, filename, stats = cache_entry
+                self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
+                print("[Instagram video] cache hit")
+            else:
+                self._instagram_cache.pop(source_url, None)
                 video_data, filename, stats = await asyncio.wait_for(
                     _download_instagram_video_fast(source_url, upload_limit),
                     timeout=90,
@@ -1151,8 +1154,6 @@ class SearchCog(commands.Cog):
                 self._instagram_cache[source_url] = (time.monotonic(), video_data, filename, stats)
                 while len(self._instagram_cache) > 3:
                     self._instagram_cache.pop(next(iter(self._instagram_cache)))
-            except Exception:
-                raise
         except Exception as exc:
             print(f"[Instagram video] download failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             if reaction_added:
