@@ -83,6 +83,86 @@ def rewrite_instagram_embed_url(url: str) -> str:
     return urllib.parse.urlunsplit(("https", "oginstagram.com", parsed.path, parsed.query, ""))
 
 
+SOCIAL_MEDIA_URL_RE = re.compile(r"https?://[^\s<>]+", re.I)
+
+
+def rewrite_social_video_links(content: str) -> list[tuple[str, str, str]]:
+    """Find supported TikTok, X and Facebook post/video links without fetching media."""
+    results = []
+    seen = set()
+    for match in SOCIAL_MEDIA_URL_RE.finditer(content or ""):
+        raw_url = match.group(0).rstrip(".,!?;:)]}")
+        try:
+            parsed = urllib.parse.urlsplit(raw_url)
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https"):
+            continue
+
+        host = (parsed.hostname or "").lower()
+        host = host[4:] if host.startswith("www.") else host
+        path = parsed.path or "/"
+        platform = None
+        canonical_host = host
+
+        if host in {"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}:
+            is_video = (
+                re.match(r"^/@[^/]+/video/\d+", path, re.I)
+                or re.match(r"^/(?:t/[^/]+|v/\d+|embed/v2/\d+)", path, re.I)
+                or host in {"vm.tiktok.com", "vt.tiktok.com"}
+            )
+            if is_video:
+                platform = "TikTok"
+        elif host in {"x.com", "twitter.com"}:
+            if re.match(r"^/(?:i/status/\d+|[^/]+/status/\d+)(?:/photo/\d+)?/?$", path, re.I):
+                platform = "X"
+                canonical_host = "x.com"
+        elif host in {"facebook.com", "m.facebook.com", "fb.watch"}:
+            is_video_or_post = (
+                host == "fb.watch"
+                or re.match(r"^/reel/[^/]+", path, re.I)
+                or (path.rstrip("/") == "/watch" and bool(urllib.parse.parse_qs(parsed.query).get("v")))
+                or re.match(r"^/[^/]+/(?:videos|posts)/[^/]+", path, re.I)
+                or re.match(r"^/share/[rvp]/[^/]+", path, re.I)
+            )
+            if is_video_or_post:
+                platform = "Facebook"
+                canonical_host = "fb.watch" if host == "fb.watch" else "facebook.com"
+
+        if not platform:
+            continue
+        canonical = urllib.parse.urlunsplit(("https", canonical_host, path, parsed.query, ""))
+        if canonical not in seen:
+            seen.add(canonical)
+            results.append((platform, canonical, raw_url))
+    return results
+
+
+def rewrite_social_embed_url(platform: str, url: str) -> str:
+    """Build an embeds.now preview URL; this bot never downloads or stores media."""
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    allowed = {
+        "TikTok": {"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"},
+        "X": {"x.com", "twitter.com"},
+        "Facebook": {"facebook.com", "m.facebook.com", "fb.watch"},
+    }
+    if platform not in allowed or host not in allowed[platform]:
+        raise ValueError("Unsupported social media URL")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Invalid social media URL")
+    if platform == "X":
+        host = "x.com"
+    elif platform == "Facebook" and host != "fb.watch":
+        host = "facebook.com"
+    elif platform == "TikTok" and host not in {"vm.tiktok.com", "vt.tiktok.com"}:
+        host = "tiktok.com"
+    return urllib.parse.urlunsplit(
+        ("https", "embeds.now", f"/{host}{parsed.path}", parsed.query, "")
+    )
+
+
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
     try:
@@ -257,14 +337,14 @@ class SearchCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self._instagram_tasks = {}
-        self._instagram_pending = set()
-        self._instagram_queue = asyncio.Queue(maxsize=64)
-        self._instagram_workers = []
+        self._social_embed_tasks = {}
+        self._social_embed_pending = set()
+        self._social_embed_queue = asyncio.Queue(maxsize=64)
+        self._social_embed_workers = []
         try:
-            self._instagram_worker_count = max(1, min(int(os.getenv("INSTAGRAM_EMBED_WORKERS", os.getenv("INSTAGRAM_DOWNLOAD_WORKERS", "2")) or "2"), 8))
+            self._social_embed_worker_count = max(1, min(int(os.getenv("SOCIAL_EMBED_WORKERS", os.getenv("INSTAGRAM_EMBED_WORKERS", "2")) or "2"), 8))
         except ValueError:
-            self._instagram_worker_count = 2
+            self._social_embed_worker_count = 2
         self.ai_cooldowns = {}
         self.ocr_cooldowns = {}
         self.ai_cooldown_seconds = 8
@@ -305,41 +385,41 @@ class SearchCog(commands.Cog):
             )
 
     async def cog_load(self):
-        """Start a bounded worker pool for Instagram embed-link rewrites."""
-        if self._instagram_workers:
+        """Start a bounded worker pool for social-media embed-link rewrites."""
+        if self._social_embed_workers:
             return
-        for worker_id in range(self._instagram_worker_count):
-            self._instagram_workers.append(
-                asyncio.create_task(self._instagram_download_worker(worker_id))
+        for worker_id in range(self._social_embed_worker_count):
+            self._social_embed_workers.append(
+                asyncio.create_task(self._social_embed_worker(worker_id))
             )
-        print(f"[Instagram embed] started {len(self._instagram_workers)} rewrite workers")
+        print(f"[Social embeds] started {len(self._social_embed_workers)} rewrite workers")
 
     async def cog_unload(self):
         """Stop workers cleanly when the cog is unloaded."""
-        workers = list(self._instagram_workers)
-        self._instagram_workers.clear()
+        workers = list(self._social_embed_workers)
+        self._social_embed_workers.clear()
         for worker in workers:
             worker.cancel()
         if workers:
             await asyncio.gather(*workers, return_exceptions=True)
 
-    async def _instagram_download_worker(self, worker_id: int):
+    async def _social_embed_worker(self, worker_id: int):
         while True:
-            message, notice = await self._instagram_queue.get()
+            message, notice = await self._social_embed_queue.get()
             try:
-                await self._replace_instagram_message(message, processing_notice=notice)
+                await self._replace_social_message(message, processing_notice=notice)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                print(f"[Instagram embed] worker={worker_id} failed: {type(exc).__name__}: {str(exc)[:160]}")
+                print(f"[Social embeds] worker={worker_id} failed: {type(exc).__name__}: {str(exc)[:160]}")
                 if notice:
                     try:
-                        await notice.edit(content="Instagram 嵌入預覽處理失敗，原始連結已保留。")
+                        await notice.edit(content="影音嵌入預覽處理失敗，原始連結已保留。")
                     except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                         pass
             finally:
-                self._instagram_pending.discard(message.id)
-                self._instagram_queue.task_done()
+                self._social_embed_pending.discard(message.id)
+                self._social_embed_queue.task_done()
 
     def _has_ai_provider_configured(self) -> bool:
         """Return whether at least one cloud AI provider has credentials configured."""
@@ -884,13 +964,13 @@ class SearchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-    async def _begin_instagram_processing(self, message: discord.Message):
-        """Queue a lightweight embed-link rewrite; never download video data."""
+    async def _begin_social_processing(self, message: discord.Message):
+        """Queue a lightweight social-media embed rewrite; never download video data."""
         notice = None
         try:
             notice = await asyncio.wait_for(
                 message.reply(
-                    "⏳ 已收到 Instagram 影片，正在整理嵌入預覽。",
+                    "⏳ 已收到影音連結，正在整理嵌入預覽。",
                     mention_author=False,
                     allowed_mentions=discord.AllowedMentions.none(),
                 ),
@@ -900,20 +980,21 @@ class SearchCog(commands.Cog):
             pass
 
         try:
-            self._instagram_queue.put_nowait((message, notice))
+            self._social_embed_queue.put_nowait((message, notice))
         except asyncio.QueueFull:
-            self._instagram_pending.discard(message.id)
+            self._social_embed_pending.discard(message.id)
             if notice:
                 try:
-                    await notice.edit(content="目前處理佇列已滿，原始連結已保留，請稍後再傳。")
+                    await notice.edit(content="目前影音處理佇列已滿，原始連結已保留，請稍後再傳。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
 
-    async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
-        """Replace the original Instagram URL with a third-party playable embed URL."""
+    async def _replace_social_message(self, message: discord.Message, processing_notice=None):
+        """Replace supported social-media URLs with remote playable embed URLs."""
         channel = message.channel
-        source_urls = rewrite_instagram_video_links(message.content or "")
-        if not source_urls:
+        instagram_urls = rewrite_instagram_video_links(message.content or "")
+        social_links = rewrite_social_video_links(message.content or "")
+        if not instagram_urls and not social_links:
             return
 
         permission_channel = channel.parent if isinstance(channel, discord.Thread) else channel
@@ -921,7 +1002,7 @@ class SearchCog(commands.Cog):
         permissions = permission_channel.permissions_for(me) if me and permission_channel else None
         required = ("send_messages", "manage_messages")
         if not permissions or not all(getattr(permissions, name, False) for name in required):
-            print("[Instagram embed] skipped: Send Messages and Manage Messages permissions are required")
+            print("[Social embeds] skipped: Send Messages and Manage Messages permissions are required")
             if processing_notice:
                 try:
                     await processing_notice.edit(content="機器人缺少傳送訊息或管理訊息權限，原始連結已保留。")
@@ -929,22 +1010,32 @@ class SearchCog(commands.Cog):
                     pass
             return
 
-        source_url = source_urls[0]
-        embed_url = rewrite_instagram_embed_url(source_url)
+        embed_urls = [rewrite_instagram_embed_url(url) for url in instagram_urls]
+        embed_urls.extend(
+            rewrite_social_embed_url(platform, url)
+            for platform, url, _raw in social_links
+        )
         caption = re.sub(
             r"https?://(?:www\.|m\.)?instagram\.com/(?:reel|reels|p|tv)/[^\s<>]+",
             "",
             message.content or "",
             flags=re.I,
-        ).strip()
-        content = f"Instagram 影片 · <@{message.author.id}>"
+        )
+        for _platform, _url, raw_url in social_links:
+            caption = caption.replace(raw_url, "")
+        caption = caption.strip(" \t\r\n.,!?;:")
+        platform_names = []
+        for name in (["Instagram"] if instagram_urls else []) + [item[0] for item in social_links]:
+            if name not in platform_names:
+                platform_names.append(name)
+        content = f"{' / '.join(platform_names)} 影音 · <@{message.author.id}>"
         if caption:
-            content += f"\n{caption[:1200]}"
-        content += f"\n{embed_url}"
+            content += f"\n{caption[:900]}"
+        content += "\n" + "\n".join(embed_urls[:8])
 
         try:
-            # OGInstagram supplies Open Graph metadata and a playable media preview.
-            # This bot only posts the rewritten URL: no video download, cache, or local file.
+            # Remote embed providers fetch metadata/media. This bot only posts URLs:
+            # no video download, cache, attachment upload, or local file is created.
             await channel.send(
                 content=content[:1900],
                 allowed_mentions=discord.AllowedMentions.none(),
@@ -953,10 +1044,10 @@ class SearchCog(commands.Cog):
                 suppress_embeds=False,
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] send failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
+            print(f"[Social embeds] send failed; original link retained: {type(exc).__name__}: {str(exc)[:180]}")
             if processing_notice:
                 try:
-                    await processing_notice.edit(content="Instagram 嵌入預覽傳送失敗，原始連結已保留。")
+                    await processing_notice.edit(content="影音嵌入預覽傳送失敗，原始連結已保留。")
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     pass
             return
@@ -964,7 +1055,7 @@ class SearchCog(commands.Cog):
         try:
             await message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Instagram embed] preview posted but original message could not be deleted: {type(exc).__name__}")
+            print(f"[Social embeds] preview posted but original message could not be deleted: {type(exc).__name__}")
 
         if processing_notice:
             try:
@@ -972,24 +1063,28 @@ class SearchCog(commands.Cog):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
 
+    async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
+        """Backward-compatible entry point used by the Instagram embed tests."""
+        await self._replace_social_message(message, processing_notice=processing_notice)
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Reply in DMs directly; in servers, only an explicit @mention triggers AI."""
         if message.author.bot:
             return
 
-        # Automatically replace public Instagram video links; no slash command is registered.
+        # Automatically replace supported public social-media links; no slash command is registered.
         if message.guild is not None and not message.webhook_id:
-            instagram_links = rewrite_instagram_video_links(message.content)
-            if instagram_links:
-                # De-duplicate gateway deliveries and keep all media work off the
-                # message listener so detection/other bot features stay responsive.
-                if message.id not in self._instagram_pending:
-                    self._instagram_pending.add(message.id)
-                    task = asyncio.create_task(self._begin_instagram_processing(message))
-                    self._instagram_tasks[message.id] = task
+            has_instagram = bool(rewrite_instagram_video_links(message.content))
+            has_social_media = bool(rewrite_social_video_links(message.content))
+            if has_instagram or has_social_media:
+                # De-duplicate gateway deliveries and keep media work off the listener.
+                if message.id not in self._social_embed_pending:
+                    self._social_embed_pending.add(message.id)
+                    task = asyncio.create_task(self._begin_social_processing(message))
+                    self._social_embed_tasks[message.id] = task
                     task.add_done_callback(
-                        lambda completed, message_id=message.id: self._instagram_tasks.pop(message_id, None)
+                        lambda completed, message_id=message.id: self._social_embed_tasks.pop(message_id, None)
                     )
         if self.bot.user is None:
             return
