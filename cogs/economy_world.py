@@ -44,11 +44,11 @@ def _now() -> int:
 
 
 def _is_inf(value) -> bool:
-    return str(value).strip().lower() == "inf"
+    return str(value).strip().lower() in {"inf", "-inf"}
 
 
 def _money(value) -> str:
-    return "∞（無限）" if _is_inf(value) else f"{int(value):,}"
+    return "-∞（負無限）" if str(value).strip().lower() == "-inf" else ("∞（無限）" if _is_inf(value) else f"{int(value):,}")
 
 
 class WorldEconomy:
