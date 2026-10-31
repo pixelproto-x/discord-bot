@@ -10,6 +10,7 @@ from pathlib import Path
 import aiohttp
 import discord
 import imageio_ffmpeg
+import yt_dlp
 from PIL import Image, ImageStat
 from discord import app_commands
 from discord.ext import commands
@@ -65,6 +66,37 @@ def rewrite_instagram_video_links(content: str) -> list[str]:
         fixed = urllib.parse.urlunsplit(("https", "kirkstagram.com", path, "", ""))
         rewritten.append(fixed)
     return rewritten
+
+def _get_public_instagram_stats(url: str) -> dict:
+    """Read public Instagram metadata with yt-dlp without downloading the video."""
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "socket_timeout": 15,
+        "retries": 1,
+        "extractor_args": {"instagram": {"comments": ["all"]}},
+    }
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not isinstance(info, dict):
+        raise RuntimeError("Instagram did not return video metadata")
+    comments = info.get("comments") or []
+    comment_texts = []
+    for item in comments[:5]:
+        if not isinstance(item, dict):
+            continue
+        text = (item.get("text") or item.get("content") or "").strip()
+        if text:
+            author = (item.get("author") or item.get("username") or "").strip()
+            comment_texts.append(f"**{author}:** {text}" if author else text)
+    return {
+        "like_count": info.get("like_count"),
+        "comment_count": info.get("comment_count"),
+        "comments": comment_texts,
+    }
+
 
 def _read_zip_entry_limited(archive, name: str, max_bytes: int = MAX_ARCHIVE_ENTRY_BYTES) -> bytes | None:
     """Read a ZIP member with a hard decompressed-size limit to prevent ZIP bombs."""
@@ -824,7 +856,7 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _replace_instagram_message(self, message: discord.Message):
-        """Post the converted Instagram preview as the bot and remove the source link after success."""
+        """Post the converted Instagram preview with public likes/comments, then delete the source link."""
         channel = message.channel
         me = message.guild.me if message.guild else None
         permissions = channel.permissions_for(me) if me else None
@@ -832,14 +864,34 @@ class SearchCog(commands.Cog):
             print("[Instagram embed] skipped: Send Messages, Embed Links and Manage Messages permissions are required")
             return
 
+        original_urls = re.findall(r"https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p|tv)/[^\\s<>]+", message.content or "", re.I)
         rewritten_urls = rewrite_instagram_video_links(message.content or "")
-        if not rewritten_urls:
+        if not rewritten_urls or not original_urls:
             return
 
-        # Send the replacement first; retain the source link if sending fails.
+        try:
+            stats = await asyncio.wait_for(
+                asyncio.to_thread(_get_public_instagram_stats, original_urls[0].rstrip(".,!?)]}")),
+                timeout=35,
+            )
+        except Exception as exc:
+            stats = {}
+            print(f"[Instagram stats] unavailable: {type(exc).__name__}: {str(exc)[:160]}")
+
+        embed = discord.Embed(title="Instagram 影片資訊", color=discord.Color.purple())
+        likes = stats.get("like_count")
+        comment_count = stats.get("comment_count")
+        embed.add_field(name="❤️ 讚數", value=f"{likes:,}" if isinstance(likes, int) else "無法取得", inline=True)
+        embed.add_field(name="💬 留言數", value=f"{comment_count:,}" if isinstance(comment_count, int) else "無法取得", inline=True)
+        comments = stats.get("comments") or []
+        if comments:
+            embed.add_field(name="熱門留言", value="\\n".join(comments)[:1024], inline=False)
+        embed.set_footer(text="數據以 Instagram 公開頁面可取得的資料為準")
+
         try:
             await channel.send(
-                content="\n".join(rewritten_urls)[:2000],
+                content="\\n".join(rewritten_urls)[:1800],
+                embed=embed,
                 allowed_mentions=discord.AllowedMentions.none(),
                 reference=message,
                 mention_author=False,
