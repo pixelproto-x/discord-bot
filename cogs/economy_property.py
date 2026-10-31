@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.economy_world import DB_PATH, MAX_BALANCE, WorldEconomy, _is_inf, _money
+from cogs.economy_sqlite import connect_economy_database
 from cogs.public_response import PublicizeView
 
 MAX_PROPERTY_LEVEL = 20
@@ -40,11 +41,7 @@ class PropertyStore:
             """)
 
     def connect(self):
-        con = sqlite3.connect(DB_PATH, timeout=10, isolation_level=None)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        con.execute("PRAGMA journal_mode=WAL")
-        return con
+        return connect_economy_database(DB_PATH, label="Economy Property")
 
     def list_properties(self, guild_id: int, owner_id: int | None = None):
         with closing(self.connect()) as con:
