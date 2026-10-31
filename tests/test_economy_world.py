@@ -40,7 +40,7 @@ class EconomyWorldWalletScopeTests(unittest.TestCase):
         with closing(self.accounts.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                (str(amount), guild_id, user_id),
+                (str(amount), 0, user_id),
             )
 
     def wallet(self, user_id, guild_id=None):
