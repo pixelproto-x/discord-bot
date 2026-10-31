@@ -27,6 +27,8 @@ class MiniGameStore:
         self.economy = EconomyStore()
 
     def play(self, guild_id: int, user_id: int, bet: int, payout: int, game: str, detail: str):
+        # The economy uses one global wallet per Discord user.
+        guild_id = 0
         if type(bet) is not int or not 1 <= bet <= MAX_BET:
             return False, f"下注金額必須介於 1 至 {MAX_BET:,} 金幣。"
         if type(payout) is not int or payout < 0 or payout > MAX_BALANCE:
