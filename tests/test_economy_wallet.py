@@ -141,8 +141,8 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
 
         with closing(self.cog.store.connect()) as con:
             row = con.execute(
-                "SELECT last_rob FROM users WHERE guild_id=? AND user_id=?",
-                (guild_id, robber_id),
+                "SELECT last_rob FROM users WHERE guild_id=0 AND user_id=?",
+                (robber_id,),
             ).fetchone()
         self.assertIsNotNone(row["last_rob"])
 
@@ -206,7 +206,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                ("4321", 123, user_id),
+                ("4321", 0, user_id),
             )
         other_guild = self.cog.store.get(789, user_id)
         original_guild = self.cog.store.get(123, user_id)
@@ -220,7 +220,7 @@ class EconomyWalletDisplayTests(unittest.IsolatedAsyncioTestCase):
         with closing(self.cog.store.connect()) as con:
             con.execute(
                 "UPDATE users SET wallet=? WHERE guild_id=? AND user_id=?",
-                ("777", 789, receiver),
+                ("777", 0, receiver),
             )
         self.assertTrue(self.cog.store.transfer(123, user_id, receiver, 1))
         self.assertEqual(self.cog.store.get(123, receiver)["wallet"], "1001")
