@@ -57,7 +57,7 @@ class InstagramEmbedRewriteTests(unittest.TestCase):
 
 
 class InstagramEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_posts_proxy_url_without_uploading_video_then_deletes_original(self):
+    async def test_posts_proxy_url_without_uploading_or_deleting_original(self):
         from cogs.media import SearchCog
 
         sent = AsyncMock()
@@ -65,7 +65,6 @@ class InstagramEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
             parent=None,
             permissions_for=lambda _member: SimpleNamespace(
                 send_messages=True,
-                manage_messages=True,
             ),
             send=sent,
         )
@@ -86,8 +85,9 @@ class InstagramEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://oginstagram.com/reel/ABC123/", kwargs["content"])
         self.assertNotIn("file", kwargs)
         self.assertNotIn("embed", kwargs)
-        message.delete.assert_awaited_once()
-        notice.delete.assert_awaited_once()
+        message.delete.assert_not_awaited()
+        self.assertNotIn("reference", kwargs)
+        notice.delete.assert_not_awaited()
 
 
 if __name__ == "__main__":
