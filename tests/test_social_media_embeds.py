@@ -67,7 +67,7 @@ class SocialMediaEmbedRewriteTests(unittest.TestCase):
 
 
 class SocialMediaEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_posts_remote_embed_urls_without_uploading_media_then_deletes_original(self):
+    async def test_posts_remote_embed_urls_without_uploading_or_deleting_original(self):
         from cogs.media import SearchCog
 
         sent = AsyncMock()
@@ -75,7 +75,6 @@ class SocialMediaEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
             parent=None,
             permissions_for=lambda _member: SimpleNamespace(
                 send_messages=True,
-                manage_messages=True,
             ),
             send=sent,
         )
@@ -103,8 +102,10 @@ class SocialMediaEmbedDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://embeds.now/facebook.com/reel/987654", kwargs["content"])
         self.assertNotIn("file", kwargs)
         self.assertNotIn("embed", kwargs)
-        message.delete.assert_awaited_once()
-        notice.delete.assert_awaited_once()
+        message.delete.assert_not_awaited()
+        self.assertNotIn("reference", kwargs)
+        self.assertNotIn("mention_author", kwargs)
+        notice.delete.assert_not_awaited()
 
 
 if __name__ == "__main__":
