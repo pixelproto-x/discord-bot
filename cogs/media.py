@@ -975,29 +975,12 @@ class SearchCog(commands.Cog):
                 pass
 
     async def _begin_social_processing(self, message: discord.Message):
-        """Queue a lightweight social-media embed rewrite; never download video data."""
-        notice = None
+        """Queue a lightweight social-media embed rewrite without changing the source message."""
         try:
-            notice = await asyncio.wait_for(
-                message.reply(
-                    "⏳ 已收到影音連結，正在整理嵌入預覽。",
-                    mention_author=False,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                ),
-                timeout=2.5,
-            )
-        except (asyncio.TimeoutError, discord.Forbidden, discord.HTTPException):
-            pass
-
-        try:
-            self._social_embed_queue.put_nowait((message, notice))
+            self._social_embed_queue.put_nowait((message, None))
         except asyncio.QueueFull:
             self._social_embed_pending.discard(message.id)
-            if notice:
-                try:
-                    await notice.edit(content="目前影音處理佇列已滿，原始連結已保留，請稍後再傳。")
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    pass
+            print("[Social embeds] queue full; original message retained and no preview was posted")
 
     async def _replace_social_message(self, message: discord.Message, processing_notice=None):
         """Replace supported social-media URLs with remote playable embed URLs."""
@@ -1010,9 +993,8 @@ class SearchCog(commands.Cog):
         permission_channel = channel.parent if isinstance(channel, discord.Thread) else channel
         me = message.guild.me if message.guild else None
         permissions = permission_channel.permissions_for(me) if me and permission_channel else None
-        required = ("send_messages", "manage_messages")
-        if not permissions or not all(getattr(permissions, name, False) for name in required):
-            print("[Social embeds] skipped: Send Messages and Manage Messages permissions are required")
+        if not permissions or not getattr(permissions, "send_messages", False):
+            print("[Social embeds] skipped: Send Messages permission is required")
             if processing_notice:
                 try:
                     await processing_notice.edit(content="機器人缺少傳送訊息或管理訊息權限，原始連結已保留。")
@@ -1064,8 +1046,6 @@ class SearchCog(commands.Cog):
             await channel.send(
                 content=content[:1900],
                 allowed_mentions=discord.AllowedMentions.none(),
-                reference=message,
-                mention_author=False,
                 suppress_embeds=False,
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
@@ -1077,16 +1057,8 @@ class SearchCog(commands.Cog):
                     pass
             return
 
-        try:
-            await message.delete()
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
-            print(f"[Social embeds] preview posted but original message could not be deleted: {type(exc).__name__}")
-
-        if processing_notice:
-            try:
-                await processing_notice.delete()
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                pass
+        # Keep the user's original message and URL in the channel.
+        # The preview is a separate message; this cog never deletes the source.
 
     async def _replace_instagram_message(self, message: discord.Message, processing_notice=None):
         """Backward-compatible entry point used by the Instagram embed tests."""
