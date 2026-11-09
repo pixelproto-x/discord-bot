@@ -2,6 +2,7 @@ import asyncio
 import random
 import re
 import time
+from datetime import timedelta
 
 import discord
 from discord import app_commands, ui
@@ -28,6 +29,127 @@ WORDLE_WORDS = ["apple", "grape", "table", "chair", "house", "world", "plant", "
 HANGMAN_WORDS = ["discord", "minecraft", "roblox", "python", "youtube", "gaming", "friend"]
 
 
+
+def eligible_roulette_members(participant_ids, guild, bot_member):
+    """Return opted-in members that the bot is allowed to timeout."""
+    eligible = []
+    for member_id in participant_ids:
+        member = guild.get_member(member_id)
+        if member is None or member.bot:
+            continue
+        if member.id in {guild.owner_id, bot_member.id}:
+            continue
+        if member.top_role >= bot_member.top_role:
+            continue
+        eligible.append(member)
+    return eligible
+
+
+class RouletteView(ui.View):
+    def __init__(self, cog, guild, host_id, session_key):
+        super().__init__(timeout=90)
+        self.cog = cog
+        self.guild = guild
+        self.host_id = host_id
+        self.session_key = session_key
+        self.participant_ids = {host_id}
+        self.message = None
+
+    def status_text(self):
+        mentions = [f"<@{member_id}>" for member_id in sorted(self.participant_ids)]
+        joined = "、".join(mentions) if mentions else "目前沒有人"
+        return (
+            "🎲 **俄羅斯輪盤｜隨機抽選**\n"
+            "按「加入遊戲」代表自願參加；主持人按「開始抽選」後，"
+            "系統會從參加者中隨機抽出一位，並由 Bot Timeout 60 秒。\n\n"
+            f"**目前參加者（{len(self.participant_ids)}）**：{joined}\n"
+            "至少需要 2 位參加者才能抽選。"
+        )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id != self.guild.id:
+            await interaction.response.send_message("這場遊戲不在這個伺服器。", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        self.cog.roulette_sessions.pop(self.session_key, None)
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(content="⌛ 這場俄羅斯輪盤已逾時結束。", view=self)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+
+    @ui.button(label="加入遊戲", style=discord.ButtonStyle.primary)
+    async def join_button(self, interaction: discord.Interaction, button: ui.Button):
+        member = self.guild.get_member(interaction.user.id)
+        bot_member = self.guild.me
+        if member is None or bot_member is None:
+            await interaction.response.send_message("找不到伺服器成員資料，請稍後再試。", ephemeral=True)
+            return
+        if member.bot or member.id in {self.guild.owner_id, bot_member.id}:
+            await interaction.response.send_message("這個帳號不能參加抽選。", ephemeral=True)
+            return
+        if member.top_role >= bot_member.top_role:
+            await interaction.response.send_message("Bot 無法對這個身分組階級的成員執行 Timeout，因此不能加入。", ephemeral=True)
+            return
+        if member.id in self.participant_ids:
+            await interaction.response.send_message("你已經加入這場遊戲了。", ephemeral=True)
+            return
+        self.participant_ids.add(member.id)
+        button.label = f"加入遊戲（{len(self.participant_ids)}）"
+        await interaction.response.edit_message(content=self.status_text(), view=self)
+
+    @ui.button(label="開始抽選", style=discord.ButtonStyle.danger)
+    async def draw_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.host_id:
+            await interaction.response.send_message("只有開啟這場遊戲的人可以開始抽選。", ephemeral=True)
+            return
+        bot_member = self.guild.me
+        if bot_member is None or not bot_member.guild_permissions.moderate_members:
+            await interaction.response.send_message("Bot 缺少「調節成員」權限，無法執行 60 秒 Timeout。", ephemeral=True)
+            return
+        participants = eligible_roulette_members(self.participant_ids, self.guild, bot_member)
+        if len(participants) < 2:
+            await interaction.response.send_message("至少需要 2 位仍在伺服器、且可被 Bot Timeout 的參加者。", ephemeral=True)
+            return
+
+        selected = random.choice(participants)
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.defer()
+        self.stop()
+        self.cog.roulette_sessions.pop(self.session_key, None)
+        try:
+            await selected.timeout(
+                discord.utils.utcnow() + timedelta(minutes=1),
+                reason="俄羅斯輪盤小遊戲隨機抽選（參加者自願加入）",
+            )
+        except discord.Forbidden:
+            result = f"抽中了 {selected.mention}，但 Discord 拒絕執行 Timeout；請檢查 Bot 權限與身分組階級。"
+        except discord.HTTPException:
+            result = f"抽中了 {selected.mention}，但 Discord 暫時無法執行 Timeout，請稍後再試。"
+        else:
+            result = f"🎯 抽選結果：{selected.mention}\n已依照遊戲規則 Timeout **1 分鐘**。"
+        try:
+            await interaction.message.edit(content=result, view=None)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+
+    @ui.button(label="取消遊戲", style=discord.ButtonStyle.secondary)
+    async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.host_id:
+            await interaction.response.send_message("只有開啟這場遊戲的人可以取消。", ephemeral=True)
+            return
+        self.cog.roulette_sessions.pop(self.session_key, None)
+        self.stop()
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="已取消這場俄羅斯輪盤。", view=None)
+
+
 class GameCog(commands.Cog):
     game = app_commands.Group(name=app_commands.locale_str("game", zh_TW="遊戲"), description=app_commands.locale_str("朋友群裡隨手玩的小遊戲", zh_TW="朋友群裡隨手玩的小遊戲"))
 
@@ -38,6 +160,7 @@ class GameCog(commands.Cog):
         self.wordle_sessions = {}
         self.hangman_sessions = {}
         self.answer_sessions = set()
+        self.roulette_sessions = {}
 
     def allowed(self, interaction: discord.Interaction) -> bool:
         return bool(interaction.guild)
@@ -78,6 +201,31 @@ class GameCog(commands.Cog):
     async def finish_game(self, interaction, won: bool):
         if interaction.guild:
             storage.record_game(interaction.guild.id, interaction.user.id, won=won)
+
+
+    @game.command(name=app_commands.locale_str("roulette", zh_TW="俄羅斯輪盤"), description=app_commands.locale_str("參加隨機抽選，被抽中的玩家會 Timeout 1 分鐘", zh_TW="參加隨機抽選，被抽中的玩家會 Timeout 1 分鐘"))
+    async def roulette(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        bot_member = guild.me if guild else None
+        if guild is None or bot_member is None:
+            await interaction.response.send_message("這個遊戲只能在伺服器內使用。", ephemeral=True)
+            return
+        if not bot_member.guild_permissions.moderate_members:
+            await interaction.response.send_message("Bot 缺少「調節成員」權限，無法執行 60 秒 Timeout。", ephemeral=True)
+            return
+        host = guild.get_member(interaction.user.id)
+        if host is None or host.bot or host.id == guild.owner_id or host.top_role >= bot_member.top_role:
+            await interaction.response.send_message("你目前不符合參加條件，Bot 必須能對你執行 Timeout。", ephemeral=True)
+            return
+        session_key = (guild.id, interaction.channel_id)
+        if session_key in self.roulette_sessions:
+            await interaction.response.send_message("這個頻道已經有一場俄羅斯輪盤正在進行。", ephemeral=True)
+            return
+
+        view = RouletteView(self, guild, host.id, session_key)
+        self.roulette_sessions[session_key] = view
+        await interaction.response.send_message(view.status_text(), view=view)
+        view.message = await interaction.original_response()
 
     @game.command(name="rps", description="和我猜拳，看看誰贏")
     @app_commands.describe(choice="剪刀、石頭或布")
