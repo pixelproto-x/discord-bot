@@ -13,7 +13,7 @@
 建立單選或多選投票，大家直接在面板上投票，還可以設定幾分鐘後自動結束。
 
 ## 🕹️ 小遊戲
-包含猜拳、猜數字、Trivia、21 點、高低牌、Wordle、Hangman、反應力、打字、記憶、數學，以及 Truth、Dare、二選一和 Never Have I Ever。
+包含猜拳、猜數字、Trivia、21 點、高低牌、Wordle、Hangman、反應力、打字、記憶、數學，以及 Truth、Dare、二選一、Never Have I Ever 和俄羅斯輪盤（自願加入，抽中者 Timeout 1 分鐘）。
 
 ## 🏆 排行榜／XP
 聊天、語音和遊戲會留下基本統計，讓大家慢慢升級，也可以看排行榜和成就。
