@@ -11,7 +11,6 @@ class RouletteEligibilityTests(unittest.TestCase):
         bot = SimpleNamespace(id=99, bot=True, top_role=1)
         eligible = SimpleNamespace(id=2, bot=False, top_role=3)
         too_high = SimpleNamespace(id=3, bot=False, top_role=10)
-        missing = None
         members = {1: owner, 2: eligible, 3: too_high, 99: bot}
         guild = SimpleNamespace(owner_id=1, get_member=lambda member_id: members.get(member_id))
 
