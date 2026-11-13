@@ -733,6 +733,29 @@ class MusicCog(commands.Cog):
                         raise RuntimeError("我正在其他語音頻道播放音樂，不能直接切換。")
                     await player.move_to(channel)
             else:
+                if voice_client is not None:
+                    is_connected = getattr(voice_client, "is_connected", None)
+                    connected = (
+                        bool(is_connected())
+                        if callable(is_connected)
+                        else bool(getattr(voice_client, "connected", True))
+                    )
+                    if connected:
+                        is_playing = getattr(voice_client, "is_playing", None)
+                        is_paused = getattr(voice_client, "is_paused", None)
+                        active_audio = (
+                            bool(is_playing()) if callable(is_playing) else False
+                        ) or (
+                            bool(is_paused()) if callable(is_paused) else False
+                        )
+                        if active_audio:
+                            raise RuntimeError(
+                                "目前正在播放本機語音或麥克風，結束後再選歌即可播放音樂。"
+                            )
+                    # /voice join and completed local-audio playback can leave a
+                    # regular discord.py VoiceClient attached to the guild. It
+                    # must be released before Wavelink can create its Player.
+                    await voice_client.disconnect(force=True)
                 player = await channel.connect(cls=wavelink.Player, self_deaf=False)
             if session is None:
                 # A player can outlive a cog/session rebuild. Adopt its active
