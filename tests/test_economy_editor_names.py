@@ -53,6 +53,18 @@ class DiscordDisplayNameTests(unittest.TestCase):
 
 
 
+class EconomyEditorHttpResponseTests(unittest.TestCase):
+    def test_send_json_ignores_client_disconnect(self):
+        class BrokenWriter:
+            def write(self, data):
+                raise ConnectionAbortedError("client closed the connection")
+
+        handler = editor.Handler.__new__(editor.Handler)
+        handler.wfile = BrokenWriter()
+        with patch.object(handler, "send_response"), patch.object(handler, "send_header"), patch.object(handler, "end_headers"):
+            handler.send_json(200, {"users": []})
+
+
 class EconomyEditorRequestSecurityTests(unittest.TestCase):
     def test_accepts_only_exact_loopback_editor_origin(self):
         self.assertTrue(editor._is_same_origin_post(
