@@ -35,18 +35,46 @@ def launch_freemind_ai(run_bat: Path) -> None:
     if not launcher.is_file() or launcher.suffix.casefold() != ".bat":
         raise FileNotFoundError(f"FreeMindAI launcher not found: {launcher}")
 
-    # ShellExecute via os.startfile can block the bot's startup path on some
-    # Windows setups. Use START to detach the batch process so bot.py can
-    # continue without waiting for the launcher window.
-    subprocess.Popen(
-        ["cmd.exe", "/d", "/c", "start", "", str(launcher)],
-        cwd=str(launcher.parent),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        close_fds=True,
-    )
+    # Run the batch launcher without creating a visible console window.
+    # Keep its output in a project log so updater/startup errors remain diagnosable.
+    log_dir = launcher.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "freemind-ai-launch.log"
+    with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
+        subprocess.Popen(
+            ["cmd.exe", "/d", "/c", "call", str(launcher)],
+            cwd=str(launcher.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+        )
+
+
+def launch_economy_editor(editor_script: Path, project_dir: Path) -> None:
+    """Launch the local economy editor invisibly while preserving its output in logs."""
+    if os.name != "nt":
+        raise OSError("Economy Editor background launch is only supported on Windows.")
+
+    script = editor_script.expanduser().resolve()
+    root = project_dir.expanduser().resolve()
+    if not script.is_file():
+        raise FileNotFoundError(f"Economy Editor not found: {script}")
+
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "economy-editor.log"
+    with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
+        subprocess.Popen(
+            [str(Path(os.sys.executable)), str(script)],
+            cwd=str(root),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+        )
 
 
 def _windows_process_snapshot() -> list[tuple[int, int, str, str]]:
