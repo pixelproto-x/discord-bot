@@ -45,7 +45,7 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
             ) as popen:
                 launch_economy_editor(script, root)
             args, kwargs = popen.call_args
-            self.assertEqual(args[0], [str(Path(os.sys.executable)), str(script.resolve())])
+            self.assertEqual(args[0], [os.sys.executable, str(script.resolve())])
             self.assertEqual(kwargs["cwd"], str(root.resolve()))
             self.assertIs(kwargs["stdin"], startup_services.subprocess.DEVNULL)
             self.assertIs(kwargs["stderr"], startup_services.subprocess.STDOUT)
