@@ -412,12 +412,18 @@ def _is_same_origin_post(origin: str, host: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     def send_json(self, status, value):
         data = json.dumps(value, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Browsers routinely cancel an in-flight refresh when a tab reloads
+            # or closes. The response is no longer deliverable; do not turn this
+            # normal client disconnect into a second, misleading HTTP 500 error.
+            return
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -548,10 +554,14 @@ def _close_previous_editor_window() -> None:
         "if ($closed) { Write-Output 'EDITOR_TAB_CLOSED' } else { Write-Output 'EDITOR_TAB_NOT_FOUND' }"
     ])
     try:
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-Command", script], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=12, check=False)
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-Command", script], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=4, check=False)
         if result.returncode != 0 and result.stderr:
             print(f"[economy-editor] 舊分頁清理失敗：{result.stderr.strip()[:500]}")
-    except (OSError, subprocess.SubprocessError) as exc:
+    except subprocess.TimeoutExpired:
+        # Tab cleanup is best-effort; the browser-side tab manager also handles
+        # older editor tabs after the new page loads.
+        print("[economy-editor] 舊分頁清理逾時，已略過；新版頁面仍會正常啟動。")
+    except OSError as exc:
         print(f"[economy-editor] 無法執行舊分頁清理：{type(exc).__name__}")
 
 def main():
