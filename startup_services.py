@@ -67,7 +67,7 @@ def launch_economy_editor(editor_script: Path, project_dir: Path) -> None:
     log_path = log_dir / "economy-editor.log"
     with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
         subprocess.Popen(
-            [str(Path(os.sys.executable)), str(script)],
+            [os.sys.executable, str(script)],
             cwd=str(root),
             stdin=subprocess.DEVNULL,
             stdout=log_file,
