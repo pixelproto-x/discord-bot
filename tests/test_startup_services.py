@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import startup_services
-from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_freemind_ai, stop_stale_freemind_ai_launch_windows
+from startup_services import find_freemind_ai_project, freemind_ai_launcher_running, launch_economy_editor, launch_freemind_ai, stop_stale_freemind_ai_launch_windows
 
 
 def make_project(root: Path) -> Path:
@@ -26,15 +26,33 @@ class FreeMindAILaunchCommandTests(unittest.TestCase):
                 "startup_services.subprocess.Popen"
             ) as popen:
                 launch_freemind_ai(launcher)
-            popen.assert_called_once_with(
-                ["cmd.exe", "/d", "/c", "start", "", str(launcher.resolve())],
-                cwd=str(project.resolve()),
-                stdin=startup_services.subprocess.DEVNULL,
-                stdout=startup_services.subprocess.DEVNULL,
-                stderr=startup_services.subprocess.DEVNULL,
-                creationflags=getattr(startup_services.subprocess, "CREATE_NO_WINDOW", 0),
-                close_fds=True,
-            )
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], ["cmd.exe", "/d", "/c", "call", str(launcher.resolve())])
+            self.assertEqual(kwargs["cwd"], str(project.resolve()))
+            self.assertIs(kwargs["stdin"], startup_services.subprocess.DEVNULL)
+            self.assertIs(kwargs["stderr"], startup_services.subprocess.STDOUT)
+            self.assertEqual(kwargs["creationflags"], getattr(startup_services.subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertTrue(kwargs["stdout"].name.endswith("freemind-ai-launch.log"))
+            self.assertTrue(kwargs["close_fds"])
+
+    def test_economy_editor_launch_is_hidden_and_logged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "economy_editor_names.py"
+            script.write_text("print('started')\n", encoding="utf-8")
+            with patch("startup_services.os.name", "nt"), patch(
+                "startup_services.subprocess.Popen"
+            ) as popen:
+                launch_economy_editor(script, root)
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], [str(Path(os.sys.executable)), str(script.resolve())])
+            self.assertEqual(kwargs["cwd"], str(root.resolve()))
+            self.assertIs(kwargs["stdin"], startup_services.subprocess.DEVNULL)
+            self.assertIs(kwargs["stderr"], startup_services.subprocess.STDOUT)
+            self.assertEqual(kwargs["creationflags"], getattr(startup_services.subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertTrue(kwargs["stdout"].name.endswith("economy-editor.log"))
+            self.assertTrue(kwargs["close_fds"])
+
 
     def test_process_snapshot_parses_windows_tab_separated_fields(self):
         output = "98765\t1\tcmd.exe\tC:/Users/Test/FreeMindAI-main (3)/run.bat\r\n"
