@@ -1317,6 +1317,56 @@ class MusicLoopRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
 
 
+class MusicExistingVoiceClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_idle_native_voice_client_is_released_before_music_connects(self):
+        from types import SimpleNamespace
+
+        channel = SimpleNamespace()
+        native_voice_client = SimpleNamespace(
+            is_connected=lambda: True,
+            is_playing=lambda: False,
+            is_paused=lambda: False,
+            disconnect=AsyncMock(),
+        )
+
+        class FakePlayer:
+            def __init__(self):
+                self.channel = channel
+                self.set_volume = AsyncMock()
+
+        player = FakePlayer()
+        channel.connect = AsyncMock(return_value=player)
+        guild = SimpleNamespace(id=98764, voice_client=native_voice_client)
+        cog = music.MusicCog(SimpleNamespace())
+
+        with patch.object(music.wavelink, "Player", FakePlayer):
+            session = await cog.ensure_player(guild, channel, text_channel_id=557)
+
+        native_voice_client.disconnect.assert_awaited_once_with(force=True)
+        channel.connect.assert_awaited_once_with(cls=FakePlayer, self_deaf=False)
+        self.assertIs(session.player, player)
+
+    async def test_active_native_voice_audio_is_not_interrupted_for_music(self):
+        from types import SimpleNamespace
+
+        channel = SimpleNamespace(connect=AsyncMock())
+        native_voice_client = SimpleNamespace(
+            is_connected=lambda: True,
+            is_playing=lambda: True,
+            is_paused=lambda: False,
+            disconnect=AsyncMock(),
+        )
+        guild = SimpleNamespace(id=98763, voice_client=native_voice_client)
+        cog = music.MusicCog(SimpleNamespace())
+
+        with patch.object(music.wavelink, "Player", type("FakePlayer", (), {})):
+            with self.assertRaisesRegex(RuntimeError, "本機語音或麥克風"):
+                await cog.ensure_player(guild, channel, text_channel_id=558)
+
+        native_voice_client.disconnect.assert_not_awaited()
+        channel.connect.assert_not_awaited()
+
+
 class MusicReconnectRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_replacing_disconnected_player_preserves_track_queue_and_settings(self):
         from types import SimpleNamespace
