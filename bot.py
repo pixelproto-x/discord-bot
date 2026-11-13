@@ -18,6 +18,7 @@ from startup_services import (
     find_freemind_ai_project,
     freemind_ai_launcher_running,
     launch_freemind_ai,
+    launch_economy_editor,
     stop_stale_freemind_ai_launch_windows,
 )
 
@@ -1248,8 +1249,7 @@ def _start_companion_services():
         return
 
     project_dir = Path(__file__).resolve().parent
-    create_console = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-
+ 
     # FreeMindAI is no longer an AI provider for this bot. Ollama and the
     # configured cloud providers are managed by the AI provider fallback layer.
 
@@ -1263,12 +1263,8 @@ def _start_companion_services():
             print("[錯誤] 8766 連接埠仍被占用，為避免開出重複的經濟編輯器，已取消啟動新視窗。")
         else:
             try:
-                subprocess.Popen(
-                    [sys.executable, str(economy_editor)],
-                    cwd=str(project_dir),
-                    creationflags=create_console,
-                )
-                print("[啟動] 已另開視窗啟動 Economy Editor。")
+                launch_economy_editor(economy_editor, project_dir)
+                print("[啟動] Economy Editor 已在背景啟動（輸出記錄於 logs/economy-editor.log）。")
             except OSError as exc:
                 print(f"[提示] Economy Editor 自動啟動失敗：{type(exc).__name__}。")
 
